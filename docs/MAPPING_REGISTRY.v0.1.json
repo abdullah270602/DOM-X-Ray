@@ -1,0 +1,76 @@
+{
+  "version": "mapping-v0.1.0",
+  "status": "prototype",
+  "description": "Deterministic semantic-to-scene rules for the Gate 1 fixture viewer. Raw measurements always remain available beside these derived values.",
+  "scene": {
+    "viewportPlaneWidthWorld": 12,
+    "maxSceneObjects": 650,
+    "minimumCandidateAreaCssPx2": 16,
+    "coordinateRule": {
+      "clip": "intersection-with-captured-viewport",
+      "scale": "viewportPlaneWidthWorld / viewport.width",
+      "x": "(clippedRect.x + clippedRect.width / 2 - viewport.width / 2) * scale",
+      "y": "-(clippedRect.y + clippedRect.height / 2 - viewport.height / 2) * scale",
+      "width": "clippedRect.width * scale",
+      "height": "clippedRect.height * scale"
+    }
+  },
+  "structure": {
+    "depthRule": "min(maxWorld, coefficient * log2(1 + domDepth))",
+    "coefficient": 0.42,
+    "maxWorld": 2.4,
+    "stackingContextSeamWorld": 0.08,
+    "aggregationRule": "perceptual-region-v1"
+  },
+  "weight": {
+    "massRule": "clamp(log2(1 + transferredBytes / baseBytes) / normalizer, 0, 1)",
+    "baseBytes": 1024,
+    "normalizer": 12,
+    "plateThicknessBaseWorld": 0.035,
+    "plateThicknessRangeWorld": 0.48,
+    "unknownTransferredBytesStyle": "hatched-hollow",
+    "zeroTransferredBytesStyle": "cached-hollow"
+  },
+  "party": {
+    "classificationRule": "registrable-domain-v1",
+    "groupField": "resource.registrableDomain",
+    "thirdPartyTopology": "external-domain-hub",
+    "firstPartyTopology": "within-page-plinth",
+    "hubRadiusWorld": 7.5,
+    "knownCableRule": "weight.massRule",
+    "unknownCableStyle": "dashed-hollow"
+  },
+  "heroSelection": {
+    "allowedPrimaryEvidence": ["observed", "derived"],
+    "knownByteCoverageMinimum": 0.9,
+    "dominantResourceTypeShareMinimum": 0.6,
+    "dominantResourceTypeBytesMinimum": 500000,
+    "thirdPartyRequestShareMinimum": 0.5,
+    "thirdPartyByteShareMinimum": 0.5,
+    "largestExactResourceShareMinimum": 0.35,
+    "largestExactResourceBytesMinimum": 500000,
+    "supportMetricMaximum": 3,
+    "fallback": "no-standout-capture-summary",
+    "fallbackShareEligible": false
+  },
+  "reveal": [
+    { "id": "flat", "startSeconds": 0, "endSeconds": 0.7, "meaning": "captured-page orientation" },
+    { "id": "structure", "startSeconds": 0.7, "endSeconds": 1.7, "meaning": "DOM structure separates" },
+    { "id": "weight", "startSeconds": 1.7, "endSeconds": 3.2, "meaning": "known transferred bytes acquire mass" },
+    { "id": "party", "startSeconds": 3.2, "endSeconds": 4.2, "meaning": "third-party domain hubs enter" },
+    { "id": "hero", "startSeconds": 4.2, "endSeconds": 5, "meaning": "camera locks and hero evidence appears" }
+  ],
+  "reducedMotion": {
+    "mode": "five-user-advanced-steps",
+    "cameraMotion": false,
+    "continuousGeometryMotion": false,
+    "preserves": ["stage-order", "hero-fact", "raw-evidence", "limitations"]
+  },
+  "materialRoles": {
+    "capturedPage": "warm-paper-orientation",
+    "structure": "graphite-and-translucent-drafting-film",
+    "inspection": "red-mark-with-text-or-shape-redundancy",
+    "external": "teal-off-board-machinery-with-topology-redundancy",
+    "unknown": "neutral-diagonal-hatch"
+  }
+}

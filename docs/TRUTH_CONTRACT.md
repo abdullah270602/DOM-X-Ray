@@ -149,7 +149,7 @@ The same evidence must be reachable without hover and in the non-WebGL fallback.
 4. **Math integrity:** rendered totals and hero-fact values reproduce from raw fixture values within exact integer arithmetic or a declared rounding rule.
 5. **Unknown integrity:** replacing any optional metric with `null` removes or labels the dependent effect; it never turns into zero.
 6. **Party language:** third-party fixtures never emit “tracker,” “ad,” or “surveillance” unless a separate versioned classifier supplies that categorical label and basis.
-7. **Attribution boundary:** removing an exact element link moves resource/CPU representation to page level rather than attaching it to the nearest visible node.
+7. **Attribution boundary:** removing an exact element link moves the resource representation to page level rather than attaching it to the nearest viewport-intersecting node.
 8. **Partial integrity:** every limitation that invalidates a hero candidate prevents that candidate from being selected.
 9. **Determinism:** the same schema version, mapping version, and scan record produce the same measurements, insight selection, and reveal timeline.
 10. **Claim snapshot:** automated snapshots cover every hero-fact template and its required caveat.
@@ -158,9 +158,10 @@ The same evidence must be reachable without hover and in the non-WebGL fallback.
 
 ## Open decisions before Gate 0 closes
 
-- Exact browser instrumentation and reconciliation rule when CDP and Resource Timing differ.
-- URL-redaction and immutable-record retention policies.
-- Public-suffix library and any optional tracker/category classifier.
-- Layout-shift stabilization window and treatment of recent user input.
-- Region-aggregation algorithm and the minimum evidence required to link a resource to a DOM region.
-- Versioned visual transformation formulas and hero-candidate thresholds.
+- Exact pinned Chromium, automation-library, and Public Suffix List versions after the application stack is selected.
+- HTML fixture evidence for geometry, byte accounting, redirects, cache/service-worker handling, and the declared settling window.
+- Automated private-network, redirect, DNS-rebinding, method, secret, and resource-limit tests.
+- Raw scan/screenshot retention, no-login deletion, consent, moderation, and takedown policy.
+- The 100-URL benchmark corpus, baseline laptop, scanner region, and cost ceiling used for later gates.
+
+The current answers for byte accounting, layout-shift treatment, exact element linking, aggregation, transformation formulas, and hero thresholds are recorded in the capture protocol and `mapping-v0.1.0`. Gate 1 may replace the prototype mapping under a new version; it may not silently reinterpret existing scans.

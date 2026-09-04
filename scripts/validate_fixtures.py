@@ -138,6 +138,13 @@ def validate_semantics(record: dict[str, Any], label: str, validator: Draft20201
         validate_public_url(resource["displayUrl"], f"{label} resource URL")
         validate_public_url(resource["origin"], f"{label} resource origin", origin_only=True)
         require(bool(resource["partyRule"]), f"{label} resource has no party rule: {resource['id']}")
+        registrable_domain = resource["registrableDomain"]
+        if registrable_domain is None:
+            require(resource["party"] == "unknown", f"{label} null registrable domain has known party")
+        elif registrable_domain == record["page"]["registrableDomain"]:
+            require(resource["party"] == "first", f"{label} same-site resource is not first party")
+        else:
+            require(resource["party"] == "third", f"{label} external site resource is not third party")
         if resource["transferredBytes"] is None:
             missing_byte_count += 1
         scope = resource["attributionScope"]
@@ -278,8 +285,9 @@ def main() -> None:
     expect_failure("prohibited tracker claim", clean, lambda item: item["insights"][0].update({"statement": "4 trackers in this captured load."}), validator)
     expect_failure("blocked scene", clean, lambda item: item.update({"status": "blocked", "failureCode": "blocked-by-policy"}), validator)
     expect_failure("page-level element blame", clean, lambda item: item["resources"][0].update({"attributedNodeIds": ["n-body"]}), validator)
+    expect_failure("party/domain mismatch", clean, lambda item: item["resources"][0].update({"registrableDomain": "other.example"}), validator)
 
-    print(f"Validated {len(records)} fixtures and 8 negative controls against Gate 0.")
+    print(f"Validated {len(records)} fixtures and 9 negative controls against Gate 0.")
 
 
 if __name__ == "__main__":

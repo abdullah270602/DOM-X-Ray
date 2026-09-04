@@ -328,6 +328,7 @@
         "id",
         "displayUrl",
         "origin",
+        "registrableDomain",
         "type",
         "initiatorType",
         "party",
@@ -343,6 +344,7 @@
         "id": { "type": "string", "minLength": 1 },
         "displayUrl": { "$ref": "#/$defs/httpUrl" },
         "origin": { "$ref": "#/$defs/httpOrigin" },
+        "registrableDomain": { "type": ["string", "null"] },
         "type": {
           "enum": ["document", "stylesheet", "image", "media", "font", "script", "fetch", "xhr", "other"]
         },

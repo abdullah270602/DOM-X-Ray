@@ -18,6 +18,12 @@ Gate 0 is in progress. Product truth, the gated roadmap, and the measurement-to-
 - [ROADMAP.md](ROADMAP.md) — goal gates, exit criteria, metrics, and pivot rules
 - [docs/TRUTH_CONTRACT.md](docs/TRUTH_CONTRACT.md) — what the experience may visualize and claim
 - [docs/SCAN_RECORD.schema.json](docs/SCAN_RECORD.schema.json) — technology-neutral scan record contract
+- [docs/CAPTURE_PROTOCOL.md](docs/CAPTURE_PROTOCOL.md) — fixed Chromium observation and measurement rules
+- [docs/MAPPING_REGISTRY.md](docs/MAPPING_REGISTRY.md) — semantic-to-scene mapping and reveal behavior
+- [docs/MAPPING_REGISTRY.v0.1.json](docs/MAPPING_REGISTRY.v0.1.json) — machine-readable prototype mapping
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — release-blocking public-scanner security boundary
+- [docs/TELEMETRY.md](docs/TELEMETRY.md) — product event chain, metrics, and data minimization
+- [docs/GATE_0_EVIDENCE.md](docs/GATE_0_EVIDENCE.md) — requirement-by-requirement completion evidence and remaining proof
 
 ## Gate 0 verification
 
@@ -25,9 +31,10 @@ The fixture validator is contract tooling, not a commitment to the eventual appl
 
 ```sh
 python scripts/validate_fixtures.py
+python scripts/validate_mapping.py
 ```
 
-It validates the three deterministic scan profiles against JSON Schema Draft 2020-12, then checks cross-record provenance, attribution, counts, claim wording, and negative controls that JSON Schema alone cannot express.
+The first command validates the three deterministic scan profiles against JSON Schema Draft 2020-12, then checks cross-record provenance, attribution, party/domain consistency, counts, claim wording, and negative controls that JSON Schema alone cannot express. The second checks deterministic geometry/mass rules, monotonicity, registrable-domain hub grouping, version matching, object budgets, unknown states, and the exact five-second reveal.
 
 ## Product loop
 
