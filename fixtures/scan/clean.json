@@ -1,0 +1,187 @@
+{
+  "schemaVersion": "0.1.0",
+  "mappingVersion": "mapping-v0.1.0",
+  "scanId": "fixture-clean",
+  "status": "complete",
+  "failureCode": null,
+  "requestedUrl": "https://clean.example/",
+  "finalUrl": "https://clean.example/",
+  "capturedAt": "2026-09-05T00:00:00.000Z",
+  "capture": {
+    "scannerVersion": "fixture-v0.1.0",
+    "browser": "Chromium fixture",
+    "userAgent": "DOM-X-Ray deterministic fixture",
+    "locale": "en-US",
+    "viewport": { "width": 1440, "height": 900, "deviceScaleFactor": 1 },
+    "startedAt": "2026-09-05T00:00:00.000Z",
+    "durationMs": 1200,
+    "stabilizationMs": 300,
+    "capturePointMs": 900,
+    "observationWindowMs": 1200,
+    "cachePolicy": "cold",
+    "timezone": "UTC",
+    "region": null,
+    "inspectedNodeCount": 11,
+    "renderedRegionCount": 4,
+    "aggregatedNodeCount": 7,
+    "requestCount": 4,
+    "requestsWithoutByteData": 0,
+    "transferAccountingRule": "cdp-encoded-data-length-v1",
+    "limitsReached": []
+  },
+  "page": {
+    "title": "Clean Fixture",
+    "registrableDomain": "clean.example",
+    "document": { "width": 1440, "height": 900 },
+    "rawDomNodeCount": 11,
+    "maxDomDepth": 5,
+    "screenshotStatus": "omitted",
+    "screenshotRef": null
+  },
+  "nodes": [
+    {
+      "id": "n-body",
+      "parentId": null,
+      "tag": "body",
+      "selector": "body",
+      "rect": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+      "domDepth": 1,
+      "stackingContext": { "creates": true, "rule": "document-root" },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": []
+    },
+    {
+      "id": "n-header",
+      "parentId": "n-body",
+      "tag": "header",
+      "selector": "header",
+      "rect": { "x": 96, "y": 64, "width": 1248, "height": 96 },
+      "domDepth": 2,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": ["raw-2", "raw-3", "raw-4"],
+      "aggregationRule": "semantic-region-v1",
+      "resourceIds": []
+    },
+    {
+      "id": "n-logo",
+      "parentId": "n-header",
+      "tag": "img",
+      "selector": "header > img",
+      "rect": { "x": 96, "y": 84, "width": 160, "height": 56 },
+      "domDepth": 3,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": ["r-logo"]
+    },
+    {
+      "id": "n-main",
+      "parentId": "n-body",
+      "tag": "main",
+      "selector": "main",
+      "rect": { "x": 176, "y": 224, "width": 1088, "height": 520 },
+      "domDepth": 2,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": ["raw-5", "raw-6", "raw-7", "raw-8"],
+      "aggregationRule": "semantic-region-v1",
+      "resourceIds": []
+    }
+  ],
+  "resources": [
+    {
+      "id": "r-document",
+      "displayUrl": "https://clean.example/",
+      "origin": "https://clean.example",
+      "type": "document",
+      "initiatorType": "navigation",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 12000,
+      "decodedBodyBytes": 26000,
+      "durationMs": 180,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-style",
+      "displayUrl": "https://clean.example/assets/site.css",
+      "origin": "https://clean.example",
+      "type": "stylesheet",
+      "initiatorType": "link",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 6000,
+      "decodedBodyBytes": 19000,
+      "durationMs": 90,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-font",
+      "displayUrl": "https://clean.example/assets/regular.woff2",
+      "origin": "https://clean.example",
+      "type": "font",
+      "initiatorType": "css",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 18000,
+      "decodedBodyBytes": 18000,
+      "durationMs": 110,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-logo",
+      "displayUrl": "https://clean.example/assets/logo.svg",
+      "origin": "https://clean.example",
+      "type": "image",
+      "initiatorType": "img",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 24000,
+      "decodedBodyBytes": 24000,
+      "durationMs": 85,
+      "attributionScope": "exact-resource-link",
+      "attributedNodeIds": ["n-logo"]
+    }
+  ],
+  "layoutShifts": [],
+  "insights": [
+    {
+      "id": "i-structure",
+      "kind": "structure",
+      "hero": true,
+      "statement": "11 inspected DOM nodes became 4 rendered regions in this captured load.",
+      "evidence": [
+        {
+          "role": "primary",
+          "level": "observed",
+          "attributionScope": "page-level",
+          "metric": "inspected_dom_nodes",
+          "value": 11,
+          "unit": "nodes",
+          "sourceRefs": ["#/page/rawDomNodeCount"],
+          "rule": "capture-dom-node-count-v1"
+        },
+        {
+          "role": "support",
+          "level": "derived",
+          "attributionScope": "page-level",
+          "metric": "rendered_regions",
+          "value": 4,
+          "unit": "regions",
+          "sourceRefs": ["#/capture/renderedRegionCount"],
+          "rule": "region-aggregation-v1"
+        }
+      ],
+      "selectionRule": "clean-structure-summary-v1",
+      "limitationCodes": []
+    }
+  ],
+  "limitations": []
+}

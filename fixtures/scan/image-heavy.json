@@ -1,0 +1,268 @@
+{
+  "schemaVersion": "0.1.0",
+  "mappingVersion": "mapping-v0.1.0",
+  "scanId": "fixture-image-heavy",
+  "status": "complete",
+  "failureCode": null,
+  "requestedUrl": "https://gallery.example/",
+  "finalUrl": "https://gallery.example/",
+  "capturedAt": "2026-09-05T00:00:00.000Z",
+  "capture": {
+    "scannerVersion": "fixture-v0.1.0",
+    "browser": "Chromium fixture",
+    "userAgent": "DOM-X-Ray deterministic fixture",
+    "locale": "en-US",
+    "viewport": { "width": 1440, "height": 900, "deviceScaleFactor": 1 },
+    "startedAt": "2026-09-05T00:00:00.000Z",
+    "durationMs": 2400,
+    "stabilizationMs": 500,
+    "capturePointMs": 1900,
+    "observationWindowMs": 2400,
+    "cachePolicy": "cold",
+    "timezone": "UTC",
+    "region": null,
+    "inspectedNodeCount": 8,
+    "renderedRegionCount": 6,
+    "aggregatedNodeCount": 2,
+    "requestCount": 7,
+    "requestsWithoutByteData": 0,
+    "transferAccountingRule": "cdp-encoded-data-length-v1",
+    "limitsReached": []
+  },
+  "page": {
+    "title": "Image-heavy Fixture",
+    "registrableDomain": "gallery.example",
+    "document": { "width": 1440, "height": 1680 },
+    "rawDomNodeCount": 8,
+    "maxDomDepth": 4,
+    "screenshotStatus": "omitted",
+    "screenshotRef": null
+  },
+  "nodes": [
+    {
+      "id": "n-body",
+      "parentId": null,
+      "tag": "body",
+      "selector": "body",
+      "rect": { "x": 0, "y": 0, "width": 1440, "height": 1680 },
+      "domDepth": 1,
+      "stackingContext": { "creates": true, "rule": "document-root" },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": []
+    },
+    {
+      "id": "n-header",
+      "parentId": "n-body",
+      "tag": "header",
+      "selector": "header",
+      "rect": { "x": 72, "y": 48, "width": 1296, "height": 72 },
+      "domDepth": 2,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": []
+    },
+    {
+      "id": "n-hero",
+      "parentId": "n-body",
+      "tag": "img",
+      "selector": "main > img.hero",
+      "rect": { "x": 72, "y": 168, "width": 1296, "height": 648 },
+      "domDepth": 3,
+      "stackingContext": { "creates": true, "rule": "transform" },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": ["r-hero"]
+    },
+    {
+      "id": "n-gallery",
+      "parentId": "n-body",
+      "tag": "section",
+      "selector": "section.gallery",
+      "rect": { "x": 72, "y": 864, "width": 1296, "height": 520 },
+      "domDepth": 3,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": ["raw-card-1", "raw-card-2"],
+      "aggregationRule": "grid-region-v1",
+      "resourceIds": ["r-gallery", "r-thumbnail"]
+    },
+    {
+      "id": "n-caption",
+      "parentId": "n-gallery",
+      "tag": "p",
+      "selector": "section.gallery > p.caption",
+      "rect": { "x": 88, "y": 1392, "width": 640, "height": 48 },
+      "domDepth": 4,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": []
+    },
+    {
+      "id": "n-footer",
+      "parentId": "n-body",
+      "tag": "footer",
+      "selector": "footer",
+      "rect": { "x": 72, "y": 1512, "width": 1296, "height": 96 },
+      "domDepth": 2,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": []
+    }
+  ],
+  "resources": [
+    {
+      "id": "r-document",
+      "displayUrl": "https://gallery.example/",
+      "origin": "https://gallery.example",
+      "type": "document",
+      "initiatorType": "navigation",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 48000,
+      "decodedBodyBytes": 94000,
+      "durationMs": 210,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-style",
+      "displayUrl": "https://gallery.example/assets/gallery.css",
+      "origin": "https://gallery.example",
+      "type": "stylesheet",
+      "initiatorType": "link",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 22000,
+      "decodedBodyBytes": 76000,
+      "durationMs": 95,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-app",
+      "displayUrl": "https://gallery.example/assets/app.js",
+      "origin": "https://gallery.example",
+      "type": "script",
+      "initiatorType": "script",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 430000,
+      "decodedBodyBytes": 1280000,
+      "durationMs": 320,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-hero",
+      "displayUrl": "https://gallery.example/media/hero.avif",
+      "origin": "https://gallery.example",
+      "type": "image",
+      "initiatorType": "img",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 2400000,
+      "decodedBodyBytes": 12441600,
+      "durationMs": 780,
+      "attributionScope": "exact-resource-link",
+      "attributedNodeIds": ["n-hero"]
+    },
+    {
+      "id": "r-gallery",
+      "displayUrl": "https://gallery.example/media/gallery-01.webp",
+      "origin": "https://gallery.example",
+      "type": "image",
+      "initiatorType": "img",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 1650000,
+      "decodedBodyBytes": 8294400,
+      "durationMs": 630,
+      "attributionScope": "exact-resource-link",
+      "attributedNodeIds": ["n-gallery"]
+    },
+    {
+      "id": "r-thumbnail",
+      "displayUrl": "https://gallery.example/media/thumb-02.webp",
+      "origin": "https://gallery.example",
+      "type": "image",
+      "initiatorType": "img",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 500000,
+      "decodedBodyBytes": 2073600,
+      "durationMs": 290,
+      "attributionScope": "exact-resource-link",
+      "attributedNodeIds": ["n-gallery"]
+    },
+    {
+      "id": "r-font",
+      "displayUrl": "https://gallery.example/assets/display.woff2",
+      "origin": "https://gallery.example",
+      "type": "font",
+      "initiatorType": "css",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 150000,
+      "decodedBodyBytes": 150000,
+      "durationMs": null,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    }
+  ],
+  "layoutShifts": [
+    {
+      "id": "ls-hero",
+      "timestampMs": 640,
+      "value": 0.031,
+      "hadRecentInput": false,
+      "sources": [
+        {
+          "nodeId": "n-hero",
+          "previousRect": { "x": 72, "y": 144, "width": 1296, "height": 648 },
+          "currentRect": { "x": 72, "y": 168, "width": 1296, "height": 648 }
+        }
+      ]
+    }
+  ],
+  "insights": [
+    {
+      "id": "i-image-share",
+      "kind": "weight",
+      "hero": true,
+      "statement": "Images accounted for 87.5% of the 5.2 MB transferred in this captured load.",
+      "evidence": [
+        {
+          "role": "primary",
+          "level": "derived",
+          "attributionScope": "page-level",
+          "metric": "image_transfer_share",
+          "value": 87.5,
+          "unit": "percent",
+          "sourceRefs": [
+            "#/resources/0/transferredBytes",
+            "#/resources/1/transferredBytes",
+            "#/resources/2/transferredBytes",
+            "#/resources/3/transferredBytes",
+            "#/resources/4/transferredBytes",
+            "#/resources/5/transferredBytes",
+            "#/resources/6/transferredBytes"
+          ],
+          "rule": "round(imageBytes * 1000 / totalBytes) / 10"
+        }
+      ],
+      "selectionRule": "dominant-resource-type-over-70pct-v1",
+      "limitationCodes": []
+    }
+  ],
+  "limitations": []
+}

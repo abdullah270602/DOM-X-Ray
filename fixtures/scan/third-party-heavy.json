@@ -1,0 +1,310 @@
+{
+  "schemaVersion": "0.1.0",
+  "mappingVersion": "mapping-v0.1.0",
+  "scanId": "fixture-third-party-heavy",
+  "status": "partial",
+  "failureCode": "measurement-unavailable",
+  "requestedUrl": "https://newsroom.example/",
+  "finalUrl": "https://newsroom.example/",
+  "capturedAt": "2026-09-05T00:00:00.000Z",
+  "capture": {
+    "scannerVersion": "fixture-v0.1.0",
+    "browser": "Chromium fixture",
+    "userAgent": "DOM-X-Ray deterministic fixture",
+    "locale": "en-US",
+    "viewport": { "width": 1440, "height": 900, "deviceScaleFactor": 1 },
+    "startedAt": "2026-09-05T00:00:00.000Z",
+    "durationMs": 3100,
+    "stabilizationMs": 600,
+    "capturePointMs": 2500,
+    "observationWindowMs": 3100,
+    "cachePolicy": "cold",
+    "timezone": "UTC",
+    "region": null,
+    "inspectedNodeCount": 7,
+    "renderedRegionCount": 7,
+    "aggregatedNodeCount": 0,
+    "requestCount": 8,
+    "requestsWithoutByteData": 1,
+    "transferAccountingRule": "cdp-encoded-data-length-v1",
+    "limitsReached": []
+  },
+  "page": {
+    "title": "Third-party-heavy Fixture",
+    "registrableDomain": "newsroom.example",
+    "document": { "width": 1440, "height": 1520 },
+    "rawDomNodeCount": 7,
+    "maxDomDepth": 4,
+    "screenshotStatus": "omitted",
+    "screenshotRef": null
+  },
+  "nodes": [
+    {
+      "id": "n-body",
+      "parentId": null,
+      "tag": "body",
+      "selector": "body",
+      "rect": { "x": 0, "y": 0, "width": 1440, "height": 1520 },
+      "domDepth": 1,
+      "stackingContext": { "creates": true, "rule": "document-root" },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": []
+    },
+    {
+      "id": "n-header",
+      "parentId": "n-body",
+      "tag": "header",
+      "selector": "header",
+      "rect": { "x": 96, "y": 48, "width": 1248, "height": 80 },
+      "domDepth": 2,
+      "stackingContext": { "creates": true, "rule": "positioned-z-index" },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": []
+    },
+    {
+      "id": "n-article",
+      "parentId": "n-body",
+      "tag": "article",
+      "selector": "main > article",
+      "rect": { "x": 232, "y": 184, "width": 816, "height": 960 },
+      "domDepth": 2,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": ["r-lead"]
+    },
+    {
+      "id": "n-author",
+      "parentId": "n-article",
+      "tag": "aside",
+      "selector": "article > aside.author",
+      "rect": { "x": 232, "y": 232, "width": 816, "height": 56 },
+      "domDepth": 3,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": []
+    },
+    {
+      "id": "n-share",
+      "parentId": "n-article",
+      "tag": "nav",
+      "selector": "article > nav.share",
+      "rect": { "x": 1080, "y": 312, "width": 96, "height": 240 },
+      "domDepth": 3,
+      "stackingContext": { "creates": true, "rule": "positioned-z-index" },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": []
+    },
+    {
+      "id": "n-comments",
+      "parentId": "n-body",
+      "tag": "section",
+      "selector": "section.comments",
+      "rect": { "x": 232, "y": 1200, "width": 816, "height": 224 },
+      "domDepth": 2,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": ["r-comments-api"]
+    },
+    {
+      "id": "n-footer",
+      "parentId": "n-body",
+      "tag": "footer",
+      "selector": "footer",
+      "rect": { "x": 96, "y": 1456, "width": 1248, "height": 64 },
+      "domDepth": 2,
+      "stackingContext": { "creates": false, "rule": null },
+      "memberNodeIds": [],
+      "aggregationRule": null,
+      "resourceIds": []
+    }
+  ],
+  "resources": [
+    {
+      "id": "r-document",
+      "displayUrl": "https://newsroom.example/",
+      "origin": "https://newsroom.example",
+      "type": "document",
+      "initiatorType": "navigation",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 52000,
+      "decodedBodyBytes": 118000,
+      "durationMs": 205,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-style",
+      "displayUrl": "https://newsroom.example/assets/news.css",
+      "origin": "https://newsroom.example",
+      "type": "stylesheet",
+      "initiatorType": "link",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 36000,
+      "decodedBodyBytes": 120000,
+      "durationMs": 84,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-app",
+      "displayUrl": "https://newsroom.example/assets/news.js",
+      "origin": "https://newsroom.example",
+      "type": "script",
+      "initiatorType": "script",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 220000,
+      "decodedBodyBytes": 710000,
+      "durationMs": 260,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-lead",
+      "displayUrl": "https://newsroom.example/media/lead.webp",
+      "origin": "https://newsroom.example",
+      "type": "image",
+      "initiatorType": "img",
+      "party": "first",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 310000,
+      "decodedBodyBytes": 1920000,
+      "durationMs": 330,
+      "attributionScope": "exact-resource-link",
+      "attributedNodeIds": ["n-article"]
+    },
+    {
+      "id": "r-metrics",
+      "displayUrl": "https://metrics.vendor.example/collect.js",
+      "origin": "https://metrics.vendor.example",
+      "type": "script",
+      "initiatorType": "script",
+      "party": "third",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "unknown",
+      "transferredBytes": null,
+      "decodedBodyBytes": null,
+      "durationMs": 120,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-font",
+      "displayUrl": "https://fonts.cdn.example/inter.woff2",
+      "origin": "https://fonts.cdn.example",
+      "type": "font",
+      "initiatorType": "css",
+      "party": "third",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 180000,
+      "decodedBodyBytes": 180000,
+      "durationMs": 140,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-comments-script",
+      "displayUrl": "https://comments.service.example/embed.js",
+      "origin": "https://comments.service.example",
+      "type": "script",
+      "initiatorType": "script",
+      "party": "third",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 210000,
+      "decodedBodyBytes": 660000,
+      "durationMs": 245,
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
+    },
+    {
+      "id": "r-comments-api",
+      "displayUrl": "https://api.comments.service.example/thread",
+      "origin": "https://api.comments.service.example",
+      "type": "fetch",
+      "initiatorType": "fetch",
+      "party": "third",
+      "partyRule": "registrable-domain-v1",
+      "transferSource": "network",
+      "transferredBytes": 62000,
+      "decodedBodyBytes": 174000,
+      "durationMs": 175,
+      "attributionScope": "probable-link",
+      "attributedNodeIds": ["n-comments"]
+    }
+  ],
+  "layoutShifts": [
+    {
+      "id": "ls-share-after-input",
+      "timestampMs": 1800,
+      "value": 0.014,
+      "hadRecentInput": true,
+      "sources": [
+        {
+          "nodeId": "n-share",
+          "previousRect": { "x": 1080, "y": 296, "width": 96, "height": 240 },
+          "currentRect": { "x": 1080, "y": 312, "width": 96, "height": 240 }
+        }
+      ]
+    }
+  ],
+  "insights": [
+    {
+      "id": "i-third-party-requests",
+      "kind": "third-party",
+      "hero": true,
+      "statement": "4 of 8 requests used domains different from newsroom.example in this captured load.",
+      "evidence": [
+        {
+          "role": "primary",
+          "level": "derived",
+          "attributionScope": "page-level",
+          "metric": "third_party_requests",
+          "value": 4,
+          "unit": "requests",
+          "sourceRefs": [
+            "#/resources/4/party",
+            "#/resources/5/party",
+            "#/resources/6/party",
+            "#/resources/7/party"
+          ],
+          "rule": "registrable-domain-v1"
+        },
+        {
+          "role": "support",
+          "level": "observed",
+          "attributionScope": "page-level",
+          "metric": "observed_requests",
+          "value": 8,
+          "unit": "requests",
+          "sourceRefs": ["#/capture/requestCount"],
+          "rule": "capture-request-count-v1"
+        }
+      ],
+      "selectionRule": "third-party-request-share-over-40pct-v1",
+      "limitationCodes": ["resource-bytes-unavailable"]
+    }
+  ],
+  "limitations": [
+    {
+      "code": "resource-bytes-unavailable",
+      "scope": "resource",
+      "targetId": "r-metrics",
+      "message": "Transfer bytes were unavailable for one third-party response; byte-share insights are suppressed.",
+      "invalidatesMetrics": ["total_transferred_bytes", "third_party_transferred_bytes"]
+    }
+  ]
+}

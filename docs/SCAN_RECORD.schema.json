@@ -1,0 +1,517 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dom-x-ray.invalid/schema/scan-record-v0.1.json",
+  "title": "DOM X-Ray Scan Record",
+  "description": "Technology-neutral, immutable evidence record for one bounded public-page capture.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "mappingVersion",
+    "scanId",
+    "status",
+    "failureCode",
+    "requestedUrl",
+    "finalUrl",
+    "capturedAt",
+    "capture",
+    "page",
+    "nodes",
+    "resources",
+    "layoutShifts",
+    "insights",
+    "limitations"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "0.1.0" },
+    "mappingVersion": { "type": "string", "minLength": 1 },
+    "scanId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["complete", "partial", "interstitial", "blocked", "failed"] },
+    "failureCode": {
+      "anyOf": [
+        {
+          "enum": [
+            "invalid-target",
+            "blocked-by-policy",
+            "timeout",
+            "resource-limit",
+            "measurement-unavailable",
+            "capture-error",
+            "unsupported-page",
+            "interstitial"
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "requestedUrl": { "$ref": "#/$defs/httpUrl" },
+    "finalUrl": {
+      "anyOf": [
+        { "$ref": "#/$defs/httpUrl" },
+        { "type": "null" }
+      ]
+    },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "capture": { "$ref": "#/$defs/capture" },
+    "page": { "$ref": "#/$defs/page" },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "resources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resource" }
+    },
+    "layoutShifts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/layoutShift" }
+    },
+    "insights": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/insight" },
+      "maxItems": 4,
+      "contains": {
+        "type": "object",
+        "required": ["hero"],
+        "properties": { "hero": { "const": true } }
+      },
+      "minContains": 0,
+      "maxContains": 1
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/limitation" },
+      "uniqueItems": true
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "complete" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "failureCode": { "type": "null" },
+          "finalUrl": { "$ref": "#/$defs/httpUrl" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "partial" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "failureCode": { "type": "string" },
+          "finalUrl": { "$ref": "#/$defs/httpUrl" },
+          "limitations": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "enum": ["blocked", "failed"] } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "failureCode": { "type": "string" },
+          "nodes": { "maxItems": 0 },
+          "insights": { "maxItems": 0 },
+          "limitations": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "interstitial" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "failureCode": { "const": "interstitial" },
+          "finalUrl": { "$ref": "#/$defs/httpUrl" },
+          "insights": { "maxItems": 0 },
+          "limitations": { "minItems": 1 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "httpUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://[^/?#@]+(?::[0-9]+)?(?:/[^?#]*)?$",
+      "maxLength": 4096
+    },
+    "httpOrigin": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://[^/?#@]+(?::[0-9]+)?$",
+      "maxLength": 2048
+    },
+    "nullableNonNegativeNumber": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "minimum": 0 },
+        "height": { "type": "number", "minimum": 0 }
+      }
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scannerVersion",
+        "browser",
+        "userAgent",
+        "locale",
+        "viewport",
+        "startedAt",
+        "durationMs",
+        "stabilizationMs",
+        "capturePointMs",
+        "observationWindowMs",
+        "cachePolicy",
+        "timezone",
+        "region",
+        "inspectedNodeCount",
+        "renderedRegionCount",
+        "aggregatedNodeCount",
+        "requestCount",
+        "requestsWithoutByteData",
+        "transferAccountingRule",
+        "limitsReached"
+      ],
+      "properties": {
+        "scannerVersion": { "type": "string", "minLength": 1 },
+        "browser": { "type": "string", "minLength": 1 },
+        "userAgent": { "type": "string", "minLength": 1 },
+        "locale": { "type": "string", "minLength": 2 },
+        "viewport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height", "deviceScaleFactor"],
+          "properties": {
+            "width": { "type": "integer", "minimum": 1 },
+            "height": { "type": "integer", "minimum": 1 },
+            "deviceScaleFactor": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "durationMs": { "type": "number", "minimum": 0 },
+        "stabilizationMs": { "type": "number", "minimum": 0 },
+        "capturePointMs": { "type": "number", "minimum": 0 },
+        "observationWindowMs": { "type": "number", "minimum": 0 },
+        "cachePolicy": { "enum": ["cold", "warm", "mixed", "unknown"] },
+        "timezone": { "type": "string", "minLength": 1 },
+        "region": { "type": ["string", "null"] },
+        "inspectedNodeCount": { "type": "integer", "minimum": 0 },
+        "renderedRegionCount": { "type": "integer", "minimum": 0 },
+        "aggregatedNodeCount": { "type": "integer", "minimum": 0 },
+        "requestCount": { "type": "integer", "minimum": 0 },
+        "requestsWithoutByteData": { "type": "integer", "minimum": 0 },
+        "transferAccountingRule": { "type": "string", "minLength": 1 },
+        "limitsReached": {
+          "type": "array",
+          "items": {
+            "enum": ["time", "requests", "bytes", "redirects", "dom-nodes", "regions", "browser-processes"]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "registrableDomain",
+        "document",
+        "rawDomNodeCount",
+        "maxDomDepth",
+        "screenshotStatus",
+        "screenshotRef"
+      ],
+      "properties": {
+        "title": { "type": "string" },
+        "registrableDomain": { "type": "string", "minLength": 1 },
+        "document": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "number", "minimum": 0 },
+            "height": { "type": "number", "minimum": 0 }
+          }
+        },
+        "rawDomNodeCount": { "type": "integer", "minimum": 0 },
+        "maxDomDepth": { "type": "integer", "minimum": 0 },
+        "screenshotStatus": { "enum": ["captured", "unavailable", "omitted"] },
+        "screenshotRef": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "screenshotStatus": { "const": "captured" } },
+            "required": ["screenshotStatus"]
+          },
+          "then": { "properties": { "screenshotRef": { "type": "string", "minLength": 1 } } }
+        },
+        {
+          "if": {
+            "properties": { "screenshotStatus": { "enum": ["unavailable", "omitted"] } },
+            "required": ["screenshotStatus"]
+          },
+          "then": { "properties": { "screenshotRef": { "type": "null" } } }
+        }
+      ]
+    },
+    "stackingContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["creates", "rule"],
+      "properties": {
+        "creates": { "type": "boolean" },
+        "rule": { "type": ["string", "null"] }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "parentId",
+        "tag",
+        "selector",
+        "rect",
+        "domDepth",
+        "stackingContext",
+        "memberNodeIds",
+        "resourceIds"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "parentId": { "type": ["string", "null"] },
+        "tag": { "type": "string", "minLength": 1 },
+        "selector": { "type": ["string", "null"] },
+        "rect": { "$ref": "#/$defs/rect" },
+        "domDepth": { "type": "integer", "minimum": 0 },
+        "stackingContext": { "$ref": "#/$defs/stackingContext" },
+        "memberNodeIds": {
+          "description": "Raw node IDs represented by this node/region. Empty for an unaggregated raw node.",
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "aggregationRule": { "type": ["string", "null"] },
+        "resourceIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "memberNodeIds": { "minItems": 1 } }, "required": ["memberNodeIds"] },
+          "then": {
+            "required": ["aggregationRule"],
+            "properties": { "aggregationRule": { "type": "string", "minLength": 1 } }
+          }
+        }
+      ]
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayUrl",
+        "origin",
+        "type",
+        "initiatorType",
+        "party",
+        "partyRule",
+        "transferSource",
+        "transferredBytes",
+        "decodedBodyBytes",
+        "durationMs",
+        "attributionScope",
+        "attributedNodeIds"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "displayUrl": { "$ref": "#/$defs/httpUrl" },
+        "origin": { "$ref": "#/$defs/httpOrigin" },
+        "type": {
+          "enum": ["document", "stylesheet", "image", "media", "font", "script", "fetch", "xhr", "other"]
+        },
+        "initiatorType": { "type": ["string", "null"] },
+        "party": { "enum": ["first", "third", "unknown"] },
+        "partyRule": { "type": "string", "minLength": 1 },
+        "transferSource": { "enum": ["network", "cache", "service-worker", "unknown"] },
+        "transferredBytes": { "$ref": "#/$defs/nullableNonNegativeNumber" },
+        "decodedBodyBytes": { "$ref": "#/$defs/nullableNonNegativeNumber" },
+        "durationMs": { "$ref": "#/$defs/nullableNonNegativeNumber" },
+        "attributionScope": {
+          "enum": ["exact-element", "exact-resource-link", "probable-link", "page-level", "unknown"]
+        },
+        "attributedNodeIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "attributionScope": { "enum": ["exact-element", "exact-resource-link"] }
+            },
+            "required": ["attributionScope"]
+          },
+          "then": { "properties": { "attributedNodeIds": { "minItems": 1 } } }
+        },
+        {
+          "if": {
+            "properties": { "attributionScope": { "enum": ["page-level", "unknown"] } },
+            "required": ["attributionScope"]
+          },
+          "then": { "properties": { "attributedNodeIds": { "maxItems": 0 } } }
+        }
+      ]
+    },
+    "layoutShiftSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "previousRect", "currentRect"],
+      "properties": {
+        "nodeId": { "type": ["string", "null"] },
+        "previousRect": { "$ref": "#/$defs/rect" },
+        "currentRect": { "$ref": "#/$defs/rect" }
+      }
+    },
+    "layoutShift": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "timestampMs", "value", "hadRecentInput", "sources"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "timestampMs": { "type": "number", "minimum": 0 },
+        "value": { "type": "number", "minimum": 0 },
+        "hadRecentInput": { "type": "boolean" },
+        "sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/layoutShiftSource" }
+        }
+      }
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "level", "attributionScope", "metric", "value", "unit", "sourceRefs", "rule"],
+      "properties": {
+        "role": { "enum": ["primary", "support"] },
+        "level": { "enum": ["observed", "derived", "classified"] },
+        "attributionScope": {
+          "enum": ["exact-element", "exact-resource-link", "probable-link", "page-level", "unknown"]
+        },
+        "metric": { "type": "string", "minLength": 1 },
+        "value": { "type": ["number", "string", "boolean"] },
+        "unit": { "type": "string", "minLength": 1 },
+        "sourceRefs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "rule": { "type": "string", "minLength": 1 },
+        "classifier": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version", "basis", "confidence"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "basis": { "type": "string", "minLength": 1 },
+            "confidence": { "enum": ["low", "medium", "high"] }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "level": { "const": "classified" } }, "required": ["level"] },
+          "then": { "required": ["classifier"] }
+        }
+      ]
+    },
+    "insight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "hero", "statement", "evidence", "selectionRule", "limitationCodes"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["structure", "weight", "third-party", "layout-shift"] },
+        "hero": { "type": "boolean" },
+        "statement": { "type": "string", "minLength": 1 },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidenceRef" },
+          "minItems": 1,
+          "maxItems": 4,
+          "contains": {
+            "type": "object",
+            "required": ["role"],
+            "properties": { "role": { "const": "primary" } }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        "selectionRule": { "type": "string", "minLength": 1 },
+        "limitationCodes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "hero": { "const": true } }, "required": ["hero"] },
+          "then": {
+            "properties": {
+              "evidence": {
+                "contains": {
+                  "type": "object",
+                  "required": ["role", "level", "value"],
+                  "properties": {
+                    "role": { "const": "primary" },
+                    "level": { "enum": ["observed", "derived"] },
+                    "value": { "type": "number" }
+                  }
+                },
+                "minContains": 1,
+                "maxContains": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "limitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "scope", "message", "invalidatesMetrics"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "scope": { "enum": ["scan", "page", "node", "resource", "layout-shift", "insight"] },
+        "targetId": { "type": ["string", "null"] },
+        "message": { "type": "string", "minLength": 1 },
+        "invalidatesMetrics": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

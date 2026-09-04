@@ -1,0 +1,38 @@
+# DOM X-Ray
+
+DOM X-Ray is a public, no-login website-exploration toy. A visitor pastes a public URL and receives a cinematic 3D cutaway whose geometry and motion are derived from real page-load measurements, then shares one precise, surprising finding.
+
+## North star
+
+> Paste a public URL → receive a beautiful, truthful 3D X-ray and visible hero fact at p90 within 20 seconds for supported successful scans → export one fact worth sharing.
+
+The first release is deliberately not a full developer dashboard, a Lighthouse replacement, or a generic website roast. The spectacle earns attention; inspectable evidence earns trust.
+
+## Current status
+
+Gate 0 is in progress. Product truth, the gated roadmap, and the measurement-to-visual contract are now documented. The implementation stack and deployment target remain open decisions, so no application scaffold has been selected yet.
+
+## Project documents
+
+- [PRODUCT.md](PRODUCT.md) — durable product truth and open decisions
+- [ROADMAP.md](ROADMAP.md) — goal gates, exit criteria, metrics, and pivot rules
+- [docs/TRUTH_CONTRACT.md](docs/TRUTH_CONTRACT.md) — what the experience may visualize and claim
+- [docs/SCAN_RECORD.schema.json](docs/SCAN_RECORD.schema.json) — technology-neutral scan record contract
+
+## Gate 0 verification
+
+The fixture validator is contract tooling, not a commitment to the eventual application stack. With Python and `jsonschema` available, run:
+
+```sh
+python scripts/validate_fixtures.py
+```
+
+It validates the three deterministic scan profiles against JSON Schema Draft 2020-12, then checks cross-record provenance, attribution, counts, claim wording, and negative controls that JSON Schema alone cannot express.
+
+## Product loop
+
+1. Paste one public desktop URL.
+2. Watch a five-second causal reveal: page → structure → weight → external machinery → hero fact.
+3. Orbit, isolate, and inspect the source measurement behind any dramatic object.
+4. Export a compact poster or video and a stable result link.
+5. A viewer of that result can immediately scan another URL.
