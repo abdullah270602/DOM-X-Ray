@@ -44,6 +44,7 @@ INIT_SCRIPT = r"""
     layoutShiftSupported: false,
     mutationObserverReady: false,
     shifts: [],
+    shiftNodeRefs: [],
   };
   Object.defineProperty(window, '__domXRayProbe', { value: state });
 
@@ -55,13 +56,16 @@ INIT_SCRIPT = r"""
           timestampMs: entry.startTime,
           value: entry.value,
           hadRecentInput: entry.hadRecentInput,
-          sources: (entry.sources || []).slice(0, 12).map(source => ({
-            nodeId: source.node && source.node.closest
-              ? source.node.closest('[data-xray-id]')?.dataset.xrayId || null
-              : null,
-            previousRect: rect(source.previousRect),
-            currentRect: rect(source.currentRect),
-          })),
+          sources: (entry.sources || []).slice(0, 12).map(source => {
+            const nodeRef = source.node && source.node.nodeType === Node.ELEMENT_NODE
+              ? state.shiftNodeRefs.push(source.node) - 1
+              : null;
+            return {
+              nodeRef,
+              previousRect: rect(source.previousRect),
+              currentRect: rect(source.currentRect),
+            };
+          }),
         });
       }
     });
@@ -99,6 +103,7 @@ class ProbeResult:
     record: dict[str, Any]
     blocked_requests: list[dict[str, str]]
     layout_shift_supported: bool
+    fixture_node_ids: dict[str, str]
 
 
 def registrable_domain_for_fixture(hostname: str | None) -> str | None:
@@ -135,6 +140,20 @@ def _redacted_url(url: str) -> str:
         hostname = f"[{hostname}]"
     port = f":{parsed.port}" if parsed.port else ""
     return urlunsplit((parsed.scheme, f"{hostname}{port}", parsed.path or "/", "", ""))
+
+
+def _match_url(url: str) -> str:
+    """Canonical in-memory URL key; query participates and is never published."""
+
+    parsed = urlsplit(url)
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    if ":" in hostname:
+        hostname = f"[{hostname}]"
+    default_port = 80 if parsed.scheme.lower() == "http" else 443
+    port = f":{parsed.port}" if parsed.port and parsed.port != default_port else ""
+    return urlunsplit(
+        (parsed.scheme.lower(), f"{hostname}{port}", parsed.path or "/", parsed.query, "")
+    )
 
 
 def _resource_type(cdp_type: str | None) -> str:
@@ -316,19 +335,91 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                 if (style.isolation === 'isolate') return 'isolation';
                 return null;
               };
-              const nodes = [...document.querySelectorAll('[data-xray-id]')].map(element => {
+              const allElements = [...document.querySelectorAll('*')];
+              const nonvisual = new Set([
+                'head', 'meta', 'link', 'title', 'base', 'script', 'style', 'noscript', 'template'
+              ]);
+              const safeToken = token => /^[a-zA-Z][a-zA-Z0-9_-]{0,31}$/.test(token);
+              const redactToken = token => {
+                if (!safeToken(token) || token.length > 18) return 'xray-redacted';
+                const diversity = new Set(token.toLowerCase()).size / token.length;
+                if (token.length >= 13 && diversity >= 0.75 && /[a-z]/i.test(token) && /[0-9]/.test(token)) {
+                  return 'xray-redacted';
+                }
+                return CSS.escape(token);
+              };
+              const selectorFor = element => {
+                let selector = element.tagName.toLowerCase();
+                if (element.id) selector += `#${redactToken(element.id)}`;
+                const classes = [...element.classList].slice(0, 2).map(redactToken);
+                if (classes.length) selector += classes.map(value => `.${value}`).join('');
+                return selector.slice(0, 96);
+              };
+              const exactResourceUrls = element => {
+                const result = new Set();
+                const add = value => {
+                  if (!value) return;
+                  try {
+                    const resolved = new URL(value, document.baseURI);
+                    if (['http:', 'https:'].includes(resolved.protocol)) result.add(resolved.href);
+                  } catch (_) {}
+                };
+                if (element instanceof HTMLImageElement) add(element.currentSrc || element.src);
+                if (element instanceof HTMLVideoElement) {
+                  add(element.currentSrc || element.src);
+                  add(element.poster);
+                }
+                if (element instanceof HTMLAudioElement) add(element.currentSrc || element.src);
+                if (element instanceof HTMLIFrameElement) add(element.src);
+                if (element instanceof HTMLSourceElement) add(element.src);
+                if (element instanceof HTMLInputElement && element.type === 'image') add(element.src);
+                const style = getComputedStyle(element);
+                for (const property of ['backgroundImage', 'borderImageSource', 'maskImage', 'listStyleImage']) {
+                  for (const match of style[property].matchAll(/url\((?:"([^"]+)"|'([^']+)'|([^)]*))\)/g)) {
+                    add((match[1] || match[2] || match[3] || '').trim());
+                  }
+                }
+                return [...result];
+              };
+              const candidates = [];
+              for (let index = 0; index < allElements.length; index += 1) {
+                const element = allElements[index];
+                const tag = element.tagName.toLowerCase();
+                if (nonvisual.has(tag)) continue;
                 const box = element.getBoundingClientRect();
-                const parent = element.parentElement?.closest('[data-xray-id]');
+                const clippedWidth = Math.max(0, Math.min(box.right, innerWidth) - Math.max(box.left, 0));
+                const clippedHeight = Math.max(0, Math.min(box.bottom, innerHeight) - Math.max(box.top, 0));
+                if (clippedWidth * clippedHeight < 16) continue;
+                const style = getComputedStyle(element);
+                if (style.display === 'none') continue;
+                if (['hidden', 'collapse'].includes(style.visibility)) continue;
+                if (Number(style.opacity) <= 0.01) continue;
+                candidates.push({
+                  element,
+                  index,
+                  id: `n-${String(index + 1).padStart(5, '0')}`,
+                  box,
+                  stackingRule: stackingRule(element),
+                  exactResourceUrls: exactResourceUrls(element),
+                });
+              }
+              const candidateIds = new Map(candidates.map(item => [item.element, item.id]));
+              const nodes = candidates.map(item => {
+                const { element, box } = item;
+                let parent = element.parentElement;
+                while (parent && !candidateIds.has(parent)) parent = parent.parentElement;
                 let depth = 0;
                 for (let current = element.parentElement; current; current = current.parentElement) depth += 1;
                 return {
-                  id: element.dataset.xrayId,
-                  parentId: parent?.dataset.xrayId || null,
+                  id: item.id,
+                  parentId: parent ? candidateIds.get(parent) : null,
                   tag: element.tagName.toLowerCase(),
-                  selector: `${element.tagName.toLowerCase()}[data-xray-id="${element.dataset.xrayId}"]`,
+                  selector: selectorFor(element),
                   rect: { x: box.x, y: box.y, width: box.width, height: box.height },
                   domDepth: depth,
-                  stackingRule: stackingRule(element),
+                  stackingRule: item.stackingRule,
+                  exactResourceUrls: item.exactResourceUrls,
+                  fixtureMarker: element.dataset.xrayId || null,
                 };
               });
               return {
@@ -339,8 +430,30 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                   width: document.documentElement.scrollWidth,
                   height: document.documentElement.scrollHeight,
                 },
+                rawDomNodeCount: allElements.length,
+                inspectedNodeCount: allElements.length,
+                rawMaxDomDepth: Math.max(0, ...allElements.map(element => {
+                  let depth = 0;
+                  for (let current = element.parentElement; current; current = current.parentElement) depth += 1;
+                  return depth;
+                })),
                 nodes,
-                shifts: window.__domXRayProbe.shifts,
+                shifts: window.__domXRayProbe.shifts.map(shift => ({
+                  timestampMs: shift.timestampMs,
+                  value: shift.value,
+                  hadRecentInput: shift.hadRecentInput,
+                  sources: shift.sources.map(source => {
+                    const node = source.nodeRef === null
+                      ? null
+                      : window.__domXRayProbe.shiftNodeRefs[source.nodeRef];
+                    const candidateId = node ? candidateIds.get(node) : undefined;
+                    return {
+                      nodeId: candidateId || null,
+                      previousRect: source.previousRect,
+                      currentRect: source.currentRect,
+                    };
+                  }),
+                })),
                 layoutShiftSupported: window.__domXRayProbe.layoutShiftSupported,
               };
             })()
@@ -348,6 +461,10 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
         )
 
         final_page_domain = registrable_domain_for_fixture(urlsplit(page_state["finalUrl"]).hostname)
+        exact_targets: dict[str, list[str]] = {}
+        for item in page_state["nodes"]:
+            for resource_url in item["exactResourceUrls"]:
+                exact_targets.setdefault(_match_url(resource_url), []).append(item["id"])
         resource_rows = []
         for item in sorted(network.values(), key=lambda value: (value.get("startedTimestamp") or 0, value["url"])):
             parsed = urlsplit(item["url"])
@@ -365,9 +482,11 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
             start = item.get("startedTimestamp")
             finish = item.get("finishedTimestamp")
             duration_ms = round((finish - start) * 1000, 3) if start is not None and finish is not None else None
+            resource_id = f"r-{len(resource_rows) + 1:03d}"
+            attributed_node_ids = exact_targets.get(_match_url(item["url"]), [])
             resource_rows.append(
                 {
-                    "id": f"r-{len(resource_rows) + 1:03d}",
+                    "id": resource_id,
                     "displayUrl": _redacted_url(item["url"]),
                     "origin": _origin(item["url"]),
                     "registrableDomain": resource_domain,
@@ -379,11 +498,15 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                     "transferredBytes": item["transferredBytes"],
                     "decodedBodyBytes": item["decodedBodyBytes"],
                     "durationMs": duration_ms,
-                    "attributionScope": "page-level",
-                    "attributedNodeIds": [],
+                    "attributionScope": "exact-element" if attributed_node_ids else "page-level",
+                    "attributedNodeIds": attributed_node_ids,
                 }
             )
 
+        resources_by_node: dict[str, list[str]] = {}
+        for resource in resource_rows:
+            for node_id in resource["attributedNodeIds"]:
+                resources_by_node.setdefault(node_id, []).append(resource["id"])
         nodes = [
             {
                 "id": item["id"],
@@ -395,7 +518,7 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                 "stackingContext": _stacking_context(item),
                 "memberNodeIds": [],
                 "aggregationRule": None,
-                "resourceIds": [],
+                "resourceIds": resources_by_node.get(item["id"], []),
             }
             for item in page_state["nodes"]
         ]
@@ -455,7 +578,8 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                 "cachePolicy": "cold",
                 "timezone": "UTC",
                 "region": "local-gate-0",
-                "inspectedNodeCount": len(nodes),
+                "inspectedNodeCount": page_state["inspectedNodeCount"],
+                "candidateNodeCount": len(nodes),
                 "renderedRegionCount": len(nodes),
                 "aggregatedNodeCount": 0,
                 "requestCount": len(resource_rows),
@@ -467,8 +591,8 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                 "title": page_state["title"],
                 "registrableDomain": final_page_domain or "unknown.test",
                 "document": page_state["document"],
-                "rawDomNodeCount": len(nodes),
-                "maxDomDepth": max((node["domDepth"] for node in nodes), default=0),
+                "rawDomNodeCount": page_state["rawDomNodeCount"],
+                "maxDomDepth": page_state["rawMaxDomDepth"],
                 "screenshotStatus": "omitted",
                 "screenshotRef": None,
             },
@@ -482,6 +606,11 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
             record=record,
             blocked_requests=blocked_requests,
             layout_shift_supported=bool(page_state["layoutShiftSupported"]),
+            fixture_node_ids={
+                item["fixtureMarker"]: item["id"]
+                for item in page_state["nodes"]
+                if item["fixtureMarker"] is not None
+            },
         )
     finally:
         context.close()

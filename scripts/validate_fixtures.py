@@ -112,12 +112,16 @@ def validate_semantics(record: dict[str, Any], label: str, validator: Draft20201
         f"{label} aggregated-node count mismatch",
     )
     require(
-        record["capture"]["inspectedNodeCount"] == len(nodes) + len(member_ids),
-        f"{label} inspected-node count mismatch",
+        record["capture"]["candidateNodeCount"] == len(nodes) + len(member_ids),
+        f"{label} candidate-node count mismatch",
     )
     require(
-        record["page"]["rawDomNodeCount"] == record["capture"]["inspectedNodeCount"],
-        f"{label} raw DOM count does not match inspected-node count",
+        record["page"]["rawDomNodeCount"] >= record["capture"]["inspectedNodeCount"],
+        f"{label} inspected-node count exceeds raw DOM count",
+    )
+    require(
+        record["capture"]["inspectedNodeCount"] >= record["capture"]["candidateNodeCount"],
+        f"{label} candidate-node count exceeds inspected-node count",
     )
 
     for node in nodes.values():
@@ -132,6 +136,14 @@ def validate_semantics(record: dict[str, Any], label: str, validator: Draft20201
                 node["id"] in resources[resource_id]["attributedNodeIds"],
                 f"{label} node/resource link is not symmetric: {node['id']} -> {resource_id}",
             )
+
+    for node_id in nodes:
+        seen: set[str] = set()
+        current_id: str | None = node_id
+        while current_id is not None:
+            require(current_id not in seen, f"{label} has a parent cycle at {current_id}")
+            seen.add(current_id)
+            current_id = nodes[current_id]["parentId"]
 
     missing_byte_count = 0
     for resource in resources.values():
@@ -286,8 +298,11 @@ def main() -> None:
     expect_failure("blocked scene", clean, lambda item: item.update({"status": "blocked", "failureCode": "blocked-by-policy"}), validator)
     expect_failure("page-level element blame", clean, lambda item: item["resources"][0].update({"attributedNodeIds": ["n-body"]}), validator)
     expect_failure("party/domain mismatch", clean, lambda item: item["resources"][0].update({"registrableDomain": "other.example"}), validator)
+    expect_failure("candidate count drift", clean, lambda item: item["capture"].update({"candidateNodeCount": 10}), validator)
+    expect_failure("inspected count exceeds raw DOM", clean, lambda item: item["page"].update({"rawDomNodeCount": 10}), validator)
+    expect_failure("parent cycle", clean, lambda item: item["nodes"][0].update({"parentId": "n-logo"}), validator)
 
-    print(f"Validated {len(records)} fixtures and 9 negative controls against Gate 0.")
+    print(f"Validated {len(records)} fixtures and 12 negative controls against Gate 0.")
 
 
 if __name__ == "__main__":

@@ -176,6 +176,7 @@
         "timezone",
         "region",
         "inspectedNodeCount",
+        "candidateNodeCount",
         "renderedRegionCount",
         "aggregatedNodeCount",
         "requestCount",
@@ -206,9 +207,26 @@
         "cachePolicy": { "enum": ["cold", "warm", "mixed", "unknown"] },
         "timezone": { "type": "string", "minLength": 1 },
         "region": { "type": ["string", "null"] },
-        "inspectedNodeCount": { "type": "integer", "minimum": 0 },
-        "renderedRegionCount": { "type": "integer", "minimum": 0 },
-        "aggregatedNodeCount": { "type": "integer", "minimum": 0 },
+        "inspectedNodeCount": {
+          "description": "Document elements actually evaluated against the candidate rule.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "candidateNodeCount": {
+          "description": "Viewport-intersecting candidates before perceptual aggregation.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "renderedRegionCount": {
+          "description": "Represented nodes or aggregate regions after aggregation.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "aggregatedNodeCount": {
+          "description": "Candidate nodes omitted into represented aggregate membership.",
+          "type": "integer",
+          "minimum": 0
+        },
         "requestCount": { "type": "integer", "minimum": 0 },
         "requestsWithoutByteData": { "type": "integer", "minimum": 0 },
         "transferAccountingRule": { "type": "string", "minLength": 1 },
@@ -245,7 +263,11 @@
             "height": { "type": "number", "minimum": 0 }
           }
         },
-        "rawDomNodeCount": { "type": "integer", "minimum": 0 },
+        "rawDomNodeCount": {
+          "description": "All top-level-document elements observed before caps or candidate filtering.",
+          "type": "integer",
+          "minimum": 0
+        },
         "maxDomDepth": { "type": "integer", "minimum": 0 },
         "screenshotStatus": { "enum": ["captured", "unavailable", "omitted"] },
         "screenshotRef": { "type": ["string", "null"] }
@@ -292,7 +314,10 @@
       ],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "parentId": { "type": ["string", "null"] },
+        "parentId": {
+          "description": "Nearest represented ancestor after candidate filtering and aggregation; not necessarily the direct raw DOM parent.",
+          "type": ["string", "null"]
+        },
         "tag": { "type": "string", "minLength": 1 },
         "selector": { "type": ["string", "null"] },
         "rect": { "$ref": "#/$defs/rect" },

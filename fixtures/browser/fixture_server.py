@@ -26,6 +26,7 @@ class FixtureSpec:
     expected_payload_bytes: int
     expected_request_count: int
     expected_rects: dict[str, tuple[float, float, float, float]]
+    expected_excluded_markers: tuple[str, ...] = ()
 
 
 FIXTURES = {
@@ -40,8 +41,18 @@ FIXTURES = {
             "n-header": (0, 0, 1440, 88),
             "n-main": (96, 120, 1248, 570),
             "n-card": (144, 176, 520, 320),
+            "include-plain": (816, 200, 180, 80),
+            "include-duplicate-image": (716, 480, 160, 90),
+            "include-partial": (-24, 520, 40, 40),
             "n-footer": (0, 820, 1440, 80),
         },
+        expected_excluded_markers=(
+            "exclude-display",
+            "exclude-hidden",
+            "exclude-opacity",
+            "exclude-tiny",
+            "exclude-offscreen",
+        ),
     ),
     "image-heavy": FixtureSpec(
         name="image-heavy",

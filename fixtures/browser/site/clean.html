@@ -15,6 +15,14 @@
       <h1>One stable page.</h1>
       <img src="/media/clean.svg" alt="Deterministic block">
     </article>
+    <div id="secret-123456789012345678901234" class="probe-include abcdefghijklmnopqrstuvwxyzabcdef" data-xray-id="include-plain">Unmarked-rule control</div>
+    <img class="probe-duplicate-image" data-xray-id="include-duplicate-image" src="/media/clean.svg" alt="The same resource used twice">
+    <div class="probe-display-none" data-xray-id="exclude-display">Display none</div>
+    <div class="probe-hidden" data-xray-id="exclude-hidden">Hidden</div>
+    <div class="probe-transparent" data-xray-id="exclude-opacity">Transparent</div>
+    <div class="probe-tiny" data-xray-id="exclude-tiny">Tiny</div>
+    <div class="probe-offscreen" data-xray-id="exclude-offscreen">Offscreen</div>
+    <div class="probe-partial" data-xray-id="include-partial">Partially clipped</div>
   </main>
   <footer data-xray-id="n-footer">No motion. No interaction.</footer>
 </body>

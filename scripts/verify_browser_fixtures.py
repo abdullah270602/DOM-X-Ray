@@ -28,14 +28,37 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-def assert_rects(record: dict, expected: dict[str, tuple[float, float, float, float]]) -> None:
+def assert_rects(
+    record: dict,
+    expected: dict[str, tuple[float, float, float, float]],
+    fixture_node_ids: dict[str, str],
+) -> None:
     actual = {item["id"]: item["rect"] for item in record["nodes"]}
-    require(set(actual) == set(expected), f"geometry IDs differ: {sorted(actual)} != {sorted(expected)}")
-    for node_id, target in expected.items():
+    for marker, target in expected.items():
+        require(marker in fixture_node_ids, f"expected candidate marker was excluded: {marker}")
+        node_id = fixture_node_ids[marker]
         observed = actual[node_id]
         for key, value in zip(("x", "y", "width", "height"), target, strict=True):
             delta = abs(float(observed[key]) - value)
-            require(delta <= GEOMETRY_TOLERANCE_PX, f"{node_id}.{key} drifted by {delta:.3f}px")
+            require(delta <= GEOMETRY_TOLERANCE_PX, f"{marker}/{node_id}.{key} drifted by {delta:.3f}px")
+
+
+def assert_exact_attribution(record: dict) -> int:
+    images = [item for item in record["resources"] if item["type"] == "image"]
+    require(images, "fixture has no image resource to attribute")
+    require(
+        all(item["attributionScope"] == "exact-element" and item["attributedNodeIds"] for item in images),
+        "an image resource lacks exact element attribution",
+    )
+    require(
+        all(
+            item["attributionScope"] == "page-level" and not item["attributedNodeIds"]
+            for item in record["resources"]
+            if item["type"] in {"stylesheet", "font", "script", "fetch", "xhr"}
+        ),
+        "a stylesheet, font, script, fetch, or XHR was incorrectly blamed on a DOM candidate",
+    )
+    return sum(len(item["attributedNodeIds"]) for item in images)
 
 
 def assert_transfer(record: dict, expected_payload_bytes: int) -> int:
@@ -82,11 +105,43 @@ def assert_request_policy() -> None:
         raise AssertionError(f"fixture-only target boundary accepted {target}")
 
 
+def deterministic_fingerprint(record: dict) -> tuple:
+    nodes = tuple(
+        (
+            item["id"],
+            item["parentId"],
+            item["tag"],
+            item["selector"],
+            tuple(item["rect"].items()),
+            item["domDepth"],
+            tuple(item["stackingContext"].items()),
+            tuple(item["resourceIds"]),
+        )
+        for item in record["nodes"]
+    )
+    links = tuple(
+        sorted(
+            (item["displayUrl"], item["attributionScope"], tuple(item["attributedNodeIds"]))
+            for item in record["resources"]
+        )
+    )
+    counts = (
+        record["page"]["rawDomNodeCount"],
+        record["page"]["maxDomDepth"],
+        record["capture"]["inspectedNodeCount"],
+        record["capture"]["candidateNodeCount"],
+        record["capture"]["aggregatedNodeCount"],
+        record["capture"]["renderedRegionCount"],
+    )
+    return nodes, links, counts
+
+
 def main() -> None:
     Draft202012Validator.check_schema(SCHEMA)
     validator = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
     assert_request_policy()
     summaries = []
+    clean_fingerprint = None
 
     with run_fixture_server() as server, sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -113,11 +168,40 @@ def main() -> None:
                     record["capture"]["requestCount"] == fixture.expected_request_count,
                     f"{name} request count is {record['capture']['requestCount']}",
                 )
-                assert_rects(record, fixture.expected_rects)
+                assert_rects(record, fixture.expected_rects, result.fixture_node_ids)
+                for marker in fixture.expected_excluded_markers:
+                    require(marker not in result.fixture_node_ids, f"excluded candidate survived: {marker}")
+                require(
+                    record["page"]["rawDomNodeCount"] == record["capture"]["inspectedNodeCount"],
+                    f"{name} did not inspect every raw element",
+                )
+                require(
+                    record["capture"]["candidateNodeCount"] == len(record["nodes"]),
+                    f"{name} candidate count drifted",
+                )
+                require(
+                    record["capture"]["candidateNodeCount"] < record["capture"]["inspectedNodeCount"],
+                    f"{name} candidate filtering excluded nothing",
+                )
+                serialized_record = json.dumps(record, sort_keys=True)
+                require("data-xray-id" not in serialized_record, f"{name} leaked fixture attributes")
+                require(
+                    "secret-123456789012345678901234" not in serialized_record,
+                    f"{name} leaked a high-entropy selector token",
+                )
+                require(
+                    "abcdefghijklmnopqrstuvwxyzabcdef" not in serialized_record,
+                    f"{name} leaked a long alphabetic selector token",
+                )
+                if name == "clean":
+                    require("xray-redacted" in serialized_record, "selector redaction marker is missing")
+                exact_image_links = assert_exact_attribution(record)
                 cdp_total = assert_transfer(record, fixture.expected_payload_bytes)
 
                 if name == "clean":
                     require(not record["layoutShifts"], "clean fixture recorded a layout shift")
+                    require(exact_image_links == 2, "duplicate image URL did not link to both exact elements")
+                    clean_fingerprint = deterministic_fingerprint(record)
                 elif name == "image-heavy":
                     require(result.layout_shift_supported, "layout-shift API unavailable in pinned Chromium")
                     require(record["layoutShifts"], "image-heavy fixture did not record its displacement")
@@ -146,9 +230,18 @@ def main() -> None:
                     f"{name} CDP total {cdp_total} does not equal emitted wire bytes {served_wire}",
                 )
                 summaries.append(
-                    f"{name}: {len(record['nodes'])} rects, {len(record['resources'])} requests, "
+                    f"{name}: {len(record['nodes'])}/{record['capture']['inspectedNodeCount']} candidates, "
+                    f"{exact_image_links} exact element links, {len(record['resources'])} requests, "
                     f"{cdp_total} exact CDP/wire bytes"
                 )
+
+            clean = FIXTURES["clean"]
+            repeat_url = f"http://{clean.host}:{server.server_port}{clean.route}"
+            repeated = probe_page(browser, repeat_url).record
+            require(
+                clean_fingerprint == deterministic_fingerprint(repeated),
+                "clean fixture node IDs, parents, geometry, selectors, or attribution changed on repeat",
+            )
         finally:
             browser.close()
 
@@ -158,6 +251,7 @@ def main() -> None:
     )
     for summary in summaries:
         print(f"  {summary}")
+    print("Validated deterministic node and attribution fingerprints across a repeated capture.")
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
 
 

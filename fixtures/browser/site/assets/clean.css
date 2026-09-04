@@ -5,4 +5,12 @@ header { position: absolute; inset: 0 0 auto 0; width: 1440px; height: 88px; pad
 main { position: absolute; left: 96px; top: 120px; width: 1248px; height: 570px; }
 article { position: absolute; left: 48px; top: 56px; width: 520px; height: 320px; padding: 24px; }
 article img { width: 320px; height: 180px; display: block; }
+.probe-include { position: absolute; left: 720px; top: 80px; width: 180px; height: 80px; }
+.probe-duplicate-image { position: absolute; left: 620px; top: 360px; width: 160px; height: 90px; }
+.probe-display-none { display: none; }
+.probe-hidden { position: absolute; left: 720px; top: 180px; width: 100px; height: 40px; visibility: hidden; }
+.probe-transparent { position: absolute; left: 720px; top: 240px; width: 100px; height: 40px; opacity: 0; }
+.probe-tiny { position: absolute; left: 720px; top: 300px; width: 2px; height: 2px; }
+.probe-offscreen { position: absolute; left: 2000px; top: 0; width: 100px; height: 100px; }
+.probe-partial { position: absolute; left: -120px; top: 400px; width: 40px; height: 40px; }
 footer { position: absolute; left: 0; top: 820px; width: 1440px; height: 80px; padding: 24px 96px; }

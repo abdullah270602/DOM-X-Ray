@@ -116,7 +116,7 @@ The scanner counts top-level document elements, then considers an element for sc
 
 This is named **viewport-intersecting**, not “visible.” The scanner does not prove occlusion, clipping by every ancestor, pixel opacity, or user attention.
 
-Mandatory candidates are the root/body, semantic landmarks, replaced media (`img`, `video`, `canvas`, `iframe`, SVG roots), exact resource-link targets, recorded layout-shift sources, and nodes that create an inferred stacking context.
+Among elements that pass this candidate rule, mandatory candidates are the document root and body, semantic landmarks, replaced media (`img`, `video`, `canvas`, `iframe`, SVG roots), exact resource-link targets, recorded layout-shift sources, and nodes that create an inferred stacking context. “Mandatory” means the element must survive aggregation; it does not turn a hidden, zero-area, or off-viewport element into scene geometry.
 
 ### DOM boundaries
 
@@ -128,11 +128,13 @@ Mandatory candidates are the root/body, semantic landmarks, replaced media (`img
 
 ### Selector sanitization
 
-Selectors are display aids, not stable identity. The scanner keeps tag names and low-entropy IDs/classes, removes attribute values, truncates each selector, and replaces high-entropy tokens with a redaction marker. Exact element/resource matching happens in memory before redaction.
+Selectors are display aids, not stable identity. Under `selector-sanitization-v1`, the scanner keeps the tag name and at most one ID plus two class tokens. A token must be an ASCII identifier no longer than 18 characters; 13–18 character mixed alphanumeric tokens with at least 75% distinct characters are also treated as high entropy. Invalid or high-entropy tokens become the inert `xray-redacted` token, attribute values are never included, and the final display string is truncated to 96 characters. Exact element/resource matching happens in memory before redaction.
+
+`node.parentId` names the nearest represented ancestor after filtering and aggregation, not necessarily the element's direct raw DOM parent. Raw `domDepth` remains the evidence for original ancestry depth; the relationship is never described as a lossless DOM tree.
 
 ## Exact element-to-resource links
 
-V1 may create an exact resource link from captured `currentSrc`, `src`, `poster`, stylesheet URL, or computed CSS image URL when its fully resolved URL exactly matches the observed request URL after deterministic canonicalization. Query values may participate in the in-memory match but are never published; only a hash and redacted display URL remain.
+V1 may create an exact resource link from a replaced element's captured `currentSrc`, `src`, or `poster`, an iframe/source URL, or a computed CSS image URL when its fully resolved URL exactly matches the observed request URL after deterministic canonicalization. Query values may participate in the in-memory match but are never published; only a hash and redacted display URL remain.
 
 Browser initiator data without an exact element URL is `probable-link` or page-level. Scripts, fonts, stylesheets, fetches, XHR, beacons, and unattributed work remain page-level unless a later protocol proves a stronger relationship.
 
@@ -152,7 +154,7 @@ The API and its source-attribution rectangles are not uniformly supported across
 
 ## Aggregation handoff
 
-The capture record preserves raw candidate IDs and exact links. `perceptual-region-v1`, defined in the mapping registry, reduces candidates to the 650-object budget. Every aggregate retains all member IDs and its aggregation rule; the viewer reports inspected nodes and rendered regions separately.
+The capture record preserves raw candidate IDs and exact links. `rawDomNodeCount` is every observed top-level-document element; `inspectedNodeCount` is every element actually tested before a cap; `candidateNodeCount` is the qualifying pre-aggregation set; `aggregatedNodeCount` is the number omitted into aggregate membership; and `renderedRegionCount` is the final represented set. `perceptual-region-v1`, defined in the mapping registry, reduces candidates to the 650-object budget. Every aggregate retains all member IDs and its aggregation rule.
 
 ## Screenshot boundary
 

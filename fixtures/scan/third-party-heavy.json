@@ -22,6 +22,7 @@
     "timezone": "UTC",
     "region": null,
     "inspectedNodeCount": 7,
+    "candidateNodeCount": 7,
     "renderedRegionCount": 7,
     "aggregatedNodeCount": 0,
     "requestCount": 8,

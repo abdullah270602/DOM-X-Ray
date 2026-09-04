@@ -84,7 +84,7 @@ The renderer has a hard budget of 650 scene objects, including external hubs. `p
 5. Preserve all mandatory nodes. Fill the remaining budget by rank.
 6. Attach every omitted candidate to its nearest represented ancestor as a member ID. An aggregate exposes its member count and rule.
 
-The algorithm never describes omitted candidates as nonexistent. `rawDomNodeCount`, `inspectedNodeCount`, `aggregatedNodeCount`, and `renderedRegionCount` remain separate.
+The algorithm never describes omitted candidates as nonexistent. `rawDomNodeCount`, `inspectedNodeCount`, `candidateNodeCount`, `aggregatedNodeCount`, and `renderedRegionCount` remain separate.
 
 If mandatory objects alone exceed the budget, the scan is partial and the viewer uses a region-level fallback. It does not silently discard exact evidence.
 
