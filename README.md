@@ -32,9 +32,10 @@ The fixture validator is contract tooling, not a commitment to the eventual appl
 ```sh
 python scripts/validate_fixtures.py
 python scripts/validate_mapping.py
+python scripts/verify_browser_fixtures.py
 ```
 
-The first command validates the three deterministic scan profiles against JSON Schema Draft 2020-12, then checks cross-record provenance, attribution, party/domain consistency, counts, claim wording, and negative controls that JSON Schema alone cannot express. The second checks deterministic geometry/mass rules, monotonicity, registrable-domain hub grouping, version matching, object budgets, unknown states, and the exact five-second reveal.
+The first command validates the three deterministic scan profiles against JSON Schema Draft 2020-12, then checks cross-record provenance, attribution, party/domain consistency, counts, claim wording, and negative controls that JSON Schema alone cannot express. The second checks deterministic geometry/mass rules, monotonicity, registrable-domain hub grouping, version matching, object budgets, unknown states, and the exact five-second reveal. The third runs three real fixture pages through pinned Chromium and proves hand-marked geometry, CDP wire-byte accounting, settling, domain grouping, and the first fixture-only request-policy cases. Install `requirements-dev.txt` and the Playwright Chromium binary before running it on a fresh machine.
 
 ## Product loop
 

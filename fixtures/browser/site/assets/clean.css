@@ -1,0 +1,8 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+body { position: relative; background: #f4f0e8; color: #252522; font-family: sans-serif; }
+header { position: absolute; inset: 0 0 auto 0; width: 1440px; height: 88px; padding: 28px 96px; }
+main { position: absolute; left: 96px; top: 120px; width: 1248px; height: 570px; }
+article { position: absolute; left: 48px; top: 56px; width: 520px; height: 320px; padding: 24px; }
+article img { width: 320px; height: 180px; display: block; }
+footer { position: absolute; left: 0; top: 820px; width: 1440px; height: 80px; padding: 24px 96px; }

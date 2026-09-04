@@ -67,6 +67,8 @@ When a cap is reached, the scanner stops the affected collection, records the ex
 
 For a completed request, `Network.loadingFinished.encodedDataLength` is the canonical v0.1 value and is described to visitors as **bytes received during this captured load**. Chrome documents it as the total number of bytes received for that request. It is not decoded size, memory use, execution cost, energy, carbon, or a speed verdict.
 
+The Gate 0 browser fixtures compare that value with the exact HTTP status-line, header, and body bytes emitted by a deterministic local server. They also require the total to remain within 2% of the separately declared response-body payload. The wire-byte equality proves the instrument; the body-payload tolerance keeps the fixture expectations understandable. Production claims always use the CDP value, never the body-only reference.
+
 The scanner listens to:
 
 - `Network.requestWillBeSent` and redirect response data.

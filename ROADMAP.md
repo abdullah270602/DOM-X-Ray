@@ -33,7 +33,7 @@ Exit criteria:
 - Fixture element rectangles reproduce within 1 CSS pixel and transferred-byte totals within 2% under the declared capture protocol.
 - A reviewer cannot mistake “third-party request” for “tracker” or page-level work for element blame.
 
-Current status: **in progress, artifact-complete but not yet gate-passed**. The product record, roadmap, truth contract, capture protocol, mapping registry, threat model, telemetry contract, three scan fixtures, and executable fixture/mapping validators exist. Gate 0 still needs deterministic HTML capture fixtures proving the 1 CSS pixel / 2% measurement tolerances, automated network-policy and unsafe-GET tests, approved scanner identity/robots/opt-out behavior, and a launch retention/deletion decision.
+Current status: **in progress, foundational measurement proof passed but scanner proof incomplete**. Three live deterministic pages now prove 20 hand-marked browser rectangles within 1 CSS pixel, exact CDP-to-wire byte accounting, declared payload totals within 2%, the quiet-window mutation reset, and third-party domain grouping. Gate 0 still needs browser-driven candidate selection and attribution, redirect/cache/service-worker/timeout/interstitial fixtures, production-shaped egress and DNS controls, unsafe-GET/cooling tests, approved scanner identity/robots/opt-out behavior, and a launch retention/deletion decision.
 
 Pivot rule: if the concept requires invented causality to feel dramatic, remove that layer. The minimum honest product is Structure + transferred Weight + external requests.
 

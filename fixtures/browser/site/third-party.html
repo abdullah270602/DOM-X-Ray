@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM X-Ray Third-Party Fixture</title>
+  <link rel="stylesheet" href="/assets/third-party.css">
+  <link rel="preload" href="http://fonts.cdn.test:{{PORT}}/assets/third-party.woff2" as="font" type="font/woff2" crossorigin>
+  <script defer src="/assets/third-party.js"></script>
+  <script defer src="http://metrics.vendor.test:{{PORT}}/assets/metrics.js"></script>
+  <script defer src="http://comments.service.test:{{PORT}}/assets/comments.js"></script>
+  <script>
+    addEventListener('DOMContentLoaded', () => {
+      fetch('http://api.service.test:{{PORT}}/api/thread').then(response => response.arrayBuffer());
+    });
+  </script>
+</head>
+<body data-xray-id="n-root">
+  <header data-xray-id="n-header">Third-party fixture</header>
+  <main data-xray-id="n-article">
+    <section data-xray-id="n-author">Author</section>
+    <img src="/media/lead.svg" alt="Lead block">
+  </main>
+  <aside data-xray-id="n-share">Share panel</aside>
+  <section data-xray-id="n-comments">Comments boundary</section>
+  <footer data-xray-id="n-footer">External means a different registrable domain.</footer>
+</body>
+</html>

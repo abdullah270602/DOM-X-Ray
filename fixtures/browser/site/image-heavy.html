@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM X-Ray Image-Heavy Fixture</title>
+  <link rel="stylesheet" href="/assets/image-heavy.css">
+  <link rel="preload" href="/assets/image-heavy.woff2" as="font" type="font/woff2" crossorigin>
+  <script defer src="/assets/image-heavy.js"></script>
+</head>
+<body data-xray-id="n-root">
+  <header data-xray-id="n-header">Image-heavy fixture</header>
+  <img data-xray-id="n-hero" id="fixture-hero" src="/media/hero.svg" alt="Large deterministic hero">
+  <section data-xray-id="n-gallery" id="fixture-gallery">
+    <article data-xray-id="n-card-1"><img src="/media/gallery.svg" alt="Gallery block"></article>
+    <article data-xray-id="n-card-2"><img src="/media/thumb.svg" alt="Thumbnail block"></article>
+    <p data-xray-id="n-caption">The gallery moves once, 600 ms after DOMContentLoaded.</p>
+  </section>
+  <footer data-xray-id="n-footer">Final geometry is deterministic.</footer>
+</body>
+</html>

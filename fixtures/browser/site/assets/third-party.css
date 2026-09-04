@@ -1,0 +1,10 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+body { position: relative; background: #f2eee5; color: #262622; font-family: sans-serif; }
+header { position: absolute; left: 0; top: 0; width: 1440px; height: 88px; padding: 28px 96px; }
+main { position: absolute; left: 96px; top: 120px; width: 820px; height: 620px; padding: 32px; }
+main section { width: 220px; height: 40px; }
+main img { display: block; width: 756px; height: 420px; margin-top: 24px; }
+aside { position: absolute; left: 960px; top: 140px; width: 300px; height: 180px; padding: 24px; }
+body > section { position: absolute; left: 96px; top: 770px; width: 820px; height: 100px; padding: 24px; }
+footer { position: absolute; left: 960px; top: 800px; width: 384px; height: 70px; padding: 20px; }

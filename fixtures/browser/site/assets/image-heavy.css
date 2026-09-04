@@ -1,0 +1,12 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+body { position: relative; background: #eee9df; color: #20201e; font-family: sans-serif; }
+header { position: absolute; left: 0; top: 0; width: 1440px; height: 88px; padding: 28px 72px; }
+#fixture-hero { position: absolute; left: 72px; top: 120px; width: 1296px; height: 360px; display: block; }
+#fixture-gallery { position: absolute; left: 72px; top: 510px; width: 1296px; height: 250px; }
+#fixture-gallery article { position: absolute; top: 30px; width: 620px; height: 190px; }
+#fixture-gallery article:first-of-type { left: 24px; }
+#fixture-gallery article:nth-of-type(2) { left: 652px; }
+#fixture-gallery img { width: 100%; height: 100%; display: block; }
+#fixture-gallery p { position: absolute; left: 24px; top: 212px; width: 1248px; height: 24px; margin: 0; }
+footer { position: absolute; left: 0; top: 840px; width: 1440px; height: 60px; padding: 18px 72px; }
