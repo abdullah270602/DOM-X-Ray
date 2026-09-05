@@ -43,6 +43,7 @@ class FixtureSpec:
     expected_status: str = "complete"
     expected_failure_code: str | None = None
     expected_limits: tuple[str, ...] = ()
+    expected_blocked_requests: tuple[tuple[str, str, str], ...] = ()
 
 
 FIXTURES = {
@@ -202,6 +203,22 @@ FIXTURES = {
         expected_status="interstitial",
         expected_failure_code="interstitial",
     ),
+    "policy-boundary": FixtureSpec(
+        name="policy-boundary",
+        host="policy.test",
+        route="/policy-boundary/",
+        expected_payload_bytes=32_000,
+        expected_request_count=3,
+        expected_rects={"policy-main": (120, 120, 1200, 600)},
+        expected_status="partial",
+        expected_failure_code="measurement-unavailable",
+        expected_blocked_requests=(
+            ("POST", "/unsafe/post", "method"),
+            ("DELETE", "/unsafe/delete", "method"),
+            ("GET", "/private-fetch", "private-literal-host"),
+            ("GET", "/private-image", "private-literal-host"),
+        ),
+    ),
 }
 
 
@@ -216,6 +233,7 @@ PAGE_SPECS = {
     "/never-settling/": ("never-settling.html", 25_000, "text/html; charset=utf-8"),
     "/unknown-byte/": ("unknown-byte.html", 25_000, "text/html; charset=utf-8"),
     "/interstitial/login/": ("interstitial.html", 28_000, "text/html; charset=utf-8"),
+    "/policy-boundary/": ("policy-boundary.html", 32_000, "text/html; charset=utf-8"),
 }
 
 
@@ -386,7 +404,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                 }
             )
             self.close_connection = True
-            time.sleep(5)
+            time.sleep(3)
             return
 
         redirect_specs = {

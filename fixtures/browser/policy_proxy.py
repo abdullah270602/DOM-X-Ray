@@ -20,6 +20,14 @@ from scanner.browser_probe import _match_url, _redacted_url, request_block_reaso
 
 REDIRECT_LIMIT = 10
 MAX_RESPONSE_BYTES = 25_000_000
+BLOCK_BODY = b"blocked by DOM X-Ray fixture policy"
+BLOCK_RESPONSE = (
+    b"HTTP/1.1 403 Forbidden\r\n"
+    + f"Content-Length: {len(BLOCK_BODY)}\r\n".encode("ascii")
+    + b"Content-Type: text/plain; charset=utf-8\r\n"
+    + b"Connection: close\r\n\r\n"
+    + BLOCK_BODY
+)
 
 
 class FixturePolicyProxy(ThreadingTCPServer):
@@ -30,7 +38,7 @@ class FixturePolicyProxy(ThreadingTCPServer):
         super().__init__(("127.0.0.1", 0), FixturePolicyHandler)
         self.upstream_port = upstream_port
         self.ledger: list[dict[str, object]] = []
-        self.blocked: list[dict[str, str]] = []
+        self.blocked: list[dict[str, object]] = []
         self.document_chain: list[str] = []
         self.state_lock = Lock()
 
@@ -83,6 +91,7 @@ class FixturePolicyProxy(ThreadingTCPServer):
                         "reason": reason,
                         "redirect": "true",
                         "sourceUrl": _redacted_url(source_url),
+                        "wireBytes": len(BLOCK_RESPONSE),
                     }
                 )
         return reason
@@ -92,15 +101,7 @@ class FixturePolicyHandler(StreamRequestHandler):
     server: FixturePolicyProxy
 
     def _block(self) -> None:
-        body = b"blocked by DOM X-Ray fixture policy"
-        response = (
-            b"HTTP/1.1 403 Forbidden\r\n"
-            + f"Content-Length: {len(body)}\r\n".encode("ascii")
-            + b"Content-Type: text/plain; charset=utf-8\r\n"
-            + b"Connection: close\r\n\r\n"
-            + body
-        )
-        self.wfile.write(response)
+        self.wfile.write(BLOCK_RESPONSE)
 
     def handle(self) -> None:
         request_line = self.rfile.readline(8192)
@@ -147,6 +148,7 @@ class FixturePolicyHandler(StreamRequestHandler):
                         "reason": reason or "fixture-port",
                         "redirect": "false",
                         "sourceUrl": _redacted_url(url),
+                        "wireBytes": len(BLOCK_RESPONSE),
                     }
                 )
             self._block()

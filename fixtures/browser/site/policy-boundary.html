@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM X-Ray Policy-Boundary Fixture</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { position: relative; background: #f4f0e8; }
+    main { position: absolute; left: 120px; top: 120px; width: 1200px; height: 600px; background: #e0e5df; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="policy-main"></main>
+  <script>
+    (async () => {
+      try {
+        await fetch('/unsafe/post', {
+          method: 'POST',
+          body: 'unsafe-body-secret-canary-5814072963',
+        });
+      } catch (_) {}
+      try {
+        await fetch('/unsafe/delete', { method: 'DELETE' });
+      } catch (_) {}
+      try {
+        await fetch('http://127.0.0.1:{{PORT}}/private-fetch');
+      } catch (_) {}
+      await new Promise(resolve => {
+        const image = new Image();
+        image.onload = resolve;
+        image.onerror = resolve;
+        image.src = 'http://127.0.0.1:{{PORT}}/private-image';
+        document.body.append(image);
+      });
+      document.body.dataset.policySequence = 'complete';
+    })();
+  </script>
+</body>
+</html>

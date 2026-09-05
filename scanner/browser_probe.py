@@ -106,7 +106,7 @@ INIT_SCRIPT = r"""
 @dataclass
 class ProbeResult:
     record: dict[str, Any]
-    blocked_requests: list[dict[str, str]]
+    blocked_requests: list[dict[str, Any]]
     layout_shift_supported: bool
     fixture_node_ids: dict[str, str]
 
@@ -329,9 +329,14 @@ def probe_page(
     proxy_server: str | None = None,
     cache_disabled: bool = True,
     trusted_loopback_fixture: bool = False,
+    policy_block_log: list[dict[str, Any]] | None = None,
 ) -> ProbeResult:
     validate_fixture_target(url, allow_trusted_loopback=trusted_loopback_fixture)
-    blocked_requests: list[dict[str, str]] = []
+    if proxy_server is not None and policy_block_log is None:
+        raise ValueError("proxy-backed fixture capture requires its policy block log")
+    blocked_requests: list[dict[str, Any]] = (
+        policy_block_log if policy_block_log is not None else []
+    )
     network: dict[tuple[str, str, int], dict[str, Any]] = {}
     current_hops: dict[tuple[str, str], int] = {}
     chain_ordinals: dict[tuple[str, str], int] = {}
@@ -877,10 +882,23 @@ def probe_page(
             (item["ownerKey"], item["requestId"], item["hopIndex"]): f"r-{index + 1:03d}"
             for index, item in enumerate(ordered_network)
         }
+        blocked_reason_by_key = {
+            (str(item["method"]).upper(), str(item["url"])): str(item["reason"])
+            for item in blocked_requests
+        }
         resource_rows = []
+        resource_ids_by_block_key: dict[tuple[str, str], list[str]] = {}
         for item in ordered_network:
             parsed = urlsplit(item["url"])
             if parsed.scheme not in {"http", "https"}:
+                continue
+            block_key = (item["method"].upper(), _redacted_url(item["url"]))
+            if blocked_reason_by_key.get(block_key) in {
+                "credentials",
+                "fixture-host",
+                "private-literal-host",
+                "scheme",
+            }:
                 continue
             resource_domain = registrable_domain_for_fixture(parsed.hostname)
             transfer_source = classify_transfer_source(
@@ -929,6 +947,7 @@ def probe_page(
                     "attributedNodeIds": attributed_node_ids,
                 }
             )
+            resource_ids_by_block_key.setdefault(block_key, []).append(resource_id)
 
         redirect_rows = [
             {
@@ -1082,14 +1101,29 @@ def probe_page(
                     ],
                 }
             )
-        for index, blocked in enumerate(blocked_requests):
+        ordered_blocked_requests = sorted(
+            blocked_requests,
+            key=lambda item: (
+                str(item.get("method", "")),
+                str(item.get("url", "")),
+                str(item.get("reason", "")),
+            ),
+        )
+        for index, blocked in enumerate(ordered_blocked_requests):
+            block_key = (str(blocked["method"]).upper(), str(blocked["url"]))
+            matching_resource_ids = resource_ids_by_block_key.get(block_key, [])
+            target_id = matching_resource_ids.pop(0) if matching_resource_ids else None
+            invalidates_metrics = ["page_behavior", "total_transferred_bytes"]
+            invalidates_metrics.append(
+                "resource_mass" if target_id is not None else "request_count"
+            )
             limitations.append(
                 {
                     "code": f"blocked-request-{index + 1}",
-                    "scope": "scan",
-                    "targetId": None,
+                    "scope": "resource" if target_id is not None else "scan",
+                    "targetId": target_id,
                     "message": f"A {blocked['reason']} request was blocked by the fixture probe.",
-                    "invalidatesMetrics": [],
+                    "invalidatesMetrics": invalidates_metrics,
                 }
             )
         if interstitial_kind == "login-wall":
@@ -1112,8 +1146,10 @@ def probe_page(
             or worker_target_unobserved
             or unfinished_worker_request
         )
-        measurement_incomplete = worker_capture_incomplete or bool(
-            unknown_nonbootstrap_resources
+        measurement_incomplete = (
+            worker_capture_incomplete
+            or bool(unknown_nonbootstrap_resources)
+            or bool(blocked_requests)
         )
         if interstitial_kind is not None:
             record_status = "interstitial"

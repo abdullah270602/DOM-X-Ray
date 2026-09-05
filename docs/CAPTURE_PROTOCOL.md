@@ -107,9 +107,13 @@ The Gate 0 fixture proves exact worker-owned fetch bytes against the origin wire
 
 V1 allows page-initiated `GET`, `HEAD`, and required `OPTIONS` requests. It aborts `POST`, `PUT`, `PATCH`, `DELETE`, downloads, external-protocol launches, and other methods. Any blocked method produces a limitation because this can change the page's behavior.
 
+Any observed policy block makes the capture partial and invalidates whole-load byte interpretation plus the page-behavior claim. A blocked unsafe method to an otherwise allowed public URL may remain as a resource-scoped record of the proxy's completed 403 response, but its policy-response bytes are not usable as that resource's mass. A private, credentialed, disallowed-scheme, or otherwise forbidden target is never normalized into `resources`; it receives a scan-scoped limitation that also invalidates request count. The fixture-only proxy block log is required whenever that proxy is used so these events cannot disappear between enforcement and normalization.
+
 This does **not** prove the scan is side-effect free. HTTP defines GET/HEAD as safe intent, but real servers can misuse them. A public page can also trigger anonymous side effects through subresource GETs. The scanner therefore sends no cookies, authorization, referrer, user-provided headers, or URL query parameters; identifies itself honestly; honors the approved robots/opt-out policy; deduplicates recent identical scans; applies a strict per-origin cooling window; and never retries a navigation automatically. These controls limit identity, repetition, and amplification rather than pretending to eliminate target-side risk.
 
 Public launch remains blocked until the acceptable-use/robots policy, target-owner opt-out, per-origin limits, and abuse response are approved and tested. The integration suite includes a deliberately unsafe GET endpoint and proves the scanner supplies no credentials, does not retry it, and cannot invoke it repeatedly inside the cooling window. The product never claims “no requests changed server state.”
+
+The Gate 0 policy-boundary fixture separately proves that page-initiated `POST` and `DELETE` requests plus literal-private fetch/image requests receive bounded proxy blocks before origin contact. The proxy stores no request body, private target URLs stay outside the normalized record, public block responses receive one-to-one resource limitations, and repeated captures preserve the same policy fingerprint. This is local proof infrastructure, not the production DNS/egress or cooling boundary.
 
 ## DOM and geometry measurement
 

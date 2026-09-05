@@ -76,6 +76,7 @@ def assert_transfer(
     record: dict,
     expected_payload_bytes: int,
     expected_missing_byte_count: int = 0,
+    excluded_wire_bytes: int = 0,
 ) -> int:
     known = [item["transferredBytes"] for item in record["resources"] if item["transferredBytes"] is not None]
     missing_count = len(record["resources"]) - len(known)
@@ -84,10 +85,12 @@ def assert_transfer(
         f"fixture has {missing_count} resources with missing CDP byte data",
     )
     total = int(sum(known))
-    delta = abs(total - expected_payload_bytes) / expected_payload_bytes
+    comparable_total = total - excluded_wire_bytes
+    delta = abs(comparable_total - expected_payload_bytes) / expected_payload_bytes
     require(
         delta <= TRANSFER_TOLERANCE,
-        f"CDP total {total} differs from payload {expected_payload_bytes} by {delta:.2%}",
+        f"CDP comparable total {comparable_total} differs from payload "
+        f"{expected_payload_bytes} by {delta:.2%}",
     )
     return total
 
@@ -366,6 +369,7 @@ def main() -> None:
     cache_fingerprint = None
     worker_fingerprint = None
     interstitial_fingerprint = None
+    policy_fingerprint = None
 
     with (
         run_fixture_server() as server,
@@ -391,6 +395,7 @@ def main() -> None:
                     proxy_server=proxy.url if fixture.use_policy_proxy else None,
                     cache_disabled=fixture.cache_disabled,
                     trusted_loopback_fixture=fixture.trusted_loopback,
+                    policy_block_log=proxy.blocked if fixture.use_policy_proxy else None,
                 )
                 record = result.record
                 validate_semantics(
@@ -411,7 +416,22 @@ def main() -> None:
                     tuple(record["capture"]["limitsReached"]) == fixture.expected_limits,
                     f"{name} has unexpected capture limits",
                 )
-                require(not result.blocked_requests, f"{name} unexpectedly blocked requests")
+                actual_blocks = {
+                    (
+                        str(item["method"]),
+                        urlsplit(str(item["url"])).path,
+                        str(item["reason"]),
+                    )
+                    for item in result.blocked_requests
+                }
+                require(
+                    actual_blocks == set(fixture.expected_blocked_requests),
+                    f"{name} policy blocks drifted: {sorted(actual_blocks)}",
+                )
+                require(
+                    all(str(item["redirect"]) == "false" for item in result.blocked_requests),
+                    f"{name} subresource block was mislabeled as a redirect",
+                )
                 require(
                     record["capture"]["requestCount"] == fixture.expected_request_count,
                     f"{name} request count is {record['capture']['requestCount']}",
@@ -486,10 +506,19 @@ def main() -> None:
                     exact_image_links == fixture.expected_exact_element_links,
                     f"{name} has {exact_image_links} exact element links",
                 )
+                recorded_resource_urls = {
+                    item["displayUrl"] for item in record["resources"]
+                }
+                blocked_wire = sum(
+                    int(item["wireBytes"])
+                    for item in result.blocked_requests
+                    if str(item["url"]) in recorded_resource_urls
+                )
                 cdp_total = assert_transfer(
                     record,
                     fixture.expected_payload_bytes,
                     fixture.expected_missing_byte_count,
+                    blocked_wire,
                 )
 
                 if name == "clean":
@@ -832,6 +861,125 @@ def main() -> None:
                         tuple(item["code"] for item in record["limitations"]),
                         deterministic_fingerprint(record),
                     )
+                elif name == "policy-boundary":
+                    serialized_policy_evidence = json.dumps(
+                        {
+                            "record": record,
+                            "proxyBlocked": result.blocked_requests,
+                            "proxyLedger": proxy.ledger,
+                            "serverLedger": server.ledger,
+                        },
+                        sort_keys=True,
+                    )
+                    require(
+                        "unsafe-body-secret-canary-5814072963"
+                        not in serialized_policy_evidence,
+                        "blocked request body leaked into policy evidence",
+                    )
+                    require(
+                        [(item["method"], item["path"]) for item in server.ledger]
+                        == [("GET", "/policy-boundary/")],
+                        "a blocked method/private request reached the fixture server",
+                    )
+                    require(
+                        {
+                            (
+                                str(item["method"]),
+                                urlsplit(str(item["url"])).path,
+                            )
+                            for item in proxy.ledger
+                        }
+                        == {
+                            ("GET", "/policy-boundary/"),
+                            ("POST", "/unsafe/post"),
+                            ("DELETE", "/unsafe/delete"),
+                            ("GET", "/private-fetch"),
+                            ("GET", "/private-image"),
+                        },
+                        "proxy did not observe exactly the allowed page and four blocked attempts",
+                    )
+                    blocked_resources = [
+                        item for item in record["resources"] if item["responseStatus"] == 403
+                    ]
+                    require(
+                        len(blocked_resources) == 2
+                        and all(
+                            item["transferSource"] == "network"
+                            and item["transferredBytes"] is not None
+                            for item in blocked_resources
+                        ),
+                        "proxy block responses lost their completed wire evidence",
+                    )
+                    blocked_resource_ids = {item["id"] for item in blocked_resources}
+                    block_limitations = [
+                        item
+                        for item in record["limitations"]
+                        if item["code"].startswith("blocked-request-")
+                    ]
+                    require(
+                        len(block_limitations) == 4,
+                        "policy fixture did not disclose all four blocked attempts",
+                    )
+                    targeted_block_limitations = [
+                        item for item in block_limitations if item["targetId"] is not None
+                    ]
+                    scan_block_limitations = [
+                        item for item in block_limitations if item["targetId"] is None
+                    ]
+                    require(
+                        len(targeted_block_limitations) == 2
+                        and {item["targetId"] for item in targeted_block_limitations}
+                        == blocked_resource_ids
+                        and all(
+                            item["scope"] == "resource"
+                            and set(item["invalidatesMetrics"])
+                            == {
+                                "page_behavior",
+                                "resource_mass",
+                                "total_transferred_bytes",
+                            }
+                            for item in targeted_block_limitations
+                        ),
+                        "unsafe-method limitations are not targeted at their resources",
+                    )
+                    require(
+                        len(scan_block_limitations) == 2
+                        and all(
+                            item["scope"] == "scan"
+                            and set(item["invalidatesMetrics"])
+                            == {
+                                "page_behavior",
+                                "request_count",
+                                "total_transferred_bytes",
+                            }
+                            for item in scan_block_limitations
+                        ),
+                        "private-target limitations do not invalidate omitted request evidence",
+                    )
+                    require(
+                        "127.0.0.1" not in json.dumps(record, sort_keys=True)
+                        and "/private-fetch" not in json.dumps(record, sort_keys=True)
+                        and "/private-image" not in json.dumps(record, sort_keys=True),
+                        "private target provenance leaked into the normalized record",
+                    )
+                    require(
+                        not record["insights"],
+                        "blocked policy responses produced an insight",
+                    )
+                    policy_fingerprint = (
+                        record["status"],
+                        record["failureCode"],
+                        tuple(
+                            (
+                                item["code"],
+                                item["scope"],
+                                item["targetId"],
+                                tuple(item["invalidatesMetrics"]),
+                            )
+                            for item in record["limitations"]
+                        ),
+                        deterministic_fingerprint(record),
+                    )
 
                 unobserved_paths = set(fixture.expected_unobserved_paths)
                 observed_ledger = [
@@ -857,7 +1005,7 @@ def main() -> None:
                     int(item["wireBytes"])
                     for item in observed_ledger
                     if 200 <= int(item["status"]) < 400
-                )
+                ) + blocked_wire
                 require(
                     served_payload == fixture.expected_payload_bytes,
                     f"{name} server payload ledger drifted: {served_payload}",
@@ -878,7 +1026,12 @@ def main() -> None:
             clean = FIXTURES["clean"]
             repeat_url = f"http://{clean.host}:{server.server_port}{clean.route}"
             proxy.clear_state()
-            repeated = probe_page(browser, repeat_url, proxy_server=proxy.url).record
+            repeated = probe_page(
+                browser,
+                repeat_url,
+                proxy_server=proxy.url,
+                policy_block_log=proxy.blocked,
+            ).record
             require(
                 clean_fingerprint == deterministic_fingerprint(repeated),
                 "clean fixture node IDs, parents, geometry, selectors, or attribution changed on repeat",
@@ -887,7 +1040,12 @@ def main() -> None:
             redirect_url = f"http://{redirect.host}:{server.server_port}{redirect.route}"
             server.clear_ledger()
             proxy.clear_state()
-            repeated_redirect = probe_page(browser, redirect_url, proxy_server=proxy.url).record
+            repeated_redirect = probe_page(
+                browser,
+                redirect_url,
+                proxy_server=proxy.url,
+                policy_block_log=proxy.blocked,
+            ).record
             require(
                 redirect_fingerprint == deterministic_fingerprint(repeated_redirect),
                 "redirect hop IDs, predecessors, URLs, statuses, or attribution changed on repeat",
@@ -901,6 +1059,7 @@ def main() -> None:
                 cache_url,
                 proxy_server=proxy.url,
                 cache_disabled=False,
+                policy_block_log=proxy.blocked,
             ).record
             require(
                 cache_fingerprint == deterministic_fingerprint(repeated_cache),
@@ -928,6 +1087,7 @@ def main() -> None:
                 browser,
                 interstitial_url,
                 proxy_server=proxy.url,
+                policy_block_log=proxy.blocked,
             ).record
             repeated_interstitial_fingerprint = (
                 repeated_interstitial["status"],
@@ -938,6 +1098,34 @@ def main() -> None:
             require(
                 interstitial_fingerprint == repeated_interstitial_fingerprint,
                 "interstitial classification, limitation, or geometry changed on repeat",
+            )
+            policy = FIXTURES["policy-boundary"]
+            policy_url = f"http://{policy.host}:{server.server_port}{policy.route}"
+            server.clear_ledger()
+            proxy.clear_state()
+            repeated_policy = probe_page(
+                browser,
+                policy_url,
+                proxy_server=proxy.url,
+                policy_block_log=proxy.blocked,
+            ).record
+            repeated_policy_fingerprint = (
+                repeated_policy["status"],
+                repeated_policy["failureCode"],
+                tuple(
+                    (
+                        item["code"],
+                        item["scope"],
+                        item["targetId"],
+                        tuple(item["invalidatesMetrics"]),
+                    )
+                    for item in repeated_policy["limitations"]
+                ),
+                deterministic_fingerprint(repeated_policy),
+            )
+            require(
+                policy_fingerprint == repeated_policy_fingerprint,
+                "policy block resources, limitations, or geometry changed on repeat",
             )
             assert_redirect_policy(browser, server, proxy)
         finally:
@@ -950,7 +1138,7 @@ def main() -> None:
     for summary in summaries:
         print(f"  {summary}")
     print(
-        "Validated deterministic node, redirect, attribution, and source fingerprints "
+        "Validated deterministic node, redirect, attribution, source, interstitial, and policy fingerprints "
         "across repeated captures."
     )
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
@@ -958,6 +1146,7 @@ def main() -> None:
     print("Validated 6 interstitial-classifier safety guards.")
     print("Validated 3 aggregation safety guards.")
     print("Validated 5 browser-enforced redirect rejection cases.")
+    print("Validated 4 live unsafe-method/private-subresource blocks.")
     print("Validated 1 redirect-chain negative control.")
 
 
