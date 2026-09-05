@@ -34,6 +34,7 @@ QUALIFYING_TYPES = {
 ALLOWED_METHODS = {"GET", "HEAD", "OPTIONS"}
 REDIRECT_LIMIT = 10
 INTERSTITIAL_CLASSIFIER_VERSION = "login-gate-structural-v1"
+HTTP_ERROR_INTERSTITIAL_CLASSIFIER_VERSION = "http-error-status-v1"
 SCANNER_USER_AGENT = "DOM-X-Ray-Scanner-Fixture/0.1"
 SENSITIVE_OUTBOUND_HEADERS = frozenset(
     {"authorization", "cookie", "proxy-authorization", "referer"}
@@ -225,8 +226,12 @@ def classify_transfer_source(
     return "unknown"
 
 
-def classify_interstitial_v1(signals: dict[str, int]) -> str | None:
-    """Classify only a strong, structurally isolated credential gate."""
+def classify_interstitial_v1(signals: dict[str, int | None]) -> str | None:
+    """Classify only direct HTTP errors or a strong isolated credential gate."""
+
+    final_document_status = signals.get("finalDocumentStatus")
+    if isinstance(final_document_status, int) and 400 <= final_document_status <= 599:
+        return "error-document"
 
     if (
         signals.get("visibleFormCount") == 1
@@ -1031,7 +1036,22 @@ def probe_page(
             }
             for index, item in enumerate(page_state["shifts"])
         ]
-        interstitial_kind = classify_interstitial_v1(page_state["interstitialSignals"])
+        terminal_main_documents = [
+            item
+            for item in ordered_network
+            if item["isMainNavigation"] and item["redirectedToUrl"] is None
+        ]
+        final_document_status = None
+        if terminal_main_documents:
+            terminal_main_document = max(
+                terminal_main_documents,
+                key=lambda item: (item["chainOrdinal"], item["hopIndex"]),
+            )
+            if terminal_main_document.get("status") is not None:
+                final_document_status = int(terminal_main_document["status"])
+        interstitial_signals = dict(page_state["interstitialSignals"])
+        interstitial_signals["finalDocumentStatus"] = final_document_status
+        interstitial_kind = classify_interstitial_v1(interstitial_signals)
         limitations = []
         if not settled:
             limitations.append(
@@ -1163,6 +1183,19 @@ def probe_page(
                     "message": (
                         "A visible credential gate was captured; this does not establish that "
                         "the requested destination content was reached."
+                    ),
+                    "invalidatesMetrics": ["hero_insight", "intended_page_content"],
+                }
+            )
+        elif interstitial_kind == "error-document":
+            limitations.append(
+                {
+                    "code": HTTP_ERROR_INTERSTITIAL_CLASSIFIER_VERSION,
+                    "scope": "scan",
+                    "targetId": None,
+                    "message": (
+                        f"The final main document returned HTTP {final_document_status}; "
+                        "this captured error response is not treated as the intended destination content."
                     ),
                     "invalidatesMetrics": ["hero_insight", "intended_page_content"],
                 }

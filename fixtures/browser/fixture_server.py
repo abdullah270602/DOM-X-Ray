@@ -203,6 +203,47 @@ FIXTURES = {
         expected_status="interstitial",
         expected_failure_code="interstitial",
     ),
+    "http-error-404": FixtureSpec(
+        name="http-error-404",
+        host="error-404.test",
+        route="/interstitial/error/404/",
+        expected_payload_bytes=24_000,
+        expected_request_count=1,
+        expected_rects={"error-main": (360, 160, 720, 580)},
+        expected_status="interstitial",
+        expected_failure_code="interstitial",
+    ),
+    "http-error-503": FixtureSpec(
+        name="http-error-503",
+        host="error-503.test",
+        route="/interstitial/error/503/",
+        expected_payload_bytes=24_000,
+        expected_request_count=1,
+        expected_rects={"error-main": (360, 160, 720, 580)},
+        expected_status="interstitial",
+        expected_failure_code="interstitial",
+    ),
+    "subresource-error": FixtureSpec(
+        name="subresource-error",
+        host="subresource-error.test",
+        route="/subresource-error/",
+        expected_payload_bytes=24_009,
+        expected_request_count=2,
+        expected_rects={
+            "subresource-main": (120, 120, 1200, 660),
+            "subresource-image": (200, 260, 320, 180),
+        },
+        expected_exact_element_links=1,
+    ),
+    "storage-isolation": FixtureSpec(
+        name="storage-isolation",
+        host="storage-isolation.test",
+        route="/storage-isolation/",
+        expected_payload_bytes=20_000,
+        expected_request_count=1,
+        expected_rects={"storage-main": (240, 180, 960, 540)},
+        expected_excluded_markers=("storage-reused",),
+    ),
     "policy-boundary": FixtureSpec(
         name="policy-boundary",
         host="policy.test",
@@ -276,10 +317,20 @@ PAGE_SPECS = {
     "/never-settling/": ("never-settling.html", 25_000, "text/html; charset=utf-8"),
     "/unknown-byte/": ("unknown-byte.html", 25_000, "text/html; charset=utf-8"),
     "/interstitial/login/": ("interstitial.html", 28_000, "text/html; charset=utf-8"),
+    "/interstitial/error/404/": ("error-document.html", 24_000, "text/html; charset=utf-8"),
+    "/interstitial/error/503/": ("error-document.html", 24_000, "text/html; charset=utf-8"),
+    "/subresource-error/": ("subresource-error.html", 24_000, "text/html; charset=utf-8"),
+    "/storage-isolation/": ("storage-isolation.html", 20_000, "text/html; charset=utf-8"),
     "/policy-boundary/": ("policy-boundary.html", 32_000, "text/html; charset=utf-8"),
     "/unsafe-get/": ("unsafe-get.html", 30_000, "text/html; charset=utf-8"),
     "/wrapper-collapse/": ("wrapper-collapse.html", 35_000, "text/html; charset=utf-8"),
     "/mandatory-overflow/": ("mandatory-overflow.html", 80_000, "text/html; charset=utf-8"),
+}
+
+
+PAGE_STATUS_BY_ROUTE = {
+    "/interstitial/error/404/": 404,
+    "/interstitial/error/503/": 503,
 }
 
 
@@ -392,6 +443,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             302: "Found",
             307: "Temporary Redirect",
             404: "Not Found",
+            503: "Service Unavailable",
         }.get(status, "Fixture")
         extra = "".join(f"{name}: {value}\r\n" for name, value in extra_headers)
         header = (
@@ -535,7 +587,10 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                     ),
                     ("X-Fixture-Secret", "response-secret-canary-3085174692"),
                 )
-            self._write_response(200, content_type, body, extra_headers=extra_headers)
+            status = PAGE_STATUS_BY_ROUTE.get(route, 200)
+            if route == "/storage-isolation/":
+                extra_headers = (("Set-Cookie", "storage-proof=fresh; Path=/; SameSite=Lax"),)
+            self._write_response(status, content_type, body, extra_headers=extra_headers)
             return
 
         if route in ASSET_SPECS:

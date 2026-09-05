@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Subresource error negative control</title>
+  <style>
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { background: #f1eee6; color: #242721; font: 22px/1.4 sans-serif; }
+    main { position: relative; box-sizing: border-box; margin: 120px; width: 1200px; height: 660px; padding: 80px; }
+    img { position: absolute; left: 80px; top: 140px; display: block; width: 320px; height: 180px; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="subresource-main">
+    <h1>A normal page with one failed image</h1>
+    <img data-xray-id="subresource-image" src="/assets/not-found.svg" alt="">
+  </main>
+</body>
+</html>

@@ -23,6 +23,8 @@ These pages are Gate 0 instrumentation evidence, not the public application stac
 - an active qualifying fetch preventing quiet-window settlement, retaining `null` bytes and unknown source at the hard stop, and producing a resource-scoped limitation without a retry;
 - continuous DOM mutation independently reaching the bounded hard stop while retaining useful but explicitly partial geometry;
 - a stable HTTP 200 credential gate classified structurally as an interstitial, retaining orientation geometry while emitting no insight, making no form submission, and storing no form values;
+- terminal main-document 404 and 503 responses classified as error-document interstitials from status alone, plus a 200 page with a 404 image proving subresource failures do not trigger the classifier;
+- repeated fresh contexts proving that local storage, session storage, and cookies do not cross the scan boundary;
 - two unsafe methods and two literal-private subresources rejected by the policy proxy before origin contact, with public block responses retained as targeted evidence and private URLs omitted from the normalized record;
 - one deliberately state-changing GET reaching origin exactly once, with recent identical-result reuse and same-origin cooling producing no second contact under an injectable policy clock;
 - Cookie, Authorization, Proxy-Authorization, and Referer stripped before origin forwarding, ten cookie/header/query/form/storage/selector canaries absent from normalized and fixture evidence, and an explicit fixture-only scanner user-agent at origin;

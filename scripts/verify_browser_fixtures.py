@@ -23,6 +23,7 @@ from scanner.aggregation import (
 )
 from scanner.admission_policy import ScanAdmissionGate
 from scanner.browser_probe import (
+    HTTP_ERROR_INTERSTITIAL_CLASSIFIER_VERSION,
     INTERSTITIAL_CLASSIFIER_VERSION,
     SCANNER_USER_AGENT,
     classify_interstitial_v1,
@@ -200,6 +201,25 @@ def assert_interstitial_classifier_guards() -> None:
     require(
         classify_interstitial_v1(with_second_form) is None,
         "classifier ignored a second visible form",
+    )
+
+    for status, expected in (
+        (404, "error-document"),
+        (503, "error-document"),
+        (200, None),
+        (302, None),
+        (600, None),
+        (None, None),
+    ):
+        require(
+            classify_interstitial_v1({"finalDocumentStatus": status}) == expected,
+            f"final document status {status!r} produced the wrong classification",
+        )
+    error_precedence = dict(strong_login_wall)
+    error_precedence["finalDocumentStatus"] = 503
+    require(
+        classify_interstitial_v1(error_precedence) == "error-document",
+        "final main-document HTTP error did not take precedence over body structure",
     )
 
 
@@ -463,7 +483,9 @@ def main() -> None:
     cache_fingerprint = None
     worker_fingerprint = None
     interstitial_fingerprint = None
+    error_fingerprints = {}
     policy_fingerprint = None
+    storage_fingerprint = None
     wrapper_fingerprint = None
     overflow_fingerprint = None
     admission_now = [1_000.0]
@@ -972,6 +994,59 @@ def main() -> None:
                         tuple(item["code"] for item in record["limitations"]),
                         deterministic_fingerprint(record),
                     )
+                elif name in {"http-error-404", "http-error-503"}:
+                    expected_http_status = 404 if name.endswith("404") else 503
+                    document_resources = [
+                        item for item in record["resources"] if item["type"] == "document"
+                    ]
+                    require(
+                        len(document_resources) == 1
+                        and document_resources[0]["responseStatus"] == expected_http_status,
+                        f"{name} did not preserve the final main-document HTTP status",
+                    )
+                    require(not record["insights"], f"{name} emitted an insight")
+                    limitations = {item["code"]: item for item in record["limitations"]}
+                    require(
+                        set(limitations) == {HTTP_ERROR_INTERSTITIAL_CLASSIFIER_VERSION},
+                        f"{name} produced an unexpected limitation set",
+                    )
+                    limitation = limitations[HTTP_ERROR_INTERSTITIAL_CLASSIFIER_VERSION]
+                    require(
+                        limitation["scope"] == "scan"
+                        and limitation["targetId"] is None
+                        and set(limitation["invalidatesMetrics"])
+                        == {"hero_insight", "intended_page_content"},
+                        f"{name} limitation has the wrong scope or invalidations",
+                    )
+                    error_fingerprints[name] = (
+                        record["status"],
+                        record["failureCode"],
+                        tuple(item["code"] for item in record["limitations"]),
+                        deterministic_fingerprint(record),
+                    )
+                elif name == "subresource-error":
+                    statuses = {
+                        item["type"]: item["responseStatus"] for item in record["resources"]
+                    }
+                    require(
+                        statuses.get("document") == 200 and statuses.get("image") == 404,
+                        "subresource-error did not exercise a 200 document plus failed image",
+                    )
+                    require(
+                        record["status"] == "complete" and not record["limitations"],
+                        "a subresource-only HTTP error was mislabeled as an interstitial",
+                    )
+                elif name == "storage-isolation":
+                    require(
+                        "storage-reused" not in result.fixture_node_ids,
+                        "a fresh capture inherited local or session storage",
+                    )
+                    require(
+                        len(server.ledger) == 1
+                        and not server.ledger[0]["sensitiveHeadersPresent"],
+                        "a fresh capture sent cookie state from a previous scan",
+                    )
+                    storage_fingerprint = deterministic_fingerprint(record)
                 elif name == "policy-boundary":
                     serialized_policy_evidence = json.dumps(
                         {
@@ -1296,12 +1371,12 @@ def main() -> None:
                 served_payload = sum(
                     int(item["bodyBytes"])
                     for item in observed_ledger
-                    if item["status"] == 200
+                    if 200 <= int(item["status"]) <= 599
                 )
                 served_wire = sum(
                     int(item["wireBytes"])
                     for item in observed_ledger
-                    if 200 <= int(item["status"]) < 400
+                    if 100 <= int(item["status"]) <= 599
                 ) + blocked_wire
                 require(
                     served_payload == fixture.expected_payload_bytes,
@@ -1396,6 +1471,52 @@ def main() -> None:
                 interstitial_fingerprint == repeated_interstitial_fingerprint,
                 "interstitial classification, limitation, or geometry changed on repeat",
             )
+            for error_name in ("http-error-404", "http-error-503"):
+                error_fixture = FIXTURES[error_name]
+                error_url = (
+                    f"http://{error_fixture.host}:{server.server_port}{error_fixture.route}"
+                )
+                server.clear_ledger()
+                proxy.clear_state()
+                repeated_error = probe_page(
+                    browser,
+                    error_url,
+                    proxy_server=proxy.url,
+                    policy_block_log=proxy.blocked,
+                ).record
+                repeated_error_fingerprint = (
+                    repeated_error["status"],
+                    repeated_error["failureCode"],
+                    tuple(item["code"] for item in repeated_error["limitations"]),
+                    deterministic_fingerprint(repeated_error),
+                )
+                require(
+                    error_fingerprints[error_name] == repeated_error_fingerprint,
+                    f"{error_name} classification, limitation, or geometry changed on repeat",
+                )
+            storage = FIXTURES["storage-isolation"]
+            storage_url = f"http://{storage.host}:{server.server_port}{storage.route}"
+            server.clear_ledger()
+            proxy.clear_state()
+            repeated_storage = probe_page(
+                browser,
+                storage_url,
+                proxy_server=proxy.url,
+                policy_block_log=proxy.blocked,
+            )
+            require(
+                storage_fingerprint == deterministic_fingerprint(repeated_storage.record),
+                "cross-scan storage isolation changed geometry or evidence on repeat",
+            )
+            require(
+                "storage-reused" not in repeated_storage.fixture_node_ids,
+                "a later scan inherited local or session storage from an earlier context",
+            )
+            require(
+                len(server.ledger) == 1
+                and not server.ledger[0]["sensitiveHeadersPresent"],
+                "a later scan inherited cookie state from an earlier context",
+            )
             policy = FIXTURES["policy-boundary"]
             policy_url = f"http://{policy.host}:{server.server_port}{policy.route}"
             server.clear_ledger()
@@ -1471,7 +1592,7 @@ def main() -> None:
     )
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
     print("Validated 4 transfer-source priority cases.")
-    print("Validated 6 interstitial-classifier safety guards.")
+    print("Validated 13 interstitial-classifier safety guards.")
     print("Validated 4 aggregation safety guards.")
     print("Validated scan reuse and per-origin cooling with an injectable policy clock.")
     print("Validated 5 browser-enforced redirect rejection cases.")

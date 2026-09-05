@@ -28,7 +28,7 @@ Any change to these values requires a scanner-version bump and must remain visib
 | Frames | Top-level document only | Cross-origin and nested frame DOM stays opaque; the iframe element may appear as one region |
 | Screenshot | Initial viewport only | Orientation reference, not full-page analysis |
 
-Playwright non-persistent browser contexts do not write browsing data to disk. The scanner still destroys every context after one scan and never reuses its storage state.
+Playwright non-persistent browser contexts do not write browsing data to disk. The scanner still destroys every context after one scan and never reuses its storage state. The Gate 0 isolation fixture performs repeated captures and fails if the later context sees the earlier context's local storage, session storage, or cookie.
 
 ## Bounded timeline
 
@@ -87,7 +87,7 @@ The normalized record stores `requestChainId`, `redirectHopIndex`, `redirectedFr
 
 The Gate 0 fixture browser sends traffic through a single-scan local policy proxy. The proxy inspects each redirect target before returning its `Location` header, rejects unsafe targets without connecting to them, and relays allowed response bytes unchanged. A Playwright route callback alone is not accepted as redirect enforcement because continuing the initial request can allow Chromium to follow later hops without re-entering that callback. Production still requires the selected stack's independently enforced DNS and public-egress boundary.
 
-HTTP error responses such as 404 or 503 remain completed responses when the network lifecycle completes. A network failure and an HTTP error are different states.
+HTTP error responses such as 404 or 503 remain completed responses when the network lifecycle completes. A network failure and an HTTP error are different states. The versioned `http-error-status-v1` interstitial classifier uses only the terminal final-hop main-document status and classifies 400–599; it never uses title or body text. A 200 main document with a 404 subresource remains a normal capture, and redirects ending in 200 are classified from that final response rather than an earlier hop.
 
 If a qualifying request has no completed canonical byte value at capture, its transfer source is `unknown` and `transferredBytes` remains `null`; it is never coerced to zero. The record receives a resource-scoped limitation that invalidates that resource's mass plus request-count and whole-load byte claims. The Gate 0 unfinished-response fixture proves this state while the active request holds settlement open until the hard stop.
 
@@ -192,7 +192,7 @@ The page is not scrolled, clicked, animated by DOM X-Ray, or restyled before the
 
 Blocked and failed records contain no simulated cutaway. Interstitial records can show the captured orientation state but cannot emit a hero insight about the intended page.
 
-The versioned `login-gate-structural-v1` classifier requires exactly one visible form containing a visible identity input, password input, and submit control, with no competing visible text, media, or content landmark outside that form and its ancestors. It does not classify from title or body text, never submits the form, and does not persist field values. The Gate 0 HTTP 200 login-wall fixture proves the positive case plus negative guards for missing credential controls, a second form, and competing content. False negatives are preferred to labeling an ordinary page with a login widget as an interstitial. Consent screens, challenges, and error documents remain named interstitial classes but require their own conservative classifiers before the scanner may emit those statuses.
+The versioned `login-gate-structural-v1` classifier requires exactly one visible form containing a visible identity input, password input, and submit control, with no competing visible text, media, or content landmark outside that form and its ancestors. It does not classify from title or body text, never submits the form, and does not persist field values. The Gate 0 HTTP 200 login-wall fixture proves the positive case plus negative guards for missing credential controls, a second form, and competing content. The separate `http-error-status-v1` classifier takes precedence when the final main document itself returned 400–599. False negatives are preferred to labeling ordinary page content as an interstitial. Consent screens and challenges remain named classes but are not emitted yet: current dialog/iframe structure cannot distinguish them safely from ordinary application UI without trusting attacker-controlled copy or provider markers.
 
 ## Reproducibility
 

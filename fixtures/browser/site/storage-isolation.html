@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cross-scan storage isolation fixture</title>
+  <style>
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { background: #f4f0e8; color: #242821; font: 24px/1.4 sans-serif; }
+    main { box-sizing: border-box; margin: 180px 240px; width: 960px; height: 540px; padding: 72px; border: 2px solid #242821; }
+    [data-xray-id="storage-reused"] { width: 320px; height: 64px; background: #a31f34; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="storage-main">
+    <h1>Fresh browser context</h1>
+    <p>Each capture must begin without local or session storage from a previous scan.</p>
+  </main>
+  <script>
+    const contaminated = localStorage.getItem('dom-xray-storage-proof') !== null
+      || sessionStorage.getItem('dom-xray-storage-proof') !== null;
+    if (contaminated) {
+      const warning = document.createElement('div');
+      warning.dataset.xrayId = 'storage-reused';
+      document.body.append(warning);
+    }
+    localStorage.setItem('dom-xray-storage-proof', 'local-storage-isolation-canary');
+    sessionStorage.setItem('dom-xray-storage-proof', 'session-storage-isolation-canary');
+  </script>
+</body>
+</html>
