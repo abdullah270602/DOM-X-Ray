@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM X-Ray Mandatory-Overflow Fixture</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { position: relative; background: #f4f0e8; }
+    main { position: absolute; left: 20px; top: 20px; width: 804px; height: 544px; display: grid; grid-template-columns: repeat(31, 24px); grid-auto-rows: 24px; gap: 2px; }
+    section, img { display: block; width: 24px; height: 24px; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="overflow-main">{{OVERFLOW_NODES}}</main>
+</body>
+</html>

@@ -1028,6 +1028,19 @@ def probe_page(
                     "invalidatesMetrics": ["geometry"],
                 }
             )
+        if aggregation.fallback_rule is not None:
+            limitations.append(
+                {
+                    "code": aggregation.fallback_rule,
+                    "scope": "scan",
+                    "targetId": None,
+                    "message": (
+                        "Mandatory evidence exceeded the scene-object budget; exact node and "
+                        "resource evidence remains inspectable outside the bounded overview."
+                    ),
+                    "invalidatesMetrics": ["scene_completeness", "visual_region_count"],
+                }
+            )
         worker_bootstrap_unmeasured = any(
             item["workerBootstrap"] for item in ordered_network
         )
@@ -1150,6 +1163,7 @@ def probe_page(
             worker_capture_incomplete
             or bool(unknown_nonbootstrap_resources)
             or bool(blocked_requests)
+            or aggregation.fallback_rule is not None
         )
         if interstitial_kind is not None:
             record_status = "interstitial"
@@ -1159,7 +1173,17 @@ def probe_page(
             failure_code = None
         else:
             record_status = "partial"
-            failure_code = "measurement-unavailable"
+            failure_code = (
+                "resource-limit"
+                if aggregation.fallback_rule is not None
+                else "measurement-unavailable"
+            )
+
+        limits_reached = []
+        if not settled:
+            limits_reached.append("time")
+        if aggregation.fallback_rule is not None:
+            limits_reached.append("regions")
 
         record = {
             "schemaVersion": "0.1.0",
@@ -1198,7 +1222,7 @@ def probe_page(
                 "redirectCount": len(redirect_rows),
                 "redirectLimit": REDIRECT_LIMIT,
                 "redirects": redirect_rows,
-                "limitsReached": [] if settled else ["time"],
+                "limitsReached": limits_reached,
             },
             "page": {
                 "title": page_state["title"],

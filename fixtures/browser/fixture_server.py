@@ -219,6 +219,41 @@ FIXTURES = {
             ("GET", "/private-image", "private-literal-host"),
         ),
     ),
+    "wrapper-collapse": FixtureSpec(
+        name="wrapper-collapse",
+        host="collapse.test",
+        route="/wrapper-collapse/",
+        expected_payload_bytes=50_000,
+        expected_request_count=2,
+        expected_rects={
+            "collapse-main": (200, 140, 1040, 560),
+            "collapse-article": (200, 140, 1040, 560),
+            "collapse-image": (300, 240, 320, 180),
+        },
+        expected_omitted_markers=("collapse-wrapper-1", "collapse-wrapper-2"),
+        expected_exact_element_links=1,
+        expected_rendered_count=5,
+        expected_aggregated_count=2,
+    ),
+    "mandatory-overflow": FixtureSpec(
+        name="mandatory-overflow",
+        host="overflow.test",
+        route="/mandatory-overflow/",
+        expected_payload_bytes=90_000,
+        expected_request_count=2,
+        expected_rects={
+            "overflow-main": (20, 20, 804, 544),
+            "overflow-section-000": (20, 20, 24, 24),
+            "overflow-image": (800, 540, 24, 24),
+        },
+        expected_omitted_markers=("overflow-section-647", "overflow-image"),
+        expected_exact_element_links=1,
+        expected_rendered_count=650,
+        expected_aggregated_count=4,
+        expected_status="partial",
+        expected_failure_code="resource-limit",
+        expected_limits=("regions",),
+    ),
 }
 
 
@@ -234,6 +269,8 @@ PAGE_SPECS = {
     "/unknown-byte/": ("unknown-byte.html", 25_000, "text/html; charset=utf-8"),
     "/interstitial/login/": ("interstitial.html", 28_000, "text/html; charset=utf-8"),
     "/policy-boundary/": ("policy-boundary.html", 32_000, "text/html; charset=utf-8"),
+    "/wrapper-collapse/": ("wrapper-collapse.html", 35_000, "text/html; charset=utf-8"),
+    "/mandatory-overflow/": ("mandatory-overflow.html", 80_000, "text/html; charset=utf-8"),
 }
 
 
@@ -261,6 +298,8 @@ ASSET_SPECS = {
     "/media/redirect-third.svg": (None, 15_000, "image/svg+xml"),
     "/assets/cache-payload.bin": (None, 100_000, "application/octet-stream"),
     "/media/worker-payload.svg": (None, 20_000, "image/svg+xml"),
+    "/media/wrapper.svg": (None, 15_000, "image/svg+xml"),
+    "/media/overflow.svg": (None, 10_000, "image/svg+xml"),
     "/sw.js": ("sw.js", 10_000, "text/javascript; charset=utf-8"),
 }
 
@@ -449,6 +488,16 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                     for index in range(720)
                 ).encode("utf-8")
                 source = source.replace(b"{{TILES}}", tiles)
+            if b"{{OVERFLOW_NODES}}" in source:
+                overflow_nodes = (
+                    "".join(
+                        f'<section data-xray-id="overflow-section-{index:03d}"></section>'
+                        for index in range(650)
+                    )
+                    + '<img data-xray-id="overflow-image" '
+                    'src="/media/overflow.svg" alt="">'
+                ).encode("utf-8")
+                source = source.replace(b"{{OVERFLOW_NODES}}", overflow_nodes)
             body = _pad_text(source, target_size, content_type)
             self._write_response(200, content_type, body)
             return

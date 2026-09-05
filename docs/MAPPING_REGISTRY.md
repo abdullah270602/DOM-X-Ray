@@ -82,14 +82,13 @@ The renderer has a hard budget of 650 scene objects, including external hubs. `p
 2. Mark mandatory nodes: root/body, semantic landmarks, replaced media, exact resource-link targets, shift sources, inferred stacking contexts, canvas, SVG roots, and iframes.
 3. Collapse a wrapper into its nearest represented ancestor when its clipped rectangle matches the ancestor within 1 CSS pixel, it has no exact resource, no stacking-context trigger, no semantic role, and contributes no distinct painted region known to the DOM evidence.
 4. If the result still exceeds the available budget, rank nonmandatory candidates by clipped viewport area, exact-resource weight, semantic distinctness, and DOM order as the final tie-breaker.
-5. Preserve all mandatory nodes. Fill the remaining budget by rank.
-6. Attach every omitted candidate to its nearest represented ancestor as a member ID. An aggregate exposes its member count and rule.
+5. When mandatory candidates fit, preserve all of them and fill the remaining budget by rank.
+6. Attach every ordinarily omitted candidate to its nearest represented ancestor as a member ID. An aggregate exposes its member count and rule.
+7. When mandatory candidates alone exceed the available slots, `mandatory-overflow-v1` selects the first available mandatory candidates in document order as a bounded overview. It retains every remaining candidate as an evidence-only node with `sceneIncluded: false`, preserves raw geometry and exact resource links, and attaches each evidence-only ID once to its nearest scene ancestor. The viewer never instantiates those evidence-only nodes as scene objects.
 
 The algorithm never describes omitted candidates as nonexistent. `rawDomNodeCount`, `inspectedNodeCount`, `candidateNodeCount`, `aggregatedNodeCount`, and `renderedRegionCount` remain separate.
 
-The Gate 0 browser proof exercises the over-budget path with 723 candidates: 650 render, 73 remain inspectable as aggregate members, and equal-ranked tiles use preorder order for the retained cutoff. Wrapper-collapse and mandatory-overflow behavior still require dedicated integration fixtures. Until the region-level mandatory-overflow fallback is implemented, the proof reducer explicitly refuses that condition instead of emitting a record that violates the hard budget.
-
-If mandatory objects alone exceed the budget, the scan is partial and the viewer uses a region-level fallback. It does not silently discard exact evidence.
+The Gate 0 browser proof exercises three distinct paths: 723 candidates reduce to 650 rendered regions with 73 inspectable aggregate members; two same-footprint evidence-free wrappers collapse while represented parents and exact image attribution remain intact; and 654 mandatory candidates produce a partial 650-object overview with four complete evidence-only node records. In the overflow fixture, the exact-linked image is deliberately evidence-only, proving its raw rectangle and symmetric resource link survive even though it is not a scene object. If external hubs leave no DOM scene slot at all, the reducer still refuses to invent a scene.
 
 ## Hero selection
 

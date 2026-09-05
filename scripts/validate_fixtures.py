@@ -118,7 +118,13 @@ def validate_semantics(
 
     require(record["schemaVersion"] == "0.1.0", f"{label} uses an unexpected schema version")
     require(record["capture"]["requestCount"] == len(resources), f"{label} request count mismatch")
-    require(record["capture"]["renderedRegionCount"] == len(nodes), f"{label} rendered-region count mismatch")
+    scene_node_ids = {
+        node_id for node_id, node in nodes.items() if node.get("sceneIncluded", True)
+    }
+    require(
+        record["capture"]["renderedRegionCount"] == len(scene_node_ids),
+        f"{label} rendered-region count mismatch",
+    )
 
     capture = record["capture"]
     if "redirects" in capture:
@@ -150,13 +156,23 @@ def validate_semantics(
 
     member_ids = [member for node in nodes.values() for member in node["memberNodeIds"]]
     require(len(member_ids) == len(set(member_ids)), f"{label} repeats an aggregated member id")
-    require(not (set(member_ids) & set(nodes)), f"{label} exposes an aggregated member as a rendered node")
+    evidence_member_ids = set(member_ids) & set(nodes)
+    require(
+        not (evidence_member_ids & scene_node_ids),
+        f"{label} exposes an aggregated member as a rendered node",
+    )
+    evidence_only_ids = set(nodes) - scene_node_ids
+    require(
+        evidence_only_ids == evidence_member_ids,
+        f"{label} evidence-only nodes are not represented exactly once as aggregate members",
+    )
     require(
         record["capture"]["aggregatedNodeCount"] == len(member_ids),
         f"{label} aggregated-node count mismatch",
     )
     require(
-        record["capture"]["candidateNodeCount"] == len(nodes) + len(member_ids),
+        record["capture"]["candidateNodeCount"]
+        == len(nodes) + len(set(member_ids) - set(nodes)),
         f"{label} candidate-node count mismatch",
     )
     require(
@@ -169,6 +185,11 @@ def validate_semantics(
     )
 
     for node in nodes.values():
+        if not node.get("sceneIncluded", True):
+            require(
+                not node["memberNodeIds"] and node.get("aggregationRule") is None,
+                f"{label} evidence-only node behaves as an aggregate: {node['id']}",
+            )
         if node["parentId"] is not None:
             require(node["parentId"] in nodes, f"{label} has orphan parent {node['parentId']}")
             require(node["parentId"] != node["id"], f"{label} has a self-parented node {node['id']}")

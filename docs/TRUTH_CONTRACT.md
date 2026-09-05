@@ -72,7 +72,7 @@ All transformation formulas—normalization, clamping, aggregation, mass scale, 
 - A third-party origin is not automatically advertising, surveillance, malicious, unnecessary, or slow.
 - DOM depth is not z-index. Stacking context is not visual importance. Transferred bytes are not decoded size.
 - A screenshot match or visual proximity may help orientation but cannot establish causality.
-- Aggregated regions must retain the member node IDs and aggregation rule.
+- Aggregated regions must retain the member node IDs and aggregation rule. A mandatory-overflow record must also retain each evidence-only node's raw geometry and exact resource links while excluding it from the rendered-object count.
 - Cinematic peeling, camera motion, pulses, and transitions are staging. They may reveal a measurement but may not imply that the page itself moved, vibrated, collapsed, overheated, or became unstable.
 
 When attribution stops at the page or origin level, the visual must stop there too: use a page-level bus, engine, counterweight, or external machine rather than attaching blame to a nearby element.

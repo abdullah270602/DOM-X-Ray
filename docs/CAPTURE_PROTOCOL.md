@@ -172,7 +172,9 @@ The API and its source-attribution rectangles are not uniformly supported across
 
 ## Aggregation handoff
 
-The capture record preserves raw candidate IDs and exact links. `rawDomNodeCount` is every observed top-level-document element; `inspectedNodeCount` is every element actually tested before a cap; `candidateNodeCount` is the qualifying pre-aggregation set; `aggregatedNodeCount` is the number omitted into aggregate membership; and `renderedRegionCount` is the final represented set. `perceptual-region-v1`, defined in the mapping registry, reduces candidates to the 650-object budget. Every aggregate retains all member IDs and its aggregation rule.
+The capture record preserves raw candidate IDs and exact links. `rawDomNodeCount` is every observed top-level-document element; `inspectedNodeCount` is every element actually tested before a cap; `candidateNodeCount` is the qualifying pre-aggregation set; `aggregatedNodeCount` is the number omitted into aggregate membership; and `renderedRegionCount` is the final scene-instantiated set. `perceptual-region-v1`, defined in the mapping registry, reduces candidates to the 650-object budget. Every aggregate retains all member IDs and its aggregation rule.
+
+Ordinary records contain only represented nodes; an absent `sceneIncluded` value therefore means true. When mandatory candidates alone exceed the available scene slots, `mandatory-overflow-v1` keeps all candidate records so exact rectangles, selectors, ancestry, and resource links remain inspectable, marks only bounded representatives with `sceneIncluded: true`, and marks the remainder false while attaching each ID once to its nearest scene ancestor. The capture becomes partial with `failureCode: resource-limit`, `limitsReached: ["regions"]`, and a limitation that forbids a complete-scene claim. Evidence-only nodes are never instantiated by the renderer or counted in `renderedRegionCount`.
 
 ## Screenshot boundary
 

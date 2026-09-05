@@ -8,10 +8,11 @@ from typing import Any
 
 
 AGGREGATION_RULE = "perceptual-region-v1"
+MANDATORY_OVERFLOW_RULE = "mandatory-overflow-v1"
 
 
 class MandatoryOverflowError(ValueError):
-    """Raised until the truthful region-level overflow fallback is implemented."""
+    """Raised when external hubs leave no slot for a truthful DOM overview."""
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class AggregationResult:
     rendered_count: int
     available_node_budget: int
     external_hub_count: int
+    fallback_rule: str | None = None
 
 
 def _rect_matches(left: dict[str, float], right: dict[str, float], tolerance: float = 1.0) -> bool:
@@ -97,12 +99,13 @@ def aggregate_nodes(
 
     available = max_scene_objects - external_hub_count
     mandatory_ids = [node_id for node_id in ordered if node_id in active and metadata[node_id]["mandatory"]]
-    if len(mandatory_ids) > available:
-        raise MandatoryOverflowError(
-            f"{len(mandatory_ids)} mandatory candidates exceed the available scene budget of {available}"
-        )
+    mandatory_overflow = len(mandatory_ids) > available
+    if mandatory_overflow and available <= 0:
+        raise MandatoryOverflowError("mandatory overflow has no available DOM scene slot")
 
-    if len(active) > available:
+    if mandatory_overflow:
+        retained = set(mandatory_ids[:available])
+    elif len(active) > available:
         known_bytes_by_node: dict[str, int] = {}
         for resource in resources:
             value = resource["transferredBytes"]
@@ -134,6 +137,7 @@ def aggregate_nodes(
         node_map[node_id]["parentId"] = nearest_ancestor(node_id, retained)
         node_map[node_id]["memberNodeIds"] = []
         node_map[node_id]["aggregationRule"] = None
+        node_map[node_id]["sceneIncluded"] = True
 
     fallback_root = next((node_id for node_id in ordered if node_id in retained), None)
     for node_id in omitted:
@@ -141,14 +145,25 @@ def aggregate_nodes(
         if target_id is None:
             raise ValueError(f"omitted candidate {node_id} has no represented ancestor")
         node_map[target_id]["memberNodeIds"].append(node_id)
-        node_map[target_id]["aggregationRule"] = AGGREGATION_RULE
+        node_map[target_id]["aggregationRule"] = (
+            MANDATORY_OVERFLOW_RULE if mandatory_overflow else AGGREGATION_RULE
+        )
+        if mandatory_overflow:
+            node_map[node_id]["memberNodeIds"] = []
+            node_map[node_id]["aggregationRule"] = None
+            node_map[node_id]["sceneIncluded"] = False
 
-    rendered = [node_map[node_id] for node_id in ordered if node_id in retained]
+    rendered = [
+        node_map[node_id]
+        for node_id in ordered
+        if mandatory_overflow or node_id in retained
+    ]
     return AggregationResult(
         nodes=rendered,
         candidate_count=len(nodes),
         aggregated_count=len(omitted),
-        rendered_count=len(rendered),
+        rendered_count=len(retained),
         available_node_budget=available,
         external_hub_count=external_hub_count,
+        fallback_rule=MANDATORY_OVERFLOW_RULE if mandatory_overflow else None,
     )

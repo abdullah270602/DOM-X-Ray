@@ -347,6 +347,10 @@
         "rect": { "$ref": "#/$defs/rect" },
         "domDepth": { "type": "integer", "minimum": 0 },
         "stackingContext": { "$ref": "#/$defs/stackingContext" },
+        "sceneIncluded": {
+          "description": "Whether this evidence node is instantiated as a scene object. Omission means true for v0.1 records.",
+          "type": "boolean"
+        },
         "memberNodeIds": {
           "description": "Raw node IDs represented by this node/region. Empty for an unaggregated raw node.",
           "type": "array",

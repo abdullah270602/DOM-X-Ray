@@ -16,7 +16,11 @@ sys.path.insert(0, str(ROOT))
 
 from fixtures.browser.fixture_server import FIXTURES, run_fixture_server
 from fixtures.browser.policy_proxy import run_policy_proxy
-from scanner.aggregation import MandatoryOverflowError, aggregate_nodes
+from scanner.aggregation import (
+    MANDATORY_OVERFLOW_RULE,
+    MandatoryOverflowError,
+    aggregate_nodes,
+)
 from scanner.browser_probe import (
     INTERSTITIAL_CLASSIFIER_VERSION,
     classify_interstitial_v1,
@@ -244,12 +248,35 @@ def assert_aggregation_guards() -> None:
         "root": metadata(mandatory=True, preorder=0),
         "child": metadata(mandatory=True, preorder=1),
     }
+    overflow = aggregate_nodes(
+        mandatory_nodes,
+        mandatory_metadata,
+        [],
+        max_scene_objects=1,
+    )
+    require(
+        overflow.fallback_rule == MANDATORY_OVERFLOW_RULE
+        and overflow.rendered_count == 1
+        and overflow.aggregated_count == 1,
+        "mandatory overflow did not produce a bounded evidence-preserving fallback",
+    )
+    require(
+        [item.get("sceneIncluded") for item in overflow.nodes] == [True, False]
+        and overflow.nodes[0]["memberNodeIds"] == ["child"],
+        "mandatory overflow lost its evidence-only member",
+    )
     try:
-        aggregate_nodes(mandatory_nodes, mandatory_metadata, [], max_scene_objects=1)
+        aggregate_nodes(
+            mandatory_nodes,
+            mandatory_metadata,
+            [],
+            max_scene_objects=1,
+            external_hub_count=1,
+        )
     except MandatoryOverflowError:
         pass
     else:
-        raise AssertionError("aggregation emitted an over-budget mandatory scene")
+        raise AssertionError("aggregation invented a DOM scene with no available slot")
 
 
 def assert_redirect_policy(browser, server, proxy) -> None:
@@ -310,6 +337,7 @@ def deterministic_fingerprint(record: dict) -> tuple:
             tuple(item["rect"].items()),
             item["domDepth"],
             tuple(item["stackingContext"].items()),
+            item.get("sceneIncluded", True),
             tuple(item["resourceIds"]),
             tuple(item["memberNodeIds"]),
             item["aggregationRule"],
@@ -370,6 +398,8 @@ def main() -> None:
     worker_fingerprint = None
     interstitial_fingerprint = None
     policy_fingerprint = None
+    wrapper_fingerprint = None
+    overflow_fingerprint = None
 
     with (
         run_fixture_server() as server,
@@ -453,11 +483,15 @@ def main() -> None:
                 )
                 require(
                     record["capture"]["candidateNodeCount"]
-                    == len(record["nodes"]) + record["capture"]["aggregatedNodeCount"],
+                    == record["capture"]["renderedRegionCount"]
+                    + record["capture"]["aggregatedNodeCount"],
                     f"{name} candidate/aggregation counts drifted",
                 )
+                scene_nodes = [
+                    item for item in record["nodes"] if item.get("sceneIncluded", True)
+                ]
                 require(
-                    record["capture"]["renderedRegionCount"] == len(record["nodes"]),
+                    record["capture"]["renderedRegionCount"] == len(scene_nodes),
                     f"{name} rendered-region count drifted",
                 )
                 require(
@@ -474,7 +508,7 @@ def main() -> None:
                         f"{name} rendered {record['capture']['renderedRegionCount']} regions",
                     )
 
-                rendered_ids = {item["id"] for item in record["nodes"]}
+                rendered_ids = {item["id"] for item in scene_nodes}
                 member_ids = [
                     member_id
                     for item in record["nodes"]
@@ -980,6 +1014,92 @@ def main() -> None:
                         ),
                         deterministic_fingerprint(record),
                     )
+                elif name == "wrapper-collapse":
+                    main_id = result.fixture_node_ids["collapse-main"]
+                    article_id = result.fixture_node_ids["collapse-article"]
+                    image_id = result.fixture_node_ids["collapse-image"]
+                    wrapper_ids = {
+                        result.fixture_node_ids["collapse-wrapper-1"],
+                        result.fixture_node_ids["collapse-wrapper-2"],
+                    }
+                    node_by_id = {item["id"]: item for item in record["nodes"]}
+                    require(
+                        set(node_by_id[main_id]["memberNodeIds"]) == wrapper_ids
+                        and node_by_id[main_id]["aggregationRule"]
+                        == "perceptual-region-v1",
+                        "evidence-free wrappers were not attached to the represented main",
+                    )
+                    require(
+                        node_by_id[article_id]["parentId"] == main_id
+                        and node_by_id[image_id]["parentId"] == article_id,
+                        "wrapper collapse did not rewire represented parents",
+                    )
+                    linked_resource = next(
+                        item for item in record["resources"] if item["type"] == "image"
+                    )
+                    require(
+                        linked_resource["attributedNodeIds"] == [image_id]
+                        and node_by_id[image_id]["resourceIds"]
+                        == [linked_resource["id"]],
+                        "wrapper collapse changed exact image attribution",
+                    )
+                    wrapper_fingerprint = deterministic_fingerprint(record)
+                elif name == "mandatory-overflow":
+                    node_by_id = {item["id"]: item for item in record["nodes"]}
+                    evidence_only_ids = {
+                        item["id"]
+                        for item in record["nodes"]
+                        if not item.get("sceneIncluded", True)
+                    }
+                    expected_evidence_only_ids = {
+                        result.fixture_node_ids[f"overflow-section-{index:03d}"]
+                        for index in range(647, 650)
+                    }
+                    expected_evidence_only_ids.add(
+                        result.fixture_node_ids["overflow-image"]
+                    )
+                    require(
+                        len(record["nodes"]) == 654
+                        and evidence_only_ids == expected_evidence_only_ids,
+                        "mandatory overflow did not preserve the expected evidence-only nodes",
+                    )
+                    main_id = result.fixture_node_ids["overflow-main"]
+                    require(
+                        set(node_by_id[main_id]["memberNodeIds"])
+                        == expected_evidence_only_ids
+                        and node_by_id[main_id]["aggregationRule"]
+                        == MANDATORY_OVERFLOW_RULE,
+                        "mandatory overflow did not attach evidence-only members to its region",
+                    )
+                    image_resource = next(
+                        item for item in record["resources"] if item["type"] == "image"
+                    )
+                    image_id = result.fixture_node_ids["overflow-image"]
+                    require(
+                        image_resource["attributedNodeIds"] == [image_id]
+                        and image_resource["id"] in node_by_id[image_id]["resourceIds"]
+                        and not node_by_id[image_id]["sceneIncluded"],
+                        "mandatory overflow dropped exact resource/node evidence",
+                    )
+                    require(
+                        record["capture"]["renderedRegionCount"] == 650
+                        and record["capture"]["aggregatedNodeCount"] == 4,
+                        "mandatory overflow violated the scene-object budget",
+                    )
+                    overflow_limitations = {
+                        item["code"]: item for item in record["limitations"]
+                    }
+                    require(
+                        set(overflow_limitations) == {MANDATORY_OVERFLOW_RULE}
+                        and set(
+                            overflow_limitations[MANDATORY_OVERFLOW_RULE][
+                                "invalidatesMetrics"
+                            ]
+                        )
+                        == {"scene_completeness", "visual_region_count"},
+                        "mandatory overflow lacks its exact scene limitation",
+                    )
+                    overflow_fingerprint = deterministic_fingerprint(record)
 
                 unobserved_paths = set(fixture.expected_unobserved_paths)
                 observed_ledger = [
@@ -1127,6 +1247,37 @@ def main() -> None:
                 policy_fingerprint == repeated_policy_fingerprint,
                 "policy block resources, limitations, or geometry changed on repeat",
             )
+            wrapper = FIXTURES["wrapper-collapse"]
+            wrapper_url = f"http://{wrapper.host}:{server.server_port}{wrapper.route}"
+            server.clear_ledger()
+            proxy.clear_state()
+            repeated_wrapper = probe_page(
+                browser,
+                wrapper_url,
+                proxy_server=proxy.url,
+                policy_block_log=proxy.blocked,
+            ).record
+            require(
+                wrapper_fingerprint == deterministic_fingerprint(repeated_wrapper),
+                "wrapper collapse membership or parent rewiring changed on repeat",
+            )
+            overflow_fixture = FIXTURES["mandatory-overflow"]
+            overflow_url = (
+                f"http://{overflow_fixture.host}:{server.server_port}"
+                f"{overflow_fixture.route}"
+            )
+            server.clear_ledger()
+            proxy.clear_state()
+            repeated_overflow = probe_page(
+                browser,
+                overflow_url,
+                proxy_server=proxy.url,
+                policy_block_log=proxy.blocked,
+            ).record
+            require(
+                overflow_fingerprint == deterministic_fingerprint(repeated_overflow),
+                "mandatory-overflow evidence/scene partition changed on repeat",
+            )
             assert_redirect_policy(browser, server, proxy)
         finally:
             browser.close()
@@ -1138,13 +1289,13 @@ def main() -> None:
     for summary in summaries:
         print(f"  {summary}")
     print(
-        "Validated deterministic node, redirect, attribution, source, interstitial, and policy fingerprints "
+        "Validated deterministic node, aggregation, redirect, attribution, source, interstitial, and policy fingerprints "
         "across repeated captures."
     )
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
     print("Validated 4 transfer-source priority cases.")
     print("Validated 6 interstitial-classifier safety guards.")
-    print("Validated 3 aggregation safety guards.")
+    print("Validated 4 aggregation safety guards.")
     print("Validated 5 browser-enforced redirect rejection cases.")
     print("Validated 4 live unsafe-method/private-subresource blocks.")
     print("Validated 1 redirect-chain negative control.")

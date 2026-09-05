@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM X-Ray Wrapper-Collapse Fixture</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { position: relative; background: #f4f0e8; }
+    main { position: absolute; left: 200px; top: 140px; width: 1040px; height: 560px; }
+    .wrapper, article { position: absolute; inset: 0; width: 100%; height: 100%; }
+    article { background: #e4ddd1; }
+    img { position: absolute; left: 100px; top: 100px; width: 320px; height: 180px; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="collapse-main">
+    <div class="wrapper" data-xray-id="collapse-wrapper-1">
+      <div class="wrapper" data-xray-id="collapse-wrapper-2">
+        <article data-xray-id="collapse-article">
+          <img data-xray-id="collapse-image" src="/media/wrapper.svg" alt="">
+        </article>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

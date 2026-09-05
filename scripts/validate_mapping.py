@@ -104,8 +104,16 @@ def validate_registry(registry: dict[str, Any], fixtures: list[dict[str, Any]]) 
     for fixture in fixtures:
         require(fixture["mappingVersion"] == registry["version"], f"{fixture['scanId']} mapping version mismatch")
         viewport = fixture["capture"]["viewport"]
-        mapped = [scene_rect(registry, node["rect"], viewport) for node in fixture["nodes"]]
+        mapped = [
+            scene_rect(registry, node["rect"], viewport)
+            for node in fixture["nodes"]
+            if node.get("sceneIncluded", True)
+        ]
         mapped = [rect for rect in mapped if rect is not None]
+        require(
+            len(mapped) <= fixture["capture"]["renderedRegionCount"],
+            f"{fixture['scanId']} mapped more nodes than its rendered-region count",
+        )
         require(len(mapped) <= registry["scene"]["maxSceneObjects"], f"{fixture['scanId']} exceeds object budget")
         for rect in mapped:
             require(all(math.isfinite(value) for value in rect.values()), f"{fixture['scanId']} produced non-finite geometry")

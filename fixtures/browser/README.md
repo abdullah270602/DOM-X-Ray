@@ -13,6 +13,8 @@ These pages are Gate 0 instrumentation evidence, not the public application stac
 - the post-DOMContentLoaded quiet window, including the image-heavy fixture's mutation reset;
 - four external requests collapsing into three registrable-domain fixture hubs;
 - a 723-candidate page reducing to exactly 650 rendered regions, with 73 omitted candidate IDs retained once as aggregate members and preorder order deciding an otherwise tied cutoff;
+- two same-footprint, evidence-free wrappers collapsing into their represented ancestor while exact image attribution and represented parent links remain intact;
+- 654 mandatory candidates producing a partial 650-object overview while four evidence-only nodes—including an exact-linked image with its raw rectangle and symmetric resource link—remain inspectable under `mandatory-overflow-v1`;
 - a cross-host 302 → 307 → 200 navigation retaining all three document responses, ordered hop/predecessor identity, exact wire bytes, first/third-party classification against the final page domain, and no redirect-query canary in the scan or fixture ledgers;
 - two sequential fetches of one cacheable asset stored as network then cache, with a measured-zero cache transfer and exactly one origin hit;
 - a worker-produced client response stored as service-worker rather than network, with zero page-session transfer bytes and no origin hit, plus its worker-owned origin fetch captured once with exact CDP wire bytes and target-qualified identity;
