@@ -323,6 +323,7 @@ def probe_page(
     worker_sessions: dict[str, str] = {}
     worker_target_ids: set[str] = set()
     next_worker_command_id = [0]
+    active_qualifying_requests: set[tuple[str, str, int]] = set()
     last_network_activity = [time.monotonic()]
     navigation_started = time.monotonic()
     started_at = datetime.now(timezone.utc)
@@ -371,6 +372,7 @@ def probe_page(
         else:
             hop_index = current_hops[request_key] + 1
             previous = network[(owner_key, request_id, hop_index - 1)]
+            active_qualifying_requests.discard((owner_key, request_id, hop_index - 1))
             redirect_response = params.get("redirectResponse")
             if redirect_response is not None:
                 previous["status"] = redirect_response.get("status")
@@ -410,6 +412,8 @@ def probe_page(
             ),
             "workerBootstrap": False,
         }
+        if network[(owner_key, request_id, hop_index)]["type"] in QUALIFYING_TYPES:
+            active_qualifying_requests.add((owner_key, request_id, hop_index))
 
     def record_response(owner_key: str, params: dict[str, Any]) -> None:
         request_id = params["requestId"]
@@ -419,6 +423,10 @@ def probe_page(
             return
         response = params["response"]
         item["type"] = params.get("type", item["type"])
+        if item["type"] in QUALIFYING_TYPES and item["finishedTimestamp"] is None:
+            active_qualifying_requests.add(
+                (owner_key, request_id, current_hops.get(request_key, 0))
+            )
         item["status"] = response.get("status")
         item["fromDiskCache"] = response.get("fromDiskCache", False)
         item["fromServiceWorker"] = response.get("fromServiceWorker", False)
@@ -431,6 +439,9 @@ def probe_page(
             return
         item["transferredBytes"] = int(round(params.get("encodedDataLength", 0)))
         item["finishedTimestamp"] = params.get("timestamp")
+        active_qualifying_requests.discard(
+            (owner_key, request_id, current_hops.get(request_key, 0))
+        )
         if item["type"] in QUALIFYING_TYPES:
             last_network_activity[0] = time.monotonic()
 
@@ -442,6 +453,9 @@ def probe_page(
             return
         item["failed"] = True
         item["finishedTimestamp"] = params.get("timestamp")
+        active_qualifying_requests.discard(
+            (owner_key, request_id, current_hops.get(request_key, 0))
+        )
         if item["type"] in QUALIFYING_TYPES:
             last_network_activity[0] = time.monotonic()
 
@@ -570,7 +584,11 @@ def probe_page(
                 last_activity_serial = int(state["serial"])
                 last_dom_activity = now
             quiet_started = max(dom_content_loaded + 0.5, last_dom_activity, last_network_activity[0])
-            if state["ready"] == "complete" and now - quiet_started >= 0.75:
+            if (
+                state["ready"] == "complete"
+                and not active_qualifying_requests
+                and now - quiet_started >= 0.75
+            ):
                 settled = True
                 break
             page.wait_for_timeout(50)
@@ -904,6 +922,19 @@ def probe_page(
         worker_bootstrap_unmeasured = any(
             item["workerBootstrap"] for item in ordered_network
         )
+        bootstrap_resource_ids = {
+            resource_id_by_hop[(item["ownerKey"], item["requestId"], item["hopIndex"])]
+            for item in ordered_network
+            if item["workerBootstrap"]
+            and (item["ownerKey"], item["requestId"], item["hopIndex"])
+            in resource_id_by_hop
+        }
+        unknown_nonbootstrap_resources = [
+            resource
+            for resource in resource_rows
+            if resource["transferredBytes"] is None
+            and resource["id"] not in bootstrap_resource_ids
+        ]
         service_worker_present = bool(context.service_workers) or any(
             item["fromServiceWorker"] for item in ordered_network
         )
@@ -947,6 +978,20 @@ def probe_page(
                     "invalidatesMetrics": ["request_count", "total_transferred_bytes"],
                 }
             )
+        for resource in unknown_nonbootstrap_resources:
+            limitations.append(
+                {
+                    "code": f"resource-bytes-unavailable-{resource['id']}",
+                    "scope": "resource",
+                    "targetId": resource["id"],
+                    "message": "This request had no completed canonical transfer-byte value.",
+                    "invalidatesMetrics": [
+                        "request_count",
+                        "resource_mass",
+                        "total_transferred_bytes",
+                    ],
+                }
+            )
         for index, blocked in enumerate(blocked_requests):
             limitations.append(
                 {
@@ -964,13 +1009,16 @@ def probe_page(
             or worker_target_unobserved
             or unfinished_worker_request
         )
+        measurement_incomplete = worker_capture_incomplete or bool(
+            unknown_nonbootstrap_resources
+        )
         record = {
             "schemaVersion": "0.1.0",
             "mappingVersion": "mapping-v0.1.0",
             "scanId": f"browser-proof-{urlsplit(url).hostname}",
-            "status": "complete" if settled and not worker_capture_incomplete else "partial",
+            "status": "complete" if settled and not measurement_incomplete else "partial",
             "failureCode": (
-                None if settled and not worker_capture_incomplete else "measurement-unavailable"
+                None if settled and not measurement_incomplete else "measurement-unavailable"
             ),
             "requestedUrl": _redacted_url(url),
             "finalUrl": _redacted_url(page_state["finalUrl"]),

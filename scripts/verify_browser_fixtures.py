@@ -345,6 +345,7 @@ def main() -> None:
                 result = probe_page(
                     browser,
                     url,
+                    hard_stop_seconds=fixture.hard_stop_seconds,
                     proxy_server=proxy.url if fixture.use_policy_proxy else None,
                     cache_disabled=fixture.cache_disabled,
                     trusted_loopback_fixture=fixture.trusted_loopback,
@@ -356,8 +357,18 @@ def main() -> None:
                     validator,
                     allow_trusted_loopback=fixture.trusted_loopback,
                 )
-                expected_status = "partial" if name == "service-worker" else "complete"
-                require(record["status"] == expected_status, f"{name} has unexpected status")
+                require(
+                    record["status"] == fixture.expected_status,
+                    f"{name} has unexpected status {record['status']}",
+                )
+                require(
+                    record["failureCode"] == fixture.expected_failure_code,
+                    f"{name} has unexpected failure code {record['failureCode']}",
+                )
+                require(
+                    tuple(record["capture"]["limitsReached"]) == fixture.expected_limits,
+                    f"{name} has unexpected capture limits",
+                )
                 require(not result.blocked_requests, f"{name} unexpectedly blocked requests")
                 require(
                     record["capture"]["requestCount"] == fixture.expected_request_count,
@@ -680,6 +691,69 @@ def main() -> None:
                         "worker target gap does not invalidate the affected metrics",
                     )
                     worker_fingerprint = deterministic_fingerprint(record)
+                elif name == "never-settling":
+                    limitations = {item["code"]: item for item in record["limitations"]}
+                    require(
+                        set(limitations) == {"settle-timeout"},
+                        "DOM churn did not produce only the expected settle timeout",
+                    )
+                    require(
+                        record["capture"]["durationMs"]
+                        >= fixture.hard_stop_seconds * 1_000 - 150,
+                        "never-settling capture stopped before its hard limit",
+                    )
+                    require(record["nodes"], "never-settling partial record lost useful geometry")
+                    require(
+                        sum(item["path"] == "/never-settling/" for item in server.ledger) == 1,
+                        "never-settling page was retried",
+                    )
+                elif name == "unknown-byte":
+                    unknown_rows = [
+                        item
+                        for item in record["resources"]
+                        if urlsplit(item["displayUrl"]).path == "/stream/unfinished"
+                    ]
+                    require(len(unknown_rows) == 1, "unfinished request was not represented once")
+                    unknown_row = unknown_rows[0]
+                    require(
+                        unknown_row["requestOwner"] == "page"
+                        and unknown_row["transferSource"] == "unknown"
+                        and unknown_row["transferredBytes"] is None,
+                        "unfinished request was converted into known or zero-byte evidence",
+                    )
+                    require(
+                        record["capture"]["requestsWithoutByteData"] == 1,
+                        "unfinished request missing-byte count drifted",
+                    )
+                    limitations = {item["code"]: item for item in record["limitations"]}
+                    limitation = limitations.get(
+                        f"resource-bytes-unavailable-{unknown_row['id']}"
+                    )
+                    require(limitation is not None, "unfinished request lacks a byte limitation")
+                    require(
+                        set(limitations)
+                        == {
+                            "settle-timeout",
+                            f"resource-bytes-unavailable-{unknown_row['id']}",
+                        },
+                        "unfinished request produced an unexpected limitation set",
+                    )
+                    require(
+                        limitation["scope"] == "resource"
+                        and limitation["targetId"] == unknown_row["id"]
+                        and set(limitation["invalidatesMetrics"])
+                        == {"request_count", "resource_mass", "total_transferred_bytes"},
+                        "unfinished request limitation has the wrong scope or invalidations",
+                    )
+                    require(
+                        record["capture"]["durationMs"]
+                        >= fixture.hard_stop_seconds * 1_000 - 150,
+                        "active unfinished request did not hold capture to the hard limit",
+                    )
+                    require(
+                        sum(item["path"] == "/stream/unfinished" for item in server.ledger) == 1,
+                        "unfinished request was retried",
+                    )
 
                 unobserved_paths = set(fixture.expected_unobserved_paths)
                 observed_ledger = [

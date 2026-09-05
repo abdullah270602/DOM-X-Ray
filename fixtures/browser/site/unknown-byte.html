@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM X-Ray Unknown-Byte Fixture</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { position: relative; background: #f4f0e8; }
+    main { position: absolute; left: 120px; top: 120px; width: 1200px; height: 600px; background: #dedde8; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="unknown-main"></main>
+  <script>
+    fetch('/stream/unfinished').catch(() => {});
+  </script>
+</body>
+</html>

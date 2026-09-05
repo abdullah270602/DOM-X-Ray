@@ -36,12 +36,12 @@ Playwright non-persistent browser contexts do not write browsing data to disk. T
 2. Create a fresh context and page. Deny permissions, downloads, additional pages, and access to local or private networks.
 3. Install the layout-shift observer before navigation and enable the Chrome DevTools Protocol Network domain.
 4. Navigate toward `DOMContentLoaded` with a 10-second navigation ceiling.
-5. After `DOMContentLoaded`, start a 750 ms quiet timer no earlier than 500 ms after that event. Check the timer every 50 ms and reset it on any qualifying request completion/failure, qualifying DOM mutation, or layout-shift entry defined below.
+5. After `DOMContentLoaded`, start a 750 ms quiet timer no earlier than 500 ms after that event. Check the timer every 50 ms and reset it on any qualifying request completion/failure, qualifying DOM mutation, or layout-shift entry defined below. The timer cannot expire while a qualifying request remains active.
 6. Capture only after `document.readyState === "complete"` and the quiet timer expires. Stop waiting at 12 seconds from navigation start even if that never occurs. A usable document that misses either condition becomes partial with `document-not-complete` or `settle-timeout`; an unevaluable document fails with `timeout`.
 7. In one bounded capture window, read DOM geometry and styles, take the viewport screenshot, close the observation window, and finalize network records.
 8. Finish transformation and record persistence inside a 15-second scanner hard limit. The remaining product budget is reserved for delivery and first render.
 
-Qualifying network resets are `loadingFinished` or `loadingFailed` events for Document, Stylesheet, Image, Media, Font, Script, XHR, and Fetch requests owned by the page or its service worker. WebSocket, EventSource, Ping/beacon, Preflight, and other intentionally open streams do not reset the quiet timer; their presence and unfinished byte values are recorded as limitations.
+Qualifying network resets are `loadingFinished` or `loadingFailed` events for Document, Stylesheet, Image, Media, Font, Script, XHR, and Fetch requests owned by the page or its service worker. Any such request remains active from `requestWillBeSent`—or from a later qualifying response classification—until its finish/failure event. WebSocket, EventSource, Ping/beacon, Preflight, and other intentionally open streams do not reset the quiet timer; their presence and unfinished byte values are recorded as limitations.
 
 The DOM observer watches the top-level document body with `{subtree: true, childList: true, characterData: true, attributes: true}`. It resets the timer for child-list or character-data changes outside `script`/`style`, and for changes to `class`, `style`, `hidden`, `open`, `width`, `height`, `src`, `srcset`, `sizes`, or `href`. Other attribute churn is ignored. Any recorded layout-shift entry resets the timer. The hard stop remains authoritative when animation or application churn never becomes quiet.
 
@@ -88,6 +88,8 @@ The normalized record stores `requestChainId`, `redirectHopIndex`, `redirectedFr
 The Gate 0 fixture browser sends traffic through a single-scan local policy proxy. The proxy inspects each redirect target before returning its `Location` header, rejects unsafe targets without connecting to them, and relays allowed response bytes unchanged. A Playwright route callback alone is not accepted as redirect enforcement because continuing the initial request can allow Chromium to follow later hops without re-entering that callback. Production still requires the selected stack's independently enforced DNS and public-egress boundary.
 
 HTTP error responses such as 404 or 503 remain completed responses when the network lifecycle completes. A network failure and an HTTP error are different states.
+
+If a qualifying request has no completed canonical byte value at capture, its transfer source is `unknown` and `transferredBytes` remains `null`; it is never coerced to zero. The record receives a resource-scoped limitation that invalidates that resource's mass plus request-count and whole-load byte claims. The Gate 0 unfinished-response fixture proves this state while the active request holds settlement open until the hard stop.
 
 ### Cache and service-worker state
 

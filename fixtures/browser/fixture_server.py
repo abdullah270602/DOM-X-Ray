@@ -7,6 +7,7 @@ be checked against a known payload without depending on checked-in binaries.
 
 from __future__ import annotations
 
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -38,6 +39,10 @@ class FixtureSpec:
     trusted_loopback: bool = False
     expected_unobserved_paths: tuple[str, ...] = ()
     expected_missing_byte_count: int = 0
+    hard_stop_seconds: float = 12.0
+    expected_status: str = "complete"
+    expected_failure_code: str | None = None
+    expected_limits: tuple[str, ...] = ()
 
 
 FIXTURES = {
@@ -155,6 +160,34 @@ FIXTURES = {
         trusted_loopback=True,
         expected_unobserved_paths=("/sw.js",),
         expected_missing_byte_count=1,
+        expected_status="partial",
+        expected_failure_code="measurement-unavailable",
+    ),
+    "never-settling": FixtureSpec(
+        name="never-settling",
+        host="unstable.test",
+        route="/never-settling/",
+        expected_payload_bytes=25_000,
+        expected_request_count=1,
+        expected_rects={"unstable-main": (120, 120, 1200, 600)},
+        hard_stop_seconds=2.0,
+        expected_status="partial",
+        expected_failure_code="measurement-unavailable",
+        expected_limits=("time",),
+    ),
+    "unknown-byte": FixtureSpec(
+        name="unknown-byte",
+        host="unfinished.test",
+        route="/unknown-byte/",
+        expected_payload_bytes=25_000,
+        expected_request_count=2,
+        expected_rects={"unknown-main": (120, 120, 1200, 600)},
+        expected_unobserved_paths=("/stream/unfinished",),
+        expected_missing_byte_count=1,
+        hard_stop_seconds=2.0,
+        expected_status="partial",
+        expected_failure_code="measurement-unavailable",
+        expected_limits=("time",),
     ),
 }
 
@@ -167,6 +200,8 @@ PAGE_SPECS = {
     "/redirect/final": ("redirect-final.html", 40_000, "text/html; charset=utf-8"),
     "/cache/": ("cache.html", 30_000, "text/html; charset=utf-8"),
     "/service-worker/": ("service-worker.html", 35_000, "text/html; charset=utf-8"),
+    "/never-settling/": ("never-settling.html", 25_000, "text/html; charset=utf-8"),
+    "/unknown-byte/": ("unknown-byte.html", 25_000, "text/html; charset=utf-8"),
 }
 
 
@@ -312,6 +347,34 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         route = self.path.split("?", 1)[0]
         port = self.server.server_port
+        if route == "/stream/unfinished":
+            declared_size = 100_000
+            partial_body = b"u" * 4_096
+            header = (
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: application/octet-stream\r\n"
+                f"Content-Length: {declared_size}\r\n"
+                "Cache-Control: no-store\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "Connection: close\r\n\r\n"
+            ).encode("ascii")
+            self.wfile.write(header)
+            self.wfile.write(partial_body)
+            self.wfile.flush()
+            self.fixture_server.record(
+                {
+                    "host": self.headers.get("Host", ""),
+                    "method": self.command,
+                    "path": route,
+                    "status": 200,
+                    "bodyBytes": len(partial_body),
+                    "wireBytes": len(header) + len(partial_body),
+                }
+            )
+            self.close_connection = True
+            time.sleep(5)
+            return
+
         redirect_specs = {
             "/redirect/start": (302, f"http://middle.test:{port}/redirect/middle"),
             "/redirect/middle": (
