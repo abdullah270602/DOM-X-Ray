@@ -91,7 +91,11 @@ HTTP error responses such as 404 or 503 remain completed responses when the netw
 
 ### Cache and service-worker state
 
-Network, cache, service-worker, and unknown are mutually exclusive stored transfer sources. A zero or missing transfer for a cached/worker response never becomes ordinary zero-mass content. Service-worker-owned and frame-owned observations are deduplicated by protocol request identity and ownership; ambiguous duplicates remain unknown rather than being counted twice.
+Network, cache, service-worker, and unknown are mutually exclusive stored transfer sources. Source classification gives a service-worker response priority over cache flags, then uses cache, a supplied canonical byte value as network, and otherwise unknown. A zero or missing transfer for a cached/worker response never becomes ordinary zero-mass content.
+
+The Gate 0 mixed-cache fixture deliberately enables cache in one fresh context and fetches the same immutable resource twice. It proves network-then-cache order, an exact measured-zero cache transfer, and one origin hit. Normal capture fixtures and the production profile remain cold-cache observations.
+
+The current page-session proof classifies a worker-produced response and proves that response does not reach the origin. Chromium fetches the worker script through a separate worker target, which this probe does not yet observe. Whenever a service-worker target is present, the probe therefore emits a partial record with `service-worker-target-unobserved` and invalidates request-count and total-transferred-byte claims. Full capture must attach worker targets and deduplicate worker-owned and frame-owned observations by protocol identity and ownership; ambiguous duplicates remain unknown rather than being counted twice.
 
 ### Method and residual side-effect boundary
 

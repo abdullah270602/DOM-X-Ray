@@ -33,6 +33,10 @@ class FixtureSpec:
     expected_aggregated_count: int = 0
     expected_redirect_count: int = 0
     expected_final_host: str | None = None
+    cache_disabled: bool = True
+    use_policy_proxy: bool = True
+    trusted_loopback: bool = False
+    expected_unobserved_paths: tuple[str, ...] = ()
 
 
 FIXTURES = {
@@ -126,6 +130,26 @@ FIXTURES = {
         expected_redirect_count=2,
         expected_final_host="final.test",
     ),
+    "cache": FixtureSpec(
+        name="cache",
+        host="cache.test",
+        route="/cache/",
+        expected_payload_bytes=130_000,
+        expected_request_count=3,
+        expected_rects={"cache-main": (120, 120, 1200, 600)},
+        cache_disabled=False,
+    ),
+    "service-worker": FixtureSpec(
+        name="service-worker",
+        host="localhost",
+        route="/service-worker/",
+        expected_payload_bytes=35_000,
+        expected_request_count=2,
+        expected_rects={"worker-main": (120, 120, 1200, 600)},
+        use_policy_proxy=False,
+        trusted_loopback=True,
+        expected_unobserved_paths=("/sw.js",),
+    ),
 }
 
 
@@ -135,6 +159,8 @@ PAGE_SPECS = {
     "/third-party/": ("third-party.html", 52_000, "text/html; charset=utf-8"),
     "/aggregation/": ("aggregation.html", 80_000, "text/html; charset=utf-8"),
     "/redirect/final": ("redirect-final.html", 40_000, "text/html; charset=utf-8"),
+    "/cache/": ("cache.html", 30_000, "text/html; charset=utf-8"),
+    "/service-worker/": ("service-worker.html", 35_000, "text/html; charset=utf-8"),
 }
 
 
@@ -160,6 +186,8 @@ ASSET_SPECS = {
     "/assets/redirect.css": ("assets/redirect.css", 10_000, "text/css; charset=utf-8"),
     "/media/redirect-first.svg": (None, 15_000, "image/svg+xml"),
     "/media/redirect-third.svg": (None, 15_000, "image/svg+xml"),
+    "/assets/cache-payload.bin": (None, 100_000, "application/octet-stream"),
+    "/sw.js": ("sw.js", 10_000, "text/javascript; charset=utf-8"),
 }
 
 
@@ -235,6 +263,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         body: bytes,
         *,
         extra_headers: tuple[tuple[str, str], ...] = (),
+        cache_control: str = "no-store",
     ) -> None:
         reason = {
             200: "OK",
@@ -247,7 +276,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             f"HTTP/1.1 {status} {reason}\r\n"
             f"Content-Type: {content_type}\r\n"
             f"Content-Length: {len(body)}\r\n"
-            "Cache-Control: no-store\r\n"
+            f"Cache-Control: {cache_control}\r\n"
             "Access-Control-Allow-Origin: *\r\n"
             f"{extra}"
             "Connection: close\r\n\r\n"
@@ -331,7 +360,16 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                 body = _svg_body(target_size)
             else:
                 body = _binary_body(target_size, content_type)
-            self._write_response(200, content_type, body)
+            self._write_response(
+                200,
+                content_type,
+                body,
+                cache_control=(
+                    "public, max-age=3600, immutable"
+                    if route == "/assets/cache-payload.bin"
+                    else "no-store"
+                ),
+            )
             return
 
         self._write_response(404, "text/plain; charset=utf-8", b"not found")

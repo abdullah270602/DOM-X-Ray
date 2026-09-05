@@ -9,14 +9,16 @@ These pages are Gate 0 instrumentation evidence, not the public application stac
 - identical node, nearest-candidate parent, raw depth, stacking-context, geometry, selector, count, redirect-chain, and attribution fingerprints across repeated clean and redirect captures;
 - every `Network.loadingFinished.encodedDataLength` total against the exact HTTP bytes emitted by the server;
 - the same CDP total against declared body payload within the product's 2% tolerance;
-- the fixed 1440 × 900, DPR 1, `en-US`, UTC, cold-cache profile;
+- the fixed 1440 × 900, DPR 1, `en-US`, UTC profile, cold cache by default plus one explicit mixed-cache source fixture;
 - the post-DOMContentLoaded quiet window, including the image-heavy fixture's mutation reset;
 - four external requests collapsing into three registrable-domain fixture hubs;
 - a 723-candidate page reducing to exactly 650 rendered regions, with 73 omitted candidate IDs retained once as aggregate members and preorder order deciding an otherwise tied cutoff;
 - a cross-host 302 → 307 → 200 navigation retaining all three document responses, ordered hop/predecessor identity, exact wire bytes, first/third-party classification against the final page domain, and no redirect-query canary in the scan or fixture ledgers;
+- two sequential fetches of one cacheable asset stored as network then cache, with a measured-zero cache transfer and exactly one origin hit;
+- a worker-produced fetch stored as service-worker rather than network, with zero page-session transfer bytes and no origin hit, while the separately fetched worker script is disclosed as unobserved worker-target traffic that makes the scan partial;
 - private-literal, credentialed, disallowed-scheme, cyclic, and over-ten-hop redirects rejected at the proxy before the forbidden target reaches the server;
 - ten local request-policy cases for allowed methods, blocked methods, credentials, schemes, and literal private hosts;
-- five fixture-target boundary cases that keep this proof restricted to credential-free, query-free reserved HTTP `.test` pages;
+- five fixture-target boundary cases that keep normal proof traffic restricted to credential-free, query-free reserved HTTP `.test` pages; only the service-worker secure-origin fixture can opt into exact-host `localhost` trust;
 - the exact Chromium version expected from the pinned Playwright dependency.
 
 The fixture-only registrable-domain helper understands reserved `.test` names. It is deliberately not a substitute for the production Public Suffix List implementation.
@@ -29,4 +31,4 @@ python -m playwright install chromium
 python scripts/verify_browser_fixtures.py
 ```
 
-The loopback policy proxy exists only inside this deterministic proof. Passing it proves the named redirect behavior but not production public-IP resolution, an enforceable deployment egress boundary, DNS-rebinding resistance, service-worker accounting, cooling-window enforcement, or unsafe-GET containment. Those remain explicit Gate 0 work.
+The loopback policy proxy exists only inside this deterministic proof. Passing it proves the named redirect behavior but not production public-IP resolution, an enforceable deployment egress boundary, DNS-rebinding resistance, full worker-target accounting, cooling-window enforcement, or unsafe-GET containment. The localhost service-worker exception is scoped to the test harness and does not weaken the public-target boundary. Those remaining controls are explicit Gate 0 work.

@@ -202,11 +202,35 @@ def request_block_reason(method: str, url: str) -> str | None:
     return None
 
 
-def validate_fixture_target(url: str) -> None:
+def classify_transfer_source(
+    *,
+    from_service_worker: bool,
+    from_cache: bool,
+    transferred_bytes: int | None,
+) -> str:
+    """Choose one mutually exclusive transfer source in evidence-priority order."""
+
+    if from_service_worker:
+        return "service-worker"
+    if from_cache:
+        return "cache"
+    if transferred_bytes is not None:
+        return "network"
+    return "unknown"
+
+
+def validate_fixture_target(url: str, *, allow_trusted_loopback: bool = False) -> None:
     """Keep the proof harness physically scoped to reserved local fixtures."""
 
     parsed = urlsplit(url)
-    if parsed.scheme != "http" or not parsed.hostname or not parsed.hostname.endswith(".test"):
+    allowed_host = bool(
+        parsed.hostname
+        and (
+            parsed.hostname.endswith(".test")
+            or (allow_trusted_loopback and parsed.hostname == "localhost")
+        )
+    )
+    if parsed.scheme != "http" or not allowed_host:
         raise ValueError("browser_probe accepts reserved HTTP .test fixtures only")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("browser_probe fixture targets cannot contain credentials")
@@ -216,10 +240,18 @@ def validate_fixture_target(url: str) -> None:
 
 def _make_request_guard(
     blocked: list[dict[str, str]],
+    *,
+    trusted_loopback_origin: str | None = None,
 ) -> Any:
     def guard(route: Route) -> None:
         request = route.request
         reason = request_block_reason(request.method, request.url)
+        if (
+            reason == "private-literal-host"
+            and trusted_loopback_origin is not None
+            and _origin(request.url) == trusted_loopback_origin
+        ):
+            reason = None
 
         if reason:
             blocked.append(
@@ -278,8 +310,10 @@ def probe_page(
     *,
     hard_stop_seconds: float = 12.0,
     proxy_server: str | None = None,
+    cache_disabled: bool = True,
+    trusted_loopback_fixture: bool = False,
 ) -> ProbeResult:
-    validate_fixture_target(url)
+    validate_fixture_target(url, allow_trusted_loopback=trusted_loopback_fixture)
     blocked_requests: list[dict[str, str]] = []
     network: dict[tuple[str, int], dict[str, Any]] = {}
     current_hops: dict[str, int] = {}
@@ -300,7 +334,14 @@ def probe_page(
         proxy={"server": proxy_server} if proxy_server else None,
     )
     context.clear_permissions()
-    context.route("**/*", _make_request_guard(blocked_requests))
+    if proxy_server is None:
+        context.route(
+            "**/*",
+            _make_request_guard(
+                blocked_requests,
+                trusted_loopback_origin=_origin(url) if trusted_loopback_fixture else None,
+            ),
+        )
     context.add_init_script(INIT_SCRIPT)
     page = context.new_page()
     page.on("popup", lambda popup: popup.close())
@@ -379,12 +420,19 @@ def probe_page(
         if item["type"] in QUALIFYING_TYPES:
             last_network_activity[0] = time.monotonic()
 
+    def on_served_from_cache(params: dict[str, Any]) -> None:
+        request_id = params["requestId"]
+        item = network.get((request_id, current_hops.get(request_id, 0)))
+        if item is not None:
+            item["fromDiskCache"] = True
+
     cdp.on("Network.requestWillBeSent", on_request)
     cdp.on("Network.responseReceived", on_response)
     cdp.on("Network.loadingFinished", on_finished)
     cdp.on("Network.loadingFailed", on_failed)
+    cdp.on("Network.requestServedFromCache", on_served_from_cache)
     cdp.send("Network.enable")
-    cdp.send("Network.setCacheDisabled", {"cacheDisabled": True})
+    cdp.send("Network.setCacheDisabled", {"cacheDisabled": cache_disabled})
 
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=10_000)
@@ -609,14 +657,11 @@ def probe_page(
             if parsed.scheme not in {"http", "https"}:
                 continue
             resource_domain = registrable_domain_for_fixture(parsed.hostname)
-            if item["fromServiceWorker"]:
-                transfer_source = "service-worker"
-            elif item["fromDiskCache"]:
-                transfer_source = "cache"
-            elif item["transferredBytes"] is not None:
-                transfer_source = "network"
-            else:
-                transfer_source = "unknown"
+            transfer_source = classify_transfer_source(
+                from_service_worker=item["fromServiceWorker"],
+                from_cache=item["fromDiskCache"],
+                transferred_bytes=item["transferredBytes"],
+            )
             start = item.get("startedTimestamp")
             finish = item.get("finishedTimestamp")
             duration_ms = round((finish - start) * 1000, 3) if start is not None and finish is not None else None
@@ -728,6 +773,20 @@ def probe_page(
                     "invalidatesMetrics": ["geometry"],
                 }
             )
+        service_worker_target_present = bool(context.service_workers)
+        if service_worker_target_present:
+            limitations.append(
+                {
+                    "code": "service-worker-target-unobserved",
+                    "scope": "scan",
+                    "targetId": None,
+                    "message": (
+                        "A service-worker response was observed, but worker-target requests were "
+                        "outside this page-session capture."
+                    ),
+                    "invalidatesMetrics": ["request_count", "total_transferred_bytes"],
+                }
+            )
         for index, blocked in enumerate(blocked_requests):
             limitations.append(
                 {
@@ -744,8 +803,10 @@ def probe_page(
             "schemaVersion": "0.1.0",
             "mappingVersion": "mapping-v0.1.0",
             "scanId": f"browser-proof-{urlsplit(url).hostname}",
-            "status": "complete" if settled else "partial",
-            "failureCode": None if settled else "measurement-unavailable",
+            "status": "complete" if settled and not service_worker_target_present else "partial",
+            "failureCode": (
+                None if settled and not service_worker_target_present else "measurement-unavailable"
+            ),
             "requestedUrl": _redacted_url(url),
             "finalUrl": _redacted_url(page_state["finalUrl"]),
             "capturedAt": started_at.isoformat().replace("+00:00", "Z"),
@@ -760,7 +821,7 @@ def probe_page(
                 "stabilizationMs": round((capture_monotonic - dom_content_loaded) * 1000, 3),
                 "capturePointMs": duration_ms,
                 "observationWindowMs": duration_ms,
-                "cachePolicy": "cold",
+                "cachePolicy": "cold" if cache_disabled else "mixed",
                 "timezone": "UTC",
                 "region": "local-gate-0",
                 "inspectedNodeCount": page_state["inspectedNodeCount"],

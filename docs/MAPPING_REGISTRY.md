@@ -54,6 +54,7 @@ States are deliberately distinct:
 
 - Known positive bytes: solid mass using the resource material.
 - Measured zero from cache: hollow cached shell.
+- Measured zero or missing page-session bytes from a service-worker response: worker-stamped hollow shell, never ordinary zero-mass content; whole-load byte claims remain suppressed when worker-target coverage is incomplete.
 - Unknown/missing bytes: hatched hollow shell with an unknown label.
 - Failed or blocked response: broken outline; no mass value.
 

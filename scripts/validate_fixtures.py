@@ -58,7 +58,13 @@ def resolve_pointer(document: Any, reference: str) -> Any:
     return current
 
 
-def validate_public_url(value: str, label: str, *, origin_only: bool = False) -> None:
+def validate_public_url(
+    value: str,
+    label: str,
+    *,
+    origin_only: bool = False,
+    allow_trusted_loopback: bool = False,
+) -> None:
     parsed = urlsplit(value)
     require(parsed.scheme in {"http", "https"}, f"{label} is not HTTP(S): {value}")
     require(bool(parsed.hostname), f"{label} has no hostname: {value}")
@@ -77,11 +83,21 @@ def validate_public_url(value: str, label: str, *, origin_only: bool = False) ->
     if address is not None:
         require(address.is_global, f"{label} points to a non-public address: {value}")
 
+    hostname = parsed.hostname.lower()
     forbidden_hosts = {"localhost", "metadata.google.internal"}
-    require(parsed.hostname.lower() not in forbidden_hosts, f"{label} uses a forbidden host")
+    require(
+        hostname not in forbidden_hosts or (allow_trusted_loopback and hostname == "localhost"),
+        f"{label} uses a forbidden host",
+    )
 
 
-def validate_semantics(record: dict[str, Any], label: str, validator: Draft202012Validator) -> None:
+def validate_semantics(
+    record: dict[str, Any],
+    label: str,
+    validator: Draft202012Validator,
+    *,
+    allow_trusted_loopback: bool = False,
+) -> None:
     schema_errors = sorted(validator.iter_errors(record), key=lambda error: list(error.path))
     if schema_errors:
         details = "; ".join(
@@ -117,8 +133,16 @@ def validate_semantics(record: dict[str, Any], label: str, validator: Draft20201
             f"{label} redirect hops are not contiguous and ordered",
         )
         for hop in redirects:
-            validate_public_url(hop["fromUrl"], f"{label} redirect source")
-            validate_public_url(hop["toUrl"], f"{label} redirect target")
+            validate_public_url(
+                hop["fromUrl"],
+                f"{label} redirect source",
+                allow_trusted_loopback=allow_trusted_loopback,
+            )
+            validate_public_url(
+                hop["toUrl"],
+                f"{label} redirect target",
+                allow_trusted_loopback=allow_trusted_loopback,
+            )
             if hop["followed"]:
                 require(hop["rejectionCode"] is None, f"{label} followed a rejected redirect")
             else:
@@ -175,8 +199,17 @@ def validate_semantics(record: dict[str, Any], label: str, validator: Draft20201
 
     missing_byte_count = 0
     for resource in resources.values():
-        validate_public_url(resource["displayUrl"], f"{label} resource URL")
-        validate_public_url(resource["origin"], f"{label} resource origin", origin_only=True)
+        validate_public_url(
+            resource["displayUrl"],
+            f"{label} resource URL",
+            allow_trusted_loopback=allow_trusted_loopback,
+        )
+        validate_public_url(
+            resource["origin"],
+            f"{label} resource origin",
+            origin_only=True,
+            allow_trusted_loopback=allow_trusted_loopback,
+        )
         require(bool(resource["partyRule"]), f"{label} resource has no party rule: {resource['id']}")
         registrable_domain = resource["registrableDomain"]
         if registrable_domain is None:
@@ -272,9 +305,17 @@ def validate_semantics(record: dict[str, Any], label: str, validator: Draft20201
     if record["status"] == "interstitial":
         require(not insights, f"{label} interstitial capture contains a hero claim")
 
-    validate_public_url(record["requestedUrl"], f"{label} requested URL")
+    validate_public_url(
+        record["requestedUrl"],
+        f"{label} requested URL",
+        allow_trusted_loopback=allow_trusted_loopback,
+    )
     if record["finalUrl"] is not None:
-        validate_public_url(record["finalUrl"], f"{label} final URL")
+        validate_public_url(
+            record["finalUrl"],
+            f"{label} final URL",
+            allow_trusted_loopback=allow_trusted_loopback,
+        )
 
     screenshot_status = record["page"]["screenshotStatus"]
     screenshot_ref = record["page"]["screenshotRef"]

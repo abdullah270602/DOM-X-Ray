@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM X-Ray Cache Fixture</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { position: relative; background: #f4f0e8; }
+    main { position: absolute; left: 120px; top: 120px; width: 1200px; height: 600px; background: #e8e1d5; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="cache-main"></main>
+  <script>
+    (async () => {
+      const target = '/assets/cache-payload.bin';
+      await (await fetch(target)).arrayBuffer();
+      await (await fetch(target)).arrayBuffer();
+      document.body.dataset.cacheSequence = 'complete';
+    })();
+  </script>
+</body>
+</html>

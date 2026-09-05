@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM X-Ray Service Worker Fixture</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { position: relative; background: #f4f0e8; }
+    main { position: absolute; left: 120px; top: 120px; width: 1200px; height: 600px; background: #dce7e2; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="worker-main"></main>
+  <script>
+    (async () => {
+      await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) {
+        await new Promise(resolve => {
+          navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true });
+        });
+      }
+      const response = await fetch('/sw/worker-data');
+      const body = await response.arrayBuffer();
+      document.body.dataset.workerBytes = String(body.byteLength);
+    })();
+  </script>
+</body>
+</html>

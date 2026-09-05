@@ -18,6 +18,7 @@ from fixtures.browser.fixture_server import FIXTURES, run_fixture_server
 from fixtures.browser.policy_proxy import run_policy_proxy
 from scanner.aggregation import MandatoryOverflowError, aggregate_nodes
 from scanner.browser_probe import (
+    classify_transfer_source,
     probe_navigation_policy,
     probe_page,
     request_block_reason,
@@ -111,6 +112,38 @@ def assert_request_policy() -> None:
         except ValueError:
             continue
         raise AssertionError(f"fixture-only target boundary accepted {target}")
+
+    try:
+        validate_fixture_target("http://localhost:8080/service-worker/")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("fixture-only target boundary accepted localhost without explicit trust")
+    validate_fixture_target(
+        "http://localhost:8080/service-worker/",
+        allow_trusted_loopback=True,
+    )
+    require(
+        [name for name, fixture in FIXTURES.items() if fixture.trusted_loopback]
+        == ["service-worker"],
+        "trusted-loopback fixture scope expanded beyond the service-worker proof",
+    )
+
+
+def assert_transfer_source_priority() -> None:
+    cases = [
+        (True, True, 100, "service-worker"),
+        (False, True, 100, "cache"),
+        (False, False, 0, "network"),
+        (False, False, None, "unknown"),
+    ]
+    for from_worker, from_cache, transferred_bytes, expected in cases:
+        actual = classify_transfer_source(
+            from_service_worker=from_worker,
+            from_cache=from_cache,
+            transferred_bytes=transferred_bytes,
+        )
+        require(actual == expected, f"transfer source priority produced {actual} instead of {expected}")
 
 
 def assert_aggregation_guards() -> None:
@@ -273,6 +306,7 @@ def main() -> None:
     Draft202012Validator.check_schema(SCHEMA)
     validator = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
     assert_request_policy()
+    assert_transfer_source_priority()
     assert_aggregation_guards()
     summaries = []
     clean_fingerprint = None
@@ -295,10 +329,22 @@ def main() -> None:
                 server.clear_ledger()
                 proxy.clear_state()
                 url = f"http://{fixture.host}:{server.server_port}{fixture.route}"
-                result = probe_page(browser, url, proxy_server=proxy.url)
+                result = probe_page(
+                    browser,
+                    url,
+                    proxy_server=proxy.url if fixture.use_policy_proxy else None,
+                    cache_disabled=fixture.cache_disabled,
+                    trusted_loopback_fixture=fixture.trusted_loopback,
+                )
                 record = result.record
-                validate_semantics(record, f"browser fixture {name}", validator)
-                require(record["status"] == "complete", f"{name} did not settle")
+                validate_semantics(
+                    record,
+                    f"browser fixture {name}",
+                    validator,
+                    allow_trusted_loopback=fixture.trusted_loopback,
+                )
+                expected_status = "partial" if name == "service-worker" else "complete"
+                require(record["status"] == expected_status, f"{name} has unexpected status")
                 require(not result.blocked_requests, f"{name} unexpectedly blocked requests")
                 require(
                     record["capture"]["requestCount"] == fixture.expected_request_count,
@@ -307,6 +353,10 @@ def main() -> None:
                 require(
                     record["capture"]["redirectCount"] == fixture.expected_redirect_count,
                     f"{name} redirect count is {record['capture']['redirectCount']}",
+                )
+                require(
+                    record["capture"]["cachePolicy"] == ("cold" if fixture.cache_disabled else "mixed"),
+                    f"{name} cache policy is mislabeled",
                 )
                 assert_rects(record, fixture.expected_rects, result.fixture_node_ids)
                 for marker in fixture.expected_excluded_markers:
@@ -479,11 +529,92 @@ def main() -> None:
                     )
                     assert_redirect_chain_guard(record, validator)
                     redirect_fingerprint = deterministic_fingerprint(record)
+                elif name == "cache":
+                    payload_rows = [
+                        item
+                        for item in record["resources"]
+                        if urlsplit(item["displayUrl"]).path == "/assets/cache-payload.bin"
+                    ]
+                    require(len(payload_rows) == 2, "cache fixture did not observe both fetches")
+                    require(
+                        [item["transferSource"] for item in payload_rows] == ["network", "cache"],
+                        "cache fixture did not preserve network/cache source order",
+                    )
+                    require(
+                        payload_rows[1]["transferredBytes"] == 0,
+                        "cache hit was not preserved as measured zero bytes",
+                    )
+                    require(
+                        sum(item["path"] == "/assets/cache-payload.bin" for item in server.ledger) == 1,
+                        "cache payload reached the server more than once",
+                    )
+                elif name == "service-worker":
+                    worker_rows = [
+                        item
+                        for item in record["resources"]
+                        if urlsplit(item["displayUrl"]).path == "/sw/worker-data"
+                    ]
+                    require(len(worker_rows) == 1, "service-worker response was not observed exactly once")
+                    require(
+                        worker_rows[0]["transferSource"] == "service-worker",
+                        "worker-produced response was not classified as service-worker",
+                    )
+                    require(
+                        worker_rows[0]["transferredBytes"] == 0,
+                        "worker-produced response did not preserve measured zero transfer bytes",
+                    )
+                    require(
+                        all(item["path"] != "/sw/worker-data" for item in server.ledger),
+                        "worker-produced response unexpectedly reached the origin server",
+                    )
+                    require(
+                        sum(item["path"] == "/sw.js" for item in server.ledger) == 1,
+                        "worker script did not reach the origin exactly once",
+                    )
+                    require(
+                        record["failureCode"] == "measurement-unavailable",
+                        "worker target gap did not mark byte completeness unavailable",
+                    )
+                    worker_limitations = {
+                        item["code"]: item for item in record["limitations"]
+                    }
+                    require(
+                        "service-worker-target-unobserved" in worker_limitations,
+                        "worker target gap was not disclosed",
+                    )
+                    require(
+                        set(
+                            worker_limitations["service-worker-target-unobserved"][
+                                "invalidatesMetrics"
+                            ]
+                        )
+                        == {"request_count", "total_transferred_bytes"},
+                        "worker target gap does not invalidate the affected metrics",
+                    )
 
-                served_payload = sum(int(item["bodyBytes"]) for item in server.ledger if item["status"] == 200)
+                unobserved_paths = set(fixture.expected_unobserved_paths)
+                observed_ledger = [
+                    item
+                    for item in server.ledger
+                    if str(item["path"]) not in unobserved_paths
+                ]
+                require(
+                    {
+                        str(item["path"])
+                        for item in server.ledger
+                        if str(item["path"]) in unobserved_paths
+                    }
+                    == unobserved_paths,
+                    f"{name} unobserved worker-target paths drifted",
+                )
+                served_payload = sum(
+                    int(item["bodyBytes"])
+                    for item in observed_ledger
+                    if item["status"] == 200
+                )
                 served_wire = sum(
                     int(item["wireBytes"])
-                    for item in server.ledger
+                    for item in observed_ledger
                     if 200 <= int(item["status"]) < 400
                 )
                 require(
@@ -525,12 +656,13 @@ def main() -> None:
 
     print(
         f"Validated controlled Chromium {EXPECTED_CHROMIUM_VERSION} "
-        "against 5 deterministic browser fixtures."
+        f"against {len(FIXTURES)} deterministic browser fixtures."
     )
     for summary in summaries:
         print(f"  {summary}")
     print("Validated deterministic node, redirect, and attribution fingerprints across repeated captures.")
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
+    print("Validated 4 transfer-source priority cases.")
     print("Validated 3 aggregation safety guards.")
     print("Validated 5 browser-enforced redirect rejection cases.")
     print("Validated 1 redirect-chain negative control.")
