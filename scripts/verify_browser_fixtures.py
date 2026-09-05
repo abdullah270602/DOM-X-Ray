@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from jsonschema import Draft202012Validator, FormatChecker
 from playwright.sync_api import sync_playwright
@@ -13,9 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from fixtures.browser.fixture_server import FIXTURES, run_fixture_server
+from fixtures.browser.policy_proxy import run_policy_proxy
 from scanner.aggregation import MandatoryOverflowError, aggregate_nodes
-from scanner.browser_probe import probe_page, request_block_reason, validate_fixture_target
-from scripts.validate_fixtures import validate_semantics
+from scanner.browser_probe import (
+    probe_navigation_policy,
+    probe_page,
+    request_block_reason,
+    validate_fixture_target,
+)
+from scripts.validate_fixtures import ContractError, validate_semantics
 
 
 SCHEMA = json.loads((ROOT / "docs" / "SCAN_RECORD.schema.json").read_text(encoding="utf-8"))
@@ -160,6 +168,54 @@ def assert_aggregation_guards() -> None:
         raise AssertionError("aggregation emitted an over-budget mandatory scene")
 
 
+def assert_redirect_policy(browser, server, proxy) -> None:
+    cases = [
+        ("private", "/redirect/private", "private-literal-host", ["/redirect/private"]),
+        ("credentials", "/redirect/credentials", "credentials", ["/redirect/credentials"]),
+        ("scheme", "/redirect/scheme", "scheme", ["/redirect/scheme"]),
+        ("loop", "/redirect/loop/a", "redirect-loop", ["/redirect/loop/a", "/redirect/loop/b"]),
+        ("limit", "/redirect/cap/0", "redirect-limit", [f"/redirect/cap/{index}" for index in range(11)]),
+    ]
+    for label, route, reason, expected_paths in cases:
+        server.clear_ledger()
+        proxy.clear_state()
+        result = probe_navigation_policy(
+            browser,
+            f"http://redirect.test:{server.server_port}{route}",
+            proxy_server=proxy.url,
+        )
+        require(result.response_status == 403, f"{label} redirect did not become a bounded block response")
+        require(not result.blocked_requests, f"{label} unexpectedly relied on the route-only guard")
+        require(len(proxy.blocked) == 1, f"{label} redirect was not blocked exactly once")
+        blocked = proxy.blocked[0]
+        require(blocked["reason"] == reason, f"{label} redirect used block reason {blocked['reason']}")
+        require(blocked["redirect"] == "true", f"{label} rejection was not identified as a redirect")
+        require("user:secret" not in blocked["url"], f"{label} block evidence leaked credentials")
+        observed_paths = [str(item["path"]) for item in server.ledger]
+        require(observed_paths == expected_paths, f"{label} server reachability drifted: {observed_paths}")
+
+
+def assert_redirect_chain_guard(record: dict, validator: Draft202012Validator) -> None:
+    reordered = copy.deepcopy(record)
+    reordered["resources"].reverse()
+    validate_semantics(reordered, "reordered valid redirect chain", validator)
+
+    malformed = copy.deepcopy(record)
+    document_hops = [item for item in malformed["resources"] if item["type"] == "document"]
+    first_id = document_hops[0]["id"]
+    malformed["resources"] = [item for item in malformed["resources"] if item["id"] != first_id]
+    malformed["capture"]["requestCount"] -= 1
+    next(item for item in malformed["resources"] if item["type"] == "document")[
+        "redirectedFromResourceId"
+    ] = None
+    try:
+        validate_semantics(malformed, "missing redirect predecessor", validator)
+    except ContractError as error:
+        require("skips a hop" in str(error), "redirect-chain guard rejected for the wrong reason")
+    else:
+        raise AssertionError("semantic validation accepted a redirect chain with its first hop removed")
+
+
 def deterministic_fingerprint(record: dict) -> tuple:
     nodes = tuple(
         (
@@ -178,7 +234,15 @@ def deterministic_fingerprint(record: dict) -> tuple:
     )
     links = tuple(
         sorted(
-            (item["displayUrl"], item["attributionScope"], tuple(item["attributedNodeIds"]))
+            (
+                item["displayUrl"],
+                item.get("requestChainId"),
+                item.get("redirectHopIndex"),
+                item.get("redirectedFromResourceId"),
+                item.get("responseStatus"),
+                item["attributionScope"],
+                tuple(item["attributedNodeIds"]),
+            )
             for item in record["resources"]
         )
     )
@@ -189,6 +253,18 @@ def deterministic_fingerprint(record: dict) -> tuple:
         record["capture"]["candidateNodeCount"],
         record["capture"]["aggregatedNodeCount"],
         record["capture"]["renderedRegionCount"],
+        record["capture"].get("redirectCount"),
+        tuple(
+            (
+                item["hopIndex"],
+                item["fromUrl"],
+                item["toUrl"],
+                item["status"],
+                item["followed"],
+                item["rejectionCode"],
+            )
+            for item in record["capture"].get("redirects", [])
+        ),
     )
     return nodes, links, counts
 
@@ -200,14 +276,15 @@ def main() -> None:
     assert_aggregation_guards()
     summaries = []
     clean_fingerprint = None
+    redirect_fingerprint = None
 
-    with run_fixture_server() as server, sync_playwright() as playwright:
+    with (
+        run_fixture_server() as server,
+        run_policy_proxy(server.server_port) as proxy,
+        sync_playwright() as playwright,
+    ):
         browser = playwright.chromium.launch(
             headless=True,
-            args=[
-                "--host-resolver-rules=MAP *.test 127.0.0.1",
-                "--no-proxy-server",
-            ],
         )
         try:
             require(
@@ -216,8 +293,9 @@ def main() -> None:
             )
             for name, fixture in FIXTURES.items():
                 server.clear_ledger()
+                proxy.clear_state()
                 url = f"http://{fixture.host}:{server.server_port}{fixture.route}"
-                result = probe_page(browser, url)
+                result = probe_page(browser, url, proxy_server=proxy.url)
                 record = result.record
                 validate_semantics(record, f"browser fixture {name}", validator)
                 require(record["status"] == "complete", f"{name} did not settle")
@@ -225,6 +303,10 @@ def main() -> None:
                 require(
                     record["capture"]["requestCount"] == fixture.expected_request_count,
                     f"{name} request count is {record['capture']['requestCount']}",
+                )
+                require(
+                    record["capture"]["redirectCount"] == fixture.expected_redirect_count,
+                    f"{name} redirect count is {record['capture']['redirectCount']}",
                 )
                 assert_rects(record, fixture.expected_rects, result.fixture_node_ids)
                 for marker in fixture.expected_excluded_markers:
@@ -276,6 +358,10 @@ def main() -> None:
                 require(
                     "abcdefghijklmnopqrstuvwxyzabcdef" not in serialized_record,
                     f"{name} leaked a long alphabetic selector token",
+                )
+                require(
+                    "redirect-secret-1234567890" not in serialized_record,
+                    f"{name} leaked a redirect query value",
                 )
                 if name == "clean":
                     require("xray-redacted" in serialized_record, "selector redaction marker is missing")
@@ -331,9 +417,75 @@ def main() -> None:
                         len(record["nodes"]) + len(third_party_hubs) <= 650,
                         "rendered nodes and external hubs exceed the scene budget",
                     )
+                elif name == "redirect":
+                    require(fixture.expected_final_host is not None, "redirect fixture lacks final host")
+                    require(
+                        urlsplit(record["finalUrl"]).hostname == fixture.expected_final_host,
+                        "redirect final URL does not identify the final host",
+                    )
+                    require(
+                        record["page"]["registrableDomain"] == fixture.expected_final_host,
+                        "page party basis did not move to the final host",
+                    )
+                    hops = record["capture"]["redirects"]
+                    require([hop["hopIndex"] for hop in hops] == [1, 2], "redirect hop order drifted")
+                    require([hop["status"] for hop in hops] == [302, 307], "redirect statuses drifted")
+                    require(
+                        [urlsplit(hop["toUrl"]).hostname for hop in hops] == ["middle.test", "final.test"],
+                        "redirect targets drifted",
+                    )
+                    require(
+                        all(not urlsplit(hop["toUrl"]).query for hop in hops)
+                        and not urlsplit(record["finalUrl"]).query,
+                        "redirect query values were persisted",
+                    )
+                    first_party = [item for item in record["resources"] if item["party"] == "first"]
+                    third_party = [item for item in record["resources"] if item["party"] == "third"]
+                    require(len(first_party) == 3, f"redirect fixture has {len(first_party)} first-party resources")
+                    require(len(third_party) == 3, f"redirect fixture has {len(third_party)} third-party resources")
+                    document_hops = [item for item in record["resources"] if item["type"] == "document"]
+                    require(
+                        [item["redirectHopIndex"] for item in document_hops] == [0, 1, 2],
+                        "document redirect hops were collapsed or reordered",
+                    )
+                    require(
+                        [item["responseStatus"] for item in document_hops] == [302, 307, 200],
+                        "document redirect response status drifted",
+                    )
+                    require(
+                        [item["redirectedFromResourceId"] for item in document_hops]
+                        == [None, document_hops[0]["id"], document_hops[1]["id"]],
+                        "document redirect predecessor links drifted",
+                    )
+                    resources_by_path = {
+                        urlsplit(item["displayUrl"]).path: item
+                        for item in record["resources"]
+                    }
+                    require(
+                        resources_by_path["/media/redirect-first.svg"]["party"] == "first",
+                        "final-host image was not first party",
+                    )
+                    require(
+                        resources_by_path["/media/redirect-third.svg"]["party"] == "third",
+                        "redirect-origin image was not third party",
+                    )
+                    require(
+                        "redirect-secret-1234567890" not in json.dumps(proxy.ledger, sort_keys=True),
+                        "redirect query value leaked into the proxy ledger",
+                    )
+                    require(
+                        "redirect-secret-1234567890" not in json.dumps(server.ledger, sort_keys=True),
+                        "redirect query value leaked into the server ledger",
+                    )
+                    assert_redirect_chain_guard(record, validator)
+                    redirect_fingerprint = deterministic_fingerprint(record)
 
                 served_payload = sum(int(item["bodyBytes"]) for item in server.ledger if item["status"] == 200)
-                served_wire = sum(int(item["wireBytes"]) for item in server.ledger if item["status"] == 200)
+                served_wire = sum(
+                    int(item["wireBytes"])
+                    for item in server.ledger
+                    if 200 <= int(item["status"]) < 400
+                )
                 require(
                     served_payload == fixture.expected_payload_bytes,
                     f"{name} server payload ledger drifted: {served_payload}",
@@ -352,23 +504,36 @@ def main() -> None:
 
             clean = FIXTURES["clean"]
             repeat_url = f"http://{clean.host}:{server.server_port}{clean.route}"
-            repeated = probe_page(browser, repeat_url).record
+            proxy.clear_state()
+            repeated = probe_page(browser, repeat_url, proxy_server=proxy.url).record
             require(
                 clean_fingerprint == deterministic_fingerprint(repeated),
                 "clean fixture node IDs, parents, geometry, selectors, or attribution changed on repeat",
             )
+            redirect = FIXTURES["redirect"]
+            redirect_url = f"http://{redirect.host}:{server.server_port}{redirect.route}"
+            server.clear_ledger()
+            proxy.clear_state()
+            repeated_redirect = probe_page(browser, redirect_url, proxy_server=proxy.url).record
+            require(
+                redirect_fingerprint == deterministic_fingerprint(repeated_redirect),
+                "redirect hop IDs, predecessors, URLs, statuses, or attribution changed on repeat",
+            )
+            assert_redirect_policy(browser, server, proxy)
         finally:
             browser.close()
 
     print(
         f"Validated controlled Chromium {EXPECTED_CHROMIUM_VERSION} "
-        "against 4 deterministic browser fixtures."
+        "against 5 deterministic browser fixtures."
     )
     for summary in summaries:
         print(f"  {summary}")
-    print("Validated deterministic node and attribution fingerprints across a repeated capture.")
+    print("Validated deterministic node, redirect, and attribution fingerprints across repeated captures.")
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
     print("Validated 3 aggregation safety guards.")
+    print("Validated 5 browser-enforced redirect rejection cases.")
+    print("Validated 1 redirect-chain negative control.")
 
 
 if __name__ == "__main__":

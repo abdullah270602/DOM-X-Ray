@@ -1,0 +1,5 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+body { position: relative; background: #f4f0e8; }
+main { position: absolute; left: 120px; top: 120px; width: 1200px; height: 600px; padding: 100px 60px; display: flex; justify-content: space-between; background: #e8e1d5; }
+img { width: 420px; height: 236.25px; display: block; }

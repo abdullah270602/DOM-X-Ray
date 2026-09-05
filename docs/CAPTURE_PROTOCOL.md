@@ -83,6 +83,10 @@ Performance Resource Timing may be retained temporarily for diagnostics, but it 
 
 Each stored resource uses a scanner-generated ID. Redirect hops use `requestId + hopIndex` internally so one reused protocol request ID cannot collapse multiple responses. A hop receives a byte value only when the protocol supplies defensible response data; otherwise its value is `null`.
 
+The normalized record stores `requestChainId`, `redirectHopIndex`, `redirectedFromResourceId`, and `responseStatus` on instrumented resources. Capture-level redirect evidence stores ordered sanitized source/target URLs, status, whether the hop was followed, and any rejection code. `redirectCount` counts followed top-level navigation hops against `redirectLimit`; subresource redirects remain resource evidence but do not consume that main-navigation counter.
+
+The Gate 0 fixture browser sends traffic through a single-scan local policy proxy. The proxy inspects each redirect target before returning its `Location` header, rejects unsafe targets without connecting to them, and relays allowed response bytes unchanged. A Playwright route callback alone is not accepted as redirect enforcement because continuing the initial request can allow Chromium to follow later hops without re-entering that callback. Production still requires the selected stack's independently enforced DNS and public-egress boundary.
+
 HTTP error responses such as 404 or 503 remain completed responses when the network lifecycle completes. A network failure and an HTTP error are different states.
 
 ### Cache and service-worker state

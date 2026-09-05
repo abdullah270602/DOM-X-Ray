@@ -18,12 +18,13 @@ This ledger prevents documentation volume from being mistaken for completion. A 
 | Fixed browser/capture protocol | `docs/CAPTURE_PROTOCOL.md`, `scanner/browser_probe.py` | Partial implementation proven on local deterministic pages |
 | Scanner threat model and release-blocking controls | `docs/THREAT_MODEL.md` | Pass as model; automated controls unproven |
 | Privacy-minimized product telemetry and primary metric formulas | `docs/TELEMETRY.md` | Pass as contract; instrumentation unproven |
-| Geometry captured within 1 CSS pixel from deterministic pages | `fixtures/browser/`, `python scripts/verify_browser_fixtures.py` | Pass: 26 hand-marked rectangles across 4 live pages |
+| Geometry captured within 1 CSS pixel from deterministic pages | `fixtures/browser/`, `python scripts/verify_browser_fixtures.py` | Pass: 29 hand-marked rectangles across 5 live pages |
 | Received-byte totals captured within 2% from deterministic resources | Fixture server wire ledger + CDP extraction in `python scripts/verify_browser_fixtures.py` | Pass: exact wire-byte equality; declared payload within 2% |
-| Browser base candidate selection and exact element/resource attribution | `scanner/browser_probe.py`, deterministic inclusion/exclusion, redaction, duplicate-link, and page-level assertions | Pass for Gate 0 fixtures: all elements inspected, 5 exclusion controls, 1 partial-viewport control, 6 exact element links; stylesheets/fonts/scripts/fetches page-level |
+| Browser base candidate selection and exact element/resource attribution | `scanner/browser_probe.py`, deterministic inclusion/exclusion, redaction, duplicate-link, and page-level assertions | Pass for Gate 0 fixtures: all elements inspected, 5 exclusion controls, 1 partial-viewport control, 8 exact element links; stylesheets/fonts/scripts/fetches page-level |
 | Browser-driven `perceptual-region-v1` aggregation | `scanner/aggregation.py`, 720-tile live browser fixture, and `python scripts/verify_browser_fixtures.py` | Pass for budget reduction: 723 candidates → 650 regions, 73 unique aggregate members, deterministic preorder cutoff; remaining aggregation edge cases stay open |
-| Redirect, cache, service-worker, interstitial, and unknown-byte behavior | Browser integration fixtures | Missing |
-| Private-network, DNS-rebinding, redirect-pivot, method, limit, and secret rejection | Automated scanner security suite | Partial: 10 method/scheme/credential/literal-host policy cases and 5 fixture-boundary cases pass; browser egress and remaining cases missing |
+| Redirect hop identity and final-page party basis | Cross-host browser fixture, CDP chain extraction, and schema/semantic assertions | Pass for fixture: ordered 302 → 307 → 200 document resources, predecessor links, exact wire bytes, party recalculation against `final.test`, and query-canary absence from stored and fixture-ledger evidence |
+| Cache, service-worker, interstitial, and unknown-byte behavior | Browser integration fixtures | Missing |
+| Private-network, DNS-rebinding, redirect-pivot, method, limit, and secret rejection | Automated scanner security suite | Partial: 10 request-policy cases, 5 fixture-boundary cases, and 5 browser-enforced redirect rejections pass; production DNS/egress, rebinding, private subresources, and remaining cases missing |
 | Residual anonymous-GET risk, honest scanner identity, robots/owner opt-out, scan dedupe, and per-origin cooling | Approved policy + unsafe-GET integration fixture | Open decision and missing test |
 | Retention, deletion, consent, moderation, and takedown policy | Approved product/legal decision and implementation test | Open decision |
 
@@ -40,16 +41,19 @@ Expected output:
 ```text
 Validated 3 fixtures and 12 negative controls against Gate 0.
 Validated mapping-v0.1.0 against 3 fixtures and 6 negative controls; reveal duration is 5.0 seconds.
-Validated controlled Chromium 140.0.7339.16 against 4 deterministic browser fixtures.
+Validated controlled Chromium 140.0.7339.16 against 5 deterministic browser fixtures.
   clean: 11 candidates -> 11 regions (0 aggregated), 2 exact element links, 5 requests, 180770 exact CDP/wire bytes
   image-heavy: 11 candidates -> 11 regions (0 aggregated), 3 exact element links, 7 requests, 5201071 exact CDP/wire bytes
   third-party: 9 candidates -> 9 regions (0 aggregated), 1 exact element links, 8 requests, 1161260 exact CDP/wire bytes
   aggregation: 723 candidates -> 650 regions (73 aggregated), 0 exact element links, 2 requests, 100315 exact CDP/wire bytes
-Validated deterministic node and attribution fingerprints across a repeated capture.
+  redirect: 5 candidates -> 5 regions (0 aggregated), 2 exact element links, 6 requests, 81073 exact CDP/wire bytes
+Validated deterministic node, redirect, and attribution fingerprints across repeated captures.
 Validated 10 request-policy cases and 5 fixture-boundary cases.
 Validated 3 aggregation safety guards.
+Validated 5 browser-enforced redirect rejection cases.
+Validated 1 redirect-chain negative control.
 ```
 
 ## Next proof-producing slice
 
-Extend the browser suite with redirect hops/pivots, cold-cache and service-worker accounting, a never-settling page, blocked unsafe methods, private subresources, interstitials, broader secret canaries, and aggregation edge cases such as wrapper collapse and a truthful mandatory-overflow fallback. The reducer currently refuses mandatory overflow rather than emitting an over-budget record. Add a production-shaped URL/DNS/egress boundary only after the implementation stack is explicitly selected or delegated; the loopback host mapping in the current proof is not that boundary.
+Extend the browser suite with cold-cache and service-worker accounting, a never-settling page, blocked unsafe methods, private subresources, interstitials, broader secret canaries, and aggregation edge cases such as wrapper collapse and a truthful mandatory-overflow fallback. The reducer currently refuses mandatory overflow rather than emitting an over-budget record. Add a production public-DNS/egress boundary only after the implementation stack is explicitly selected or delegated; the loopback fixture proxy is not that deployment boundary.

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM X-Ray Redirect Fixture</title>
+  <link rel="stylesheet" href="http://final.test:{{PORT}}/assets/redirect.css">
+</head>
+<body>
+  <main data-xray-id="redirect-main">
+    <img data-xray-id="redirect-first-image" src="http://final.test:{{PORT}}/media/redirect-first.svg" alt="First party">
+    <img data-xray-id="redirect-third-image" src="http://redirect.test:{{PORT}}/media/redirect-third.svg" alt="Redirect origin">
+  </main>
+</body>
+</html>

@@ -31,6 +31,8 @@ class FixtureSpec:
     expected_exact_element_links: int = 0
     expected_rendered_count: int | None = None
     expected_aggregated_count: int = 0
+    expected_redirect_count: int = 0
+    expected_final_host: str | None = None
 
 
 FIXTURES = {
@@ -109,6 +111,21 @@ FIXTURES = {
         expected_rendered_count=650,
         expected_aggregated_count=73,
     ),
+    "redirect": FixtureSpec(
+        name="redirect",
+        host="redirect.test",
+        route="/redirect/start",
+        expected_payload_bytes=80_000,
+        expected_request_count=6,
+        expected_rects={
+            "redirect-main": (120, 120, 1200, 600),
+            "redirect-first-image": (180, 220, 420, 236.25),
+            "redirect-third-image": (840, 220, 420, 236.25),
+        },
+        expected_exact_element_links=2,
+        expected_redirect_count=2,
+        expected_final_host="final.test",
+    ),
 }
 
 
@@ -117,6 +134,7 @@ PAGE_SPECS = {
     "/image-heavy/": ("image-heavy.html", 48_000, "text/html; charset=utf-8"),
     "/third-party/": ("third-party.html", 52_000, "text/html; charset=utf-8"),
     "/aggregation/": ("aggregation.html", 80_000, "text/html; charset=utf-8"),
+    "/redirect/final": ("redirect-final.html", 40_000, "text/html; charset=utf-8"),
 }
 
 
@@ -139,6 +157,9 @@ ASSET_SPECS = {
     "/media/lead.svg": (None, 310_000, "image/svg+xml"),
     "/api/thread": (None, 62_000, "application/octet-stream"),
     "/assets/aggregation.css": ("assets/aggregation.css", 20_000, "text/css; charset=utf-8"),
+    "/assets/redirect.css": ("assets/redirect.css", 10_000, "text/css; charset=utf-8"),
+    "/media/redirect-first.svg": (None, 15_000, "image/svg+xml"),
+    "/media/redirect-third.svg": (None, 15_000, "image/svg+xml"),
 }
 
 
@@ -207,14 +228,28 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
     def fixture_server(self) -> FixtureHTTPServer:
         return self.server  # type: ignore[return-value]
 
-    def _write_response(self, status: int, content_type: str, body: bytes) -> None:
-        reason = {200: "OK", 404: "Not Found"}.get(status, "Fixture")
+    def _write_response(
+        self,
+        status: int,
+        content_type: str,
+        body: bytes,
+        *,
+        extra_headers: tuple[tuple[str, str], ...] = (),
+    ) -> None:
+        reason = {
+            200: "OK",
+            302: "Found",
+            307: "Temporary Redirect",
+            404: "Not Found",
+        }.get(status, "Fixture")
+        extra = "".join(f"{name}: {value}\r\n" for name, value in extra_headers)
         header = (
             f"HTTP/1.1 {status} {reason}\r\n"
             f"Content-Type: {content_type}\r\n"
             f"Content-Length: {len(body)}\r\n"
             "Cache-Control: no-store\r\n"
             "Access-Control-Allow-Origin: *\r\n"
+            f"{extra}"
             "Connection: close\r\n\r\n"
         ).encode("ascii")
         self.wfile.write(header)
@@ -225,7 +260,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             {
                 "host": self.headers.get("Host", ""),
                 "method": self.command,
-                "path": self.path,
+                "path": self.path.split("?", 1)[0],
                 "status": status,
                 "bodyBytes": len(body) if self.command != "HEAD" else 0,
                 "wireBytes": len(header) + (len(body) if self.command != "HEAD" else 0),
@@ -240,10 +275,43 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         route = self.path.split("?", 1)[0]
+        port = self.server.server_port
+        redirect_specs = {
+            "/redirect/start": (302, f"http://middle.test:{port}/redirect/middle"),
+            "/redirect/middle": (
+                307,
+                f"http://final.test:{port}/redirect/final?token=redirect-secret-1234567890",
+            ),
+            "/redirect/private": (302, f"http://127.0.0.1:{port}/private-hit"),
+            "/redirect/credentials": (302, f"http://user:secret@final.test:{port}/private-hit"),
+            "/redirect/scheme": (302, "file:///fixture-secret"),
+            "/redirect/loop/a": (302, f"http://redirect.test:{port}/redirect/loop/b"),
+            "/redirect/loop/b": (302, f"http://redirect.test:{port}/redirect/loop/a"),
+        }
+        if route.startswith("/redirect/cap/"):
+            try:
+                index = int(route.rsplit("/", 1)[1])
+            except ValueError:
+                index = -1
+            if 0 <= index <= 10:
+                redirect_specs[route] = (
+                    302,
+                    f"http://redirect.test:{port}/redirect/cap/{index + 1}",
+                )
+        if route in redirect_specs:
+            status, location = redirect_specs[route]
+            self._write_response(
+                status,
+                "text/plain; charset=utf-8",
+                b"",
+                extra_headers=(("Location", location),),
+            )
+            return
+
         if route in PAGE_SPECS:
             relative_path, target_size, content_type = PAGE_SPECS[route]
             source = (ROOT / relative_path).read_text(encoding="utf-8")
-            source = source.replace("{{PORT}}", str(self.server.server_port)).encode("utf-8")
+            source = source.replace("{{PORT}}", str(port)).encode("utf-8")
             if b"{{TILES}}" in source:
                 tiles = "".join(
                     f'<div data-xray-id="agg-tile-{index:03d}"></div>'

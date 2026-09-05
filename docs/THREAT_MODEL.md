@@ -67,6 +67,8 @@ Redirects and subresources may contain queries required by the site, but query v
 
 Application validation is defense in depth; the worker's network namespace or egress proxy must independently prevent access to forbidden ranges.
 
+Gate 0 fixture evidence now proves a local egress proxy can preserve an allowed cross-host 302 → 307 → 200 chain while refusing private-literal, credentialed, disallowed-scheme, cyclic, and over-limit redirect targets before those targets reach the fixture server. This is deliberately narrower than production SSRF proof: public DNS resolution, all special-use ranges, rebinding, HTTPS tunneling, and deployment-level egress enforcement remain release blockers.
+
 ## Worker isolation profile
 
 - One disposable non-root browser context per scan; prefer one disposable worker/container per small bounded batch.

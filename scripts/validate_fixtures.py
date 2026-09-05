@@ -104,6 +104,26 @@ def validate_semantics(record: dict[str, Any], label: str, validator: Draft20201
     require(record["capture"]["requestCount"] == len(resources), f"{label} request count mismatch")
     require(record["capture"]["renderedRegionCount"] == len(nodes), f"{label} rendered-region count mismatch")
 
+    capture = record["capture"]
+    if "redirects" in capture:
+        redirects = capture["redirects"]
+        require(capture["redirectCount"] == len(redirects), f"{label} redirect count mismatch")
+        require(
+            capture["redirectCount"] <= capture["redirectLimit"] or "redirects" in capture["limitsReached"],
+            f"{label} exceeds its redirect limit without recording the limit",
+        )
+        require(
+            [hop["hopIndex"] for hop in redirects] == list(range(1, len(redirects) + 1)),
+            f"{label} redirect hops are not contiguous and ordered",
+        )
+        for hop in redirects:
+            validate_public_url(hop["fromUrl"], f"{label} redirect source")
+            validate_public_url(hop["toUrl"], f"{label} redirect target")
+            if hop["followed"]:
+                require(hop["rejectionCode"] is None, f"{label} followed a rejected redirect")
+            else:
+                require(bool(hop["rejectionCode"]), f"{label} rejected redirect lacks a reason")
+
     member_ids = [member for node in nodes.values() for member in node["memberNodeIds"]]
     require(len(member_ids) == len(set(member_ids)), f"{label} repeats an aggregated member id")
     require(not (set(member_ids) & set(nodes)), f"{label} exposes an aggregated member as a rendered node")
@@ -145,6 +165,14 @@ def validate_semantics(record: dict[str, Any], label: str, validator: Draft20201
             seen.add(current_id)
             current_id = nodes[current_id]["parentId"]
 
+    redirect_hops_by_chain: dict[tuple[str, int], str] = {}
+    for resource in resources.values():
+        if "requestChainId" not in resource:
+            continue
+        chain_key = (resource["requestChainId"], resource["redirectHopIndex"])
+        require(chain_key not in redirect_hops_by_chain, f"{label} repeats request-chain hop {chain_key}")
+        redirect_hops_by_chain[chain_key] = resource["id"]
+
     missing_byte_count = 0
     for resource in resources.values():
         validate_public_url(resource["displayUrl"], f"{label} resource URL")
@@ -171,6 +199,22 @@ def validate_semantics(record: dict[str, Any], label: str, validator: Draft20201
                 resource["id"] in nodes[node_id]["resourceIds"],
                 f"{label} resource/node link is not symmetric: {resource['id']} -> {node_id}",
             )
+
+        if "requestChainId" in resource:
+            previous_id = resource["redirectedFromResourceId"]
+            if resource["redirectHopIndex"] == 0:
+                require(previous_id is None, f"{label} initial request hop has a predecessor")
+            else:
+                previous_key = (
+                    resource["requestChainId"],
+                    resource["redirectHopIndex"] - 1,
+                )
+                require(previous_key in redirect_hops_by_chain, f"{label} redirect chain skips a hop")
+                expected_previous = redirect_hops_by_chain[previous_key]
+                require(
+                    previous_id == expected_previous,
+                    f"{label} redirect predecessor does not match its chain",
+                )
 
     require(
         record["capture"]["requestsWithoutByteData"] == missing_byte_count,

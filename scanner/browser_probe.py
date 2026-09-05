@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from playwright.sync_api import Browser, Route
+from playwright.sync_api import Browser, Error as PlaywrightError, Route
 
 from scanner.aggregation import aggregate_nodes
 
@@ -31,6 +31,7 @@ QUALIFYING_TYPES = {
     "Fetch",
 }
 ALLOWED_METHODS = {"GET", "HEAD", "OPTIONS"}
+REDIRECT_LIMIT = 10
 
 
 INIT_SCRIPT = r"""
@@ -106,6 +107,14 @@ class ProbeResult:
     blocked_requests: list[dict[str, str]]
     layout_shift_supported: bool
     fixture_node_ids: dict[str, str]
+
+
+@dataclass
+class NavigationPolicyResult:
+    blocked_requests: list[dict[str, str]]
+    final_url: str
+    navigation_error: str | None
+    response_status: int | None
 
 
 def registrable_domain_for_fixture(hostname: str | None) -> str | None:
@@ -205,18 +214,54 @@ def validate_fixture_target(url: str) -> None:
         raise ValueError("browser_probe fixture targets cannot contain query or fragment data")
 
 
-def _make_request_guard(blocked: list[dict[str, str]]) -> Any:
+def _make_request_guard(
+    blocked: list[dict[str, str]],
+) -> Any:
     def guard(route: Route) -> None:
         request = route.request
         reason = request_block_reason(request.method, request.url)
 
         if reason:
-            blocked.append({"url": _redacted_url(request.url), "method": request.method, "reason": reason})
+            blocked.append(
+                {
+                    "url": _redacted_url(request.url),
+                    "method": request.method,
+                    "reason": reason,
+                    "redirect": "false",
+                }
+            )
             route.abort("blockedbyclient")
         else:
             route.continue_()
 
     return guard
+
+
+def probe_navigation_policy(
+    browser: Browser,
+    url: str,
+    *,
+    proxy_server: str,
+) -> NavigationPolicyResult:
+    """Exercise the fixture-only browser request guard without producing a scan record."""
+
+    validate_fixture_target(url)
+    blocked_requests: list[dict[str, str]] = []
+    context = browser.new_context(accept_downloads=False, proxy={"server": proxy_server})
+    context.clear_permissions()
+    context.route("**/*", _make_request_guard(blocked_requests))
+    page = context.new_page()
+    error: str | None = None
+    response_status: int | None = None
+    try:
+        response = page.goto(url, wait_until="domcontentloaded", timeout=10_000)
+        response_status = response.status if response is not None else None
+    except PlaywrightError as exc:
+        error = str(exc)
+    finally:
+        final_url = _redacted_url(page.url) if page.url.startswith(("http://", "https://")) else page.url
+        context.close()
+    return NavigationPolicyResult(blocked_requests, final_url, error, response_status)
 
 
 def _stacking_context(element: dict[str, Any]) -> dict[str, Any]:
@@ -227,10 +272,18 @@ def _stacking_context(element: dict[str, Any]) -> dict[str, Any]:
     return {"creates": False, "rule": None}
 
 
-def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -> ProbeResult:
+def probe_page(
+    browser: Browser,
+    url: str,
+    *,
+    hard_stop_seconds: float = 12.0,
+    proxy_server: str | None = None,
+) -> ProbeResult:
     validate_fixture_target(url)
     blocked_requests: list[dict[str, str]] = []
-    network: dict[str, dict[str, Any]] = {}
+    network: dict[tuple[str, int], dict[str, Any]] = {}
+    current_hops: dict[str, int] = {}
+    chain_ordinals: dict[str, int] = {}
     last_network_activity = [time.monotonic()]
     navigation_started = time.monotonic()
     started_at = datetime.now(timezone.utc)
@@ -244,6 +297,7 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
         reduced_motion="no-preference",
         service_workers="allow",
         accept_downloads=False,
+        proxy={"server": proxy_server} if proxy_server else None,
     )
     context.clear_permissions()
     context.route("**/*", _make_request_guard(blocked_requests))
@@ -251,9 +305,34 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
     page = context.new_page()
     page.on("popup", lambda popup: popup.close())
     cdp = context.new_cdp_session(page)
+    main_frame_id = cdp.send("Page.getFrameTree")["frameTree"]["frame"]["id"]
 
     def on_request(params: dict[str, Any]) -> None:
-        network[params["requestId"]] = {
+        request_id = params["requestId"]
+        if request_id not in chain_ordinals:
+            chain_ordinals[request_id] = len(chain_ordinals) + 1
+            hop_index = 0
+        else:
+            hop_index = current_hops[request_id] + 1
+            previous = network[(request_id, hop_index - 1)]
+            redirect_response = params.get("redirectResponse")
+            if redirect_response is not None:
+                previous["status"] = redirect_response.get("status")
+                previous["fromDiskCache"] = redirect_response.get("fromDiskCache", False)
+                previous["fromServiceWorker"] = redirect_response.get("fromServiceWorker", False)
+                encoded_length = redirect_response.get("encodedDataLength")
+                previous["transferredBytes"] = (
+                    int(round(encoded_length)) if isinstance(encoded_length, (int, float)) else None
+                )
+                previous["finishedTimestamp"] = params.get("timestamp")
+                previous["redirectedToUrl"] = params["request"]["url"]
+                if previous["type"] in QUALIFYING_TYPES:
+                    last_network_activity[0] = time.monotonic()
+        current_hops[request_id] = hop_index
+        network[(request_id, hop_index)] = {
+            "requestId": request_id,
+            "chainOrdinal": chain_ordinals[request_id],
+            "hopIndex": hop_index,
             "url": params["request"]["url"],
             "method": params["request"]["method"],
             "initiatorType": params.get("initiator", {}).get("type"),
@@ -265,10 +344,13 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
             "fromDiskCache": False,
             "fromServiceWorker": False,
             "failed": False,
+            "redirectedToUrl": None,
+            "isMainNavigation": params.get("frameId") == main_frame_id and params.get("type") == "Document",
         }
 
     def on_response(params: dict[str, Any]) -> None:
-        item = network.get(params["requestId"])
+        request_id = params["requestId"]
+        item = network.get((request_id, current_hops.get(request_id, 0)))
         if item is None:
             return
         response = params["response"]
@@ -278,7 +360,8 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
         item["fromServiceWorker"] = response.get("fromServiceWorker", False)
 
     def on_finished(params: dict[str, Any]) -> None:
-        item = network.get(params["requestId"])
+        request_id = params["requestId"]
+        item = network.get((request_id, current_hops.get(request_id, 0)))
         if item is None:
             return
         item["transferredBytes"] = int(round(params.get("encodedDataLength", 0)))
@@ -287,7 +370,8 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
             last_network_activity[0] = time.monotonic()
 
     def on_failed(params: dict[str, Any]) -> None:
-        item = network.get(params["requestId"])
+        request_id = params["requestId"]
+        item = network.get((request_id, current_hops.get(request_id, 0)))
         if item is None:
             return
         item["failed"] = True
@@ -506,8 +590,21 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
         for item in page_state["nodes"]:
             for resource_url in item["exactResourceUrls"]:
                 exact_targets.setdefault(_match_url(resource_url), []).append(item["id"])
+        ordered_network = sorted(
+            network.values(),
+            key=lambda value: (
+                value.get("startedTimestamp") or 0,
+                value["chainOrdinal"],
+                value["hopIndex"],
+                value["url"],
+            ),
+        )
+        resource_id_by_hop = {
+            (item["requestId"], item["hopIndex"]): f"r-{index + 1:03d}"
+            for index, item in enumerate(ordered_network)
+        }
         resource_rows = []
-        for item in sorted(network.values(), key=lambda value: (value.get("startedTimestamp") or 0, value["url"])):
+        for item in ordered_network:
             parsed = urlsplit(item["url"])
             if parsed.scheme not in {"http", "https"}:
                 continue
@@ -523,7 +620,12 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
             start = item.get("startedTimestamp")
             finish = item.get("finishedTimestamp")
             duration_ms = round((finish - start) * 1000, 3) if start is not None and finish is not None else None
-            resource_id = f"r-{len(resource_rows) + 1:03d}"
+            resource_id = resource_id_by_hop[(item["requestId"], item["hopIndex"])]
+            redirected_from_id = (
+                resource_id_by_hop.get((item["requestId"], item["hopIndex"] - 1))
+                if item["hopIndex"] > 0
+                else None
+            )
             attributed_node_ids = exact_targets.get(_match_url(item["url"]), [])
             resource_rows.append(
                 {
@@ -539,10 +641,27 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                     "transferredBytes": item["transferredBytes"],
                     "decodedBodyBytes": item["decodedBodyBytes"],
                     "durationMs": duration_ms,
+                    "requestChainId": f"q-{item['chainOrdinal']:03d}",
+                    "redirectHopIndex": item["hopIndex"],
+                    "redirectedFromResourceId": redirected_from_id,
+                    "responseStatus": int(item["status"]) if item.get("status") is not None else None,
                     "attributionScope": "exact-element" if attributed_node_ids else "page-level",
                     "attributedNodeIds": attributed_node_ids,
                 }
             )
+
+        redirect_rows = [
+            {
+                "hopIndex": item["hopIndex"] + 1,
+                "fromUrl": _redacted_url(item["url"]),
+                "toUrl": _redacted_url(item["redirectedToUrl"]),
+                "status": int(item["status"]),
+                "followed": True,
+                "rejectionCode": None,
+            }
+            for item in ordered_network
+            if item["isMainNavigation"] and item["redirectedToUrl"] is not None
+        ]
 
         resources_by_node: dict[str, list[str]] = {}
         for resource in resource_rows:
@@ -651,6 +770,9 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                 "requestCount": len(resource_rows),
                 "requestsWithoutByteData": sum(row["transferredBytes"] is None for row in resource_rows),
                 "transferAccountingRule": "cdp-loading-finished-encoded-data-length-v1",
+                "redirectCount": len(redirect_rows),
+                "redirectLimit": REDIRECT_LIMIT,
+                "redirects": redirect_rows,
                 "limitsReached": [] if settled else ["time"],
             },
             "page": {

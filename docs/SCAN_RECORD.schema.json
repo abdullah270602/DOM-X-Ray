@@ -230,6 +230,12 @@
         "requestCount": { "type": "integer", "minimum": 0 },
         "requestsWithoutByteData": { "type": "integer", "minimum": 0 },
         "transferAccountingRule": { "type": "string", "minLength": 1 },
+        "redirectCount": { "type": "integer", "minimum": 0 },
+        "redirectLimit": { "type": "integer", "minimum": 0 },
+        "redirects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/redirectHop" }
+        },
         "limitsReached": {
           "type": "array",
           "items": {
@@ -237,6 +243,24 @@
           },
           "uniqueItems": true
         }
+      },
+      "dependentRequired": {
+        "redirectCount": ["redirectLimit", "redirects"],
+        "redirectLimit": ["redirectCount", "redirects"],
+        "redirects": ["redirectCount", "redirectLimit"]
+      }
+    },
+    "redirectHop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hopIndex", "fromUrl", "toUrl", "status", "followed", "rejectionCode"],
+      "properties": {
+        "hopIndex": { "type": "integer", "minimum": 1 },
+        "fromUrl": { "$ref": "#/$defs/httpUrl" },
+        "toUrl": { "$ref": "#/$defs/httpUrl" },
+        "status": { "type": "integer", "minimum": 300, "maximum": 399 },
+        "followed": { "type": "boolean" },
+        "rejectionCode": { "type": ["string", "null"] }
       }
     },
     "page": {
@@ -380,6 +404,10 @@
         "transferredBytes": { "$ref": "#/$defs/nullableNonNegativeNumber" },
         "decodedBodyBytes": { "$ref": "#/$defs/nullableNonNegativeNumber" },
         "durationMs": { "$ref": "#/$defs/nullableNonNegativeNumber" },
+        "requestChainId": { "type": "string", "minLength": 1 },
+        "redirectHopIndex": { "type": "integer", "minimum": 0 },
+        "redirectedFromResourceId": { "type": ["string", "null"] },
+        "responseStatus": { "type": ["integer", "null"], "minimum": 100, "maximum": 599 },
         "attributionScope": {
           "enum": ["exact-element", "exact-resource-link", "probable-link", "page-level", "unknown"]
         },
@@ -388,6 +416,12 @@
           "items": { "type": "string" },
           "uniqueItems": true
         }
+      },
+      "dependentRequired": {
+        "requestChainId": ["redirectHopIndex", "redirectedFromResourceId", "responseStatus"],
+        "redirectHopIndex": ["requestChainId", "redirectedFromResourceId", "responseStatus"],
+        "redirectedFromResourceId": ["requestChainId", "redirectHopIndex", "responseStatus"],
+        "responseStatus": ["requestChainId", "redirectHopIndex", "redirectedFromResourceId"]
       },
       "allOf": [
         {
