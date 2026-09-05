@@ -18,6 +18,8 @@ from fixtures.browser.fixture_server import FIXTURES, run_fixture_server
 from fixtures.browser.policy_proxy import run_policy_proxy
 from scanner.aggregation import MandatoryOverflowError, aggregate_nodes
 from scanner.browser_probe import (
+    INTERSTITIAL_CLASSIFIER_VERSION,
+    classify_interstitial_v1,
     classify_transfer_source,
     probe_navigation_policy,
     probe_page,
@@ -152,6 +154,44 @@ def assert_transfer_source_priority() -> None:
             transferred_bytes=transferred_bytes,
         )
         require(actual == expected, f"transfer source priority produced {actual} instead of {expected}")
+
+
+def assert_interstitial_classifier_guards() -> None:
+    strong_login_wall = {
+        "visibleFormCount": 1,
+        "visibleCredentialFormCount": 1,
+        "visiblePasswordInputCount": 1,
+        "visibleIdentityInputCount": 1,
+        "visibleSubmitControlCount": 1,
+        "visibleCompetingContentCount": 0,
+    }
+    require(
+        classify_interstitial_v1(strong_login_wall) == "login-wall",
+        "strong credential gate was not classified",
+    )
+    for signal in (
+        "visiblePasswordInputCount",
+        "visibleIdentityInputCount",
+        "visibleSubmitControlCount",
+    ):
+        weakened = dict(strong_login_wall)
+        weakened[signal] = 0
+        require(
+            classify_interstitial_v1(weakened) is None,
+            f"classifier accepted a credential form without {signal}",
+        )
+    with_competing_content = dict(strong_login_wall)
+    with_competing_content["visibleCompetingContentCount"] = 1
+    require(
+        classify_interstitial_v1(with_competing_content) is None,
+        "classifier ignored competing visible page content",
+    )
+    with_second_form = dict(strong_login_wall)
+    with_second_form["visibleFormCount"] = 2
+    require(
+        classify_interstitial_v1(with_second_form) is None,
+        "classifier ignored a second visible form",
+    )
 
 
 def assert_aggregation_guards() -> None:
@@ -318,12 +358,14 @@ def main() -> None:
     validator = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
     assert_request_policy()
     assert_transfer_source_priority()
+    assert_interstitial_classifier_guards()
     assert_aggregation_guards()
     summaries = []
     clean_fingerprint = None
     redirect_fingerprint = None
     cache_fingerprint = None
     worker_fingerprint = None
+    interstitial_fingerprint = None
 
     with (
         run_fixture_server() as server,
@@ -754,6 +796,42 @@ def main() -> None:
                         sum(item["path"] == "/stream/unfinished" for item in server.ledger) == 1,
                         "unfinished request was retried",
                     )
+                elif name == "interstitial":
+                    serialized = json.dumps(record, sort_keys=True)
+                    require(not record["insights"], "interstitial emitted a hero or other insight")
+                    limitations = {item["code"]: item for item in record["limitations"]}
+                    require(
+                        set(limitations) == {INTERSTITIAL_CLASSIFIER_VERSION},
+                        "login wall produced an unexpected limitation set",
+                    )
+                    limitation = limitations[INTERSTITIAL_CLASSIFIER_VERSION]
+                    require(
+                        limitation["scope"] == "scan"
+                        and limitation["targetId"] is None
+                        and set(limitation["invalidatesMetrics"])
+                        == {"hero_insight", "intended_page_content"},
+                        "login-wall limitation has the wrong scope or invalidations",
+                    )
+                    require(
+                        record["requestedUrl"] == record["finalUrl"],
+                        "login wall changed the intended destination URL",
+                    )
+                    require(
+                        "form-secret-canary-9472051863" not in serialized
+                        and "password-secret-canary-6301847295" not in serialized,
+                        "form value leaked into normalized evidence",
+                    )
+                    require(
+                        [(item["method"], item["path"]) for item in server.ledger]
+                        == [("GET", "/interstitial/login/")],
+                        "login-wall form was submitted or navigation was retried",
+                    )
+                    interstitial_fingerprint = (
+                        record["status"],
+                        record["failureCode"],
+                        tuple(item["code"] for item in record["limitations"]),
+                        deterministic_fingerprint(record),
+                    )
 
                 unobserved_paths = set(fixture.expected_unobserved_paths)
                 observed_ledger = [
@@ -840,6 +918,27 @@ def main() -> None:
                 worker_fingerprint == deterministic_fingerprint(repeated_worker),
                 "worker target attachment, ownership, sources, bytes, or geometry changed on repeat",
             )
+            interstitial = FIXTURES["interstitial"]
+            interstitial_url = (
+                f"http://{interstitial.host}:{server.server_port}{interstitial.route}"
+            )
+            server.clear_ledger()
+            proxy.clear_state()
+            repeated_interstitial = probe_page(
+                browser,
+                interstitial_url,
+                proxy_server=proxy.url,
+            ).record
+            repeated_interstitial_fingerprint = (
+                repeated_interstitial["status"],
+                repeated_interstitial["failureCode"],
+                tuple(item["code"] for item in repeated_interstitial["limitations"]),
+                deterministic_fingerprint(repeated_interstitial),
+            )
+            require(
+                interstitial_fingerprint == repeated_interstitial_fingerprint,
+                "interstitial classification, limitation, or geometry changed on repeat",
+            )
             assert_redirect_policy(browser, server, proxy)
         finally:
             browser.close()
@@ -856,6 +955,7 @@ def main() -> None:
     )
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
     print("Validated 4 transfer-source priority cases.")
+    print("Validated 6 interstitial-classifier safety guards.")
     print("Validated 3 aggregation safety guards.")
     print("Validated 5 browser-enforced redirect rejection cases.")
     print("Validated 1 redirect-chain negative control.")

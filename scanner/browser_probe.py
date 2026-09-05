@@ -33,6 +33,7 @@ QUALIFYING_TYPES = {
 }
 ALLOWED_METHODS = {"GET", "HEAD", "OPTIONS"}
 REDIRECT_LIMIT = 10
+INTERSTITIAL_CLASSIFIER_VERSION = "login-gate-structural-v1"
 
 
 INIT_SCRIPT = r"""
@@ -218,6 +219,21 @@ def classify_transfer_source(
     if transferred_bytes is not None:
         return "network"
     return "unknown"
+
+
+def classify_interstitial_v1(signals: dict[str, int]) -> str | None:
+    """Classify only a strong, structurally isolated credential gate."""
+
+    if (
+        signals.get("visibleFormCount") == 1
+        and signals.get("visibleCredentialFormCount") == 1
+        and signals.get("visiblePasswordInputCount", 0) >= 1
+        and signals.get("visibleIdentityInputCount", 0) >= 1
+        and signals.get("visibleSubmitControlCount", 0) >= 1
+        and signals.get("visibleCompetingContentCount", 0) == 0
+    ):
+        return "login-wall"
+    return None
 
 
 def validate_fixture_target(url: str, *, allow_trusted_loopback: bool = False) -> None:
@@ -608,6 +624,63 @@ def probe_page(
                 return null;
               };
               const allElements = [...document.querySelectorAll('*')];
+              const visiblyRendered = element => {
+                const style = getComputedStyle(element);
+                if (style.display === 'none') return false;
+                if (['hidden', 'collapse'].includes(style.visibility)) return false;
+                if (Number(style.opacity) <= 0.01) return false;
+                const box = element.getBoundingClientRect();
+                const width = Math.max(0, Math.min(box.right, innerWidth) - Math.max(box.left, 0));
+                const height = Math.max(0, Math.min(box.bottom, innerHeight) - Math.max(box.top, 0));
+                return width * height >= 16;
+              };
+              const visibleForms = [...document.forms].filter(visiblyRendered);
+              const visibleCredentialForms = visibleForms.filter(form => {
+                const inputs = [...form.querySelectorAll('input')].filter(visiblyRendered);
+                const passwords = inputs.filter(input => input.type === 'password');
+                const identities = inputs.filter(input => {
+                  const token = `${input.name} ${input.id} ${input.autocomplete}`.toLowerCase();
+                  return input.type === 'email'
+                    || input.autocomplete === 'username'
+                    || /(?:^|\s)(?:user(?:name)?|email|login)(?:\s|$)/.test(token)
+                    || (input.type === 'text' && inputs.length <= 3);
+                });
+                const submits = [...form.querySelectorAll(
+                  'button[type="submit"], button:not([type]), input[type="submit"]'
+                )].filter(visiblyRendered);
+                return passwords.length > 0 && identities.length > 0 && submits.length > 0;
+              });
+              const visibleCredentialInputs = visibleCredentialForms.flatMap(
+                form => [...form.querySelectorAll('input')].filter(visiblyRendered)
+              );
+              const visibleCredentialSubmits = visibleCredentialForms.flatMap(
+                form => [...form.querySelectorAll(
+                  'button[type="submit"], button:not([type]), input[type="submit"]'
+                )].filter(visiblyRendered)
+              );
+              const primaryCredentialForm = visibleCredentialForms.length === 1
+                ? visibleCredentialForms[0]
+                : null;
+              const visibleCompetingContent = primaryCredentialForm
+                ? allElements.filter(element => {
+                    if (!visiblyRendered(element)) return false;
+                    if (primaryCredentialForm.contains(element)
+                      || element.contains(primaryCredentialForm)) return false;
+                    const tag = element.tagName.toLowerCase();
+                    const hasDirectText = [...element.childNodes].some(
+                      node => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent.trim())
+                    );
+                    const isCompetingLandmark = [
+                      'article', 'section', 'aside', 'nav', 'header', 'footer'
+                    ].includes(tag) || ['article', 'feed', 'navigation'].includes(
+                      element.getAttribute('role') || ''
+                    );
+                    const isCompetingMedia = [
+                      'img', 'video', 'canvas', 'iframe', 'svg'
+                    ].includes(tag);
+                    return hasDirectText || isCompetingLandmark || isCompetingMedia;
+                  })
+                : [];
               const nonvisual = new Set([
                 'head', 'meta', 'link', 'title', 'base', 'script', 'style', 'noscript', 'template'
               ]);
@@ -748,6 +821,22 @@ def probe_page(
                   for (let current = element.parentElement; current; current = current.parentElement) depth += 1;
                   return depth;
                 })),
+                interstitialSignals: {
+                  visibleFormCount: visibleForms.length,
+                  visibleCredentialFormCount: visibleCredentialForms.length,
+                  visiblePasswordInputCount: visibleCredentialInputs.filter(
+                    input => input.type === 'password'
+                  ).length,
+                  visibleIdentityInputCount: visibleCredentialInputs.filter(input => {
+                    const token = `${input.name} ${input.id} ${input.autocomplete}`.toLowerCase();
+                    return input.type === 'email'
+                      || input.autocomplete === 'username'
+                      || /(?:^|\s)(?:user(?:name)?|email|login)(?:\s|$)/.test(token)
+                      || (input.type === 'text' && visibleCredentialInputs.length <= 3);
+                  }).length,
+                  visibleSubmitControlCount: visibleCredentialSubmits.length,
+                  visibleCompetingContentCount: visibleCompetingContent.length,
+                },
                 nodes,
                 shifts: window.__domXRayProbe.shifts.map(shift => ({
                   timestampMs: shift.timestampMs,
@@ -908,6 +997,7 @@ def probe_page(
             }
             for index, item in enumerate(page_state["shifts"])
         ]
+        interstitial_kind = classify_interstitial_v1(page_state["interstitialSignals"])
         limitations = []
         if not settled:
             limitations.append(
@@ -1002,6 +1092,19 @@ def probe_page(
                     "invalidatesMetrics": [],
                 }
             )
+        if interstitial_kind == "login-wall":
+            limitations.append(
+                {
+                    "code": INTERSTITIAL_CLASSIFIER_VERSION,
+                    "scope": "scan",
+                    "targetId": None,
+                    "message": (
+                        "A visible credential gate was captured; this does not establish that "
+                        "the requested destination content was reached."
+                    ),
+                    "invalidatesMetrics": ["hero_insight", "intended_page_content"],
+                }
+            )
 
         duration_ms = round((capture_monotonic - navigation_started) * 1000, 3)
         worker_capture_incomplete = (
@@ -1012,14 +1115,22 @@ def probe_page(
         measurement_incomplete = worker_capture_incomplete or bool(
             unknown_nonbootstrap_resources
         )
+        if interstitial_kind is not None:
+            record_status = "interstitial"
+            failure_code = "interstitial"
+        elif settled and not measurement_incomplete:
+            record_status = "complete"
+            failure_code = None
+        else:
+            record_status = "partial"
+            failure_code = "measurement-unavailable"
+
         record = {
             "schemaVersion": "0.1.0",
             "mappingVersion": "mapping-v0.1.0",
             "scanId": f"browser-proof-{urlsplit(url).hostname}",
-            "status": "complete" if settled and not measurement_incomplete else "partial",
-            "failureCode": (
-                None if settled and not measurement_incomplete else "measurement-unavailable"
-            ),
+            "status": record_status,
+            "failureCode": failure_code,
             "requestedUrl": _redacted_url(url),
             "finalUrl": _redacted_url(page_state["finalUrl"]),
             "capturedAt": started_at.isoformat().replace("+00:00", "Z"),

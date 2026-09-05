@@ -189,6 +189,19 @@ FIXTURES = {
         expected_failure_code="measurement-unavailable",
         expected_limits=("time",),
     ),
+    "interstitial": FixtureSpec(
+        name="interstitial",
+        host="interstitial.test",
+        route="/interstitial/login/",
+        expected_payload_bytes=28_000,
+        expected_request_count=1,
+        expected_rects={
+            "login-main": (420, 90, 600, 720),
+            "login-form": (500, 250, 440, 400),
+        },
+        expected_status="interstitial",
+        expected_failure_code="interstitial",
+    ),
 }
 
 
@@ -202,6 +215,7 @@ PAGE_SPECS = {
     "/service-worker/": ("service-worker.html", 35_000, "text/html; charset=utf-8"),
     "/never-settling/": ("never-settling.html", 25_000, "text/html; charset=utf-8"),
     "/unknown-byte/": ("unknown-byte.html", 25_000, "text/html; charset=utf-8"),
+    "/interstitial/login/": ("interstitial.html", 28_000, "text/html; charset=utf-8"),
 }
 
 

@@ -186,6 +186,8 @@ The page is not scrolled, clicked, animated by DOM X-Ray, or restyled before the
 
 Blocked and failed records contain no simulated cutaway. Interstitial records can show the captured orientation state but cannot emit a hero insight about the intended page.
 
+The versioned `login-gate-structural-v1` classifier requires exactly one visible form containing a visible identity input, password input, and submit control, with no competing visible text, media, or content landmark outside that form and its ancestors. It does not classify from title or body text, never submits the form, and does not persist field values. The Gate 0 HTTP 200 login-wall fixture proves the positive case plus negative guards for missing credential controls, a second form, and competing content. False negatives are preferred to labeling an ordinary page with a login widget as an interstitial. Consent screens, challenges, and error documents remain named interstitial classes but require their own conservative classifiers before the scanner may emit those statuses.
+
 ## Reproducibility
 
 A shared result always renders the immutable scan record with its recorded schema, scanner, and mapping versions. Opening a shared link never silently rescans the target. A protocol change produces a new version; old results keep their original interpretation.

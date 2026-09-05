@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM X-Ray Login-Wall Fixture</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { position: relative; background: #f4f0e8; font: 16px system-ui, sans-serif; }
+    main { position: absolute; left: 420px; top: 90px; width: 600px; height: 720px; background: #e6dfd3; }
+    form { position: absolute; left: 80px; top: 160px; width: 440px; height: 400px; padding: 48px; background: #fffaf0; }
+    label { display: block; margin-bottom: 24px; }
+    input, button { display: block; width: 344px; height: 48px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="login-main">
+    <form method="post" action="/must-not-submit" data-xray-id="login-form">
+      <label>Email
+        <input id="account-email" name="email" type="email" autocomplete="username" value="form-secret-canary-9472051863">
+      </label>
+      <label>Password
+        <input name="password" type="password" autocomplete="current-password" value="password-secret-canary-6301847295">
+      </label>
+      <button type="submit">Continue</button>
+    </form>
+  </main>
+</body>
+</html>
