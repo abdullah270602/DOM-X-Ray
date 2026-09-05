@@ -46,6 +46,8 @@ class FixtureSpec:
     expected_blocked_requests: tuple[tuple[str, str, str], ...] = ()
     expected_hero_selection_rule: str | None = None
     expected_hero_primary_metric: str | None = None
+    max_inspected_elements: int = 20_000
+    max_geometry_candidates: int = 5_000
 
 
 FIXTURES = {
@@ -291,6 +293,31 @@ FIXTURES = {
         expected_exact_element_links=1,
         expected_rendered_count=5,
         expected_aggregated_count=2,
+    ),
+    "dom-limit": FixtureSpec(
+        name="dom-limit",
+        host="dom-limit.test",
+        route="/aggregation/",
+        expected_payload_bytes=100_000,
+        expected_request_count=2,
+        expected_rects={},
+        max_inspected_elements=40,
+        expected_status="partial",
+        expected_failure_code="resource-limit",
+        expected_limits=("dom-nodes",),
+    ),
+    "candidate-limit": FixtureSpec(
+        name="candidate-limit",
+        host="candidate-limit.test",
+        route="/aggregation/",
+        expected_payload_bytes=100_000,
+        expected_request_count=2,
+        expected_rects={},
+        max_geometry_candidates=12,
+        expected_rendered_count=12,
+        expected_status="partial",
+        expected_failure_code="resource-limit",
+        expected_limits=("candidates",),
     ),
     "mandatory-overflow": FixtureSpec(
         name="mandatory-overflow",

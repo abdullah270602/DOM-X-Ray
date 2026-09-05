@@ -34,6 +34,8 @@ QUALIFYING_TYPES = {
 }
 ALLOWED_METHODS = {"GET", "HEAD", "OPTIONS"}
 REDIRECT_LIMIT = 10
+MAX_INSPECTED_ELEMENTS = 20_000
+MAX_GEOMETRY_CANDIDATES = 5_000
 INTERSTITIAL_CLASSIFIER_VERSION = "login-gate-structural-v1"
 HTTP_ERROR_INTERSTITIAL_CLASSIFIER_VERSION = "http-error-status-v1"
 SCANNER_USER_AGENT = "DOM-X-Ray-Scanner-Fixture/0.1"
@@ -350,7 +352,17 @@ def probe_page(
     cache_disabled: bool = True,
     trusted_loopback_fixture: bool = False,
     policy_block_log: list[dict[str, Any]] | None = None,
+    max_inspected_elements: int = MAX_INSPECTED_ELEMENTS,
+    max_geometry_candidates: int = MAX_GEOMETRY_CANDIDATES,
 ) -> ProbeResult:
+    for name, value, ceiling in (
+        ("max_inspected_elements", max_inspected_elements, MAX_INSPECTED_ELEMENTS),
+        ("max_geometry_candidates", max_geometry_candidates, MAX_GEOMETRY_CANDIDATES),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+        if value > ceiling:
+            raise ValueError(f"{name} cannot exceed its hard ceiling of {ceiling}")
     validate_fixture_target(url, allow_trusted_loopback=trusted_loopback_fixture)
     if proxy_server is not None and policy_block_log is None:
         raise ValueError("proxy-backed fixture capture requires its policy block log")
@@ -638,7 +650,7 @@ def probe_page(
         capture_monotonic = time.monotonic()
         page_state = page.evaluate(
             r"""
-            (() => {
+            (limits => {
               const stackingRule = element => {
                 const style = getComputedStyle(element);
                 if (['fixed', 'sticky'].includes(style.position)) return `position-${style.position}`;
@@ -649,7 +661,17 @@ def probe_page(
                 if (style.isolation === 'isolate') return 'isolation';
                 return null;
               };
-              const allElements = [...document.querySelectorAll('*')];
+              const rawElements = document.getElementsByTagName('*');
+              const rawDomNodeCount = rawElements.length;
+              const inspectedNodeCount = Math.min(
+                rawDomNodeCount,
+                limits.maxInspectedElements,
+              );
+              const allElements = [];
+              for (let index = 0; index < inspectedNodeCount; index += 1) {
+                allElements.push(rawElements[index]);
+              }
+              const domNodeLimitReached = rawDomNodeCount > inspectedNodeCount;
               const visiblyRendered = element => {
                 const style = getComputedStyle(element);
                 if (style.display === 'none') return false;
@@ -660,7 +682,11 @@ def probe_page(
                 const height = Math.max(0, Math.min(box.bottom, innerHeight) - Math.max(box.top, 0));
                 return width * height >= 16;
               };
-              const visibleForms = [...document.forms].filter(visiblyRendered);
+              const visibleForms = domNodeLimitReached
+                ? []
+                : allElements.filter(
+                    element => element.tagName.toLowerCase() === 'form' && visiblyRendered(element)
+                  );
               const visibleCredentialForms = visibleForms.filter(form => {
                 const inputs = [...form.querySelectorAll('input')].filter(visiblyRendered);
                 const passwords = inputs.filter(input => input.type === 'password');
@@ -758,6 +784,7 @@ def probe_page(
                 return [...result];
               };
               const candidates = [];
+              let geometryCandidateLimitReached = false;
               for (let index = 0; index < allElements.length; index += 1) {
                 const element = allElements[index];
                 const tag = element.tagName.toLowerCase();
@@ -784,6 +811,10 @@ def probe_page(
                   || borderWidth > 0
                   || style.boxShadow !== 'none'
                   || style.outlineStyle !== 'none';
+                if (candidates.length >= limits.maxGeometryCandidates) {
+                  geometryCandidateLimitReached = true;
+                  continue;
+                }
                 candidates.push({
                   element,
                   index,
@@ -840,8 +871,8 @@ def probe_page(
                   width: document.documentElement.scrollWidth,
                   height: document.documentElement.scrollHeight,
                 },
-                rawDomNodeCount: allElements.length,
-                inspectedNodeCount: allElements.length,
+                rawDomNodeCount,
+                inspectedNodeCount,
                 rawMaxDomDepth: Math.max(0, ...allElements.map(element => {
                   let depth = 0;
                   for (let current = element.parentElement; current; current = current.parentElement) depth += 1;
@@ -864,6 +895,8 @@ def probe_page(
                   visibleCompetingContentCount: visibleCompetingContent.length,
                 },
                 nodes,
+                domNodeLimitReached,
+                geometryCandidateLimitReached,
                 shifts: window.__domXRayProbe.shifts.map(shift => ({
                   timestampMs: shift.timestampMs,
                   value: shift.value,
@@ -882,8 +915,12 @@ def probe_page(
                 })),
                 layoutShiftSupported: window.__domXRayProbe.layoutShiftSupported,
               };
-            })()
-            """
+            })
+            """,
+            {
+                "maxInspectedElements": max_inspected_elements,
+                "maxGeometryCandidates": max_geometry_candidates,
+            },
         )
 
         final_page_domain = registrable_domain_for_fixture(urlsplit(page_state["finalUrl"]).hostname)
@@ -1054,6 +1091,44 @@ def probe_page(
         interstitial_signals["finalDocumentStatus"] = final_document_status
         interstitial_kind = classify_interstitial_v1(interstitial_signals)
         limitations = []
+        if page_state["domNodeLimitReached"]:
+            limitations.append(
+                {
+                    "code": "dom-inspection-limit",
+                    "scope": "scan",
+                    "targetId": None,
+                    "message": (
+                        f"The document contained {page_state['rawDomNodeCount']} elements; "
+                        f"inspection stopped after the first {page_state['inspectedNodeCount']}."
+                    ),
+                    "invalidatesMetrics": [
+                        "candidate_count",
+                        "geometry",
+                        "login_gate_classification",
+                        "max_dom_depth",
+                        "scene_completeness",
+                        "visual_region_count",
+                    ],
+                }
+            )
+        if page_state["geometryCandidateLimitReached"]:
+            limitations.append(
+                {
+                    "code": "geometry-candidate-limit",
+                    "scope": "scan",
+                    "targetId": None,
+                    "message": (
+                        "More viewport geometry qualified than the capture budget allows; "
+                        f"only the first {max_geometry_candidates} candidates were retained."
+                    ),
+                    "invalidatesMetrics": [
+                        "candidate_count",
+                        "geometry",
+                        "scene_completeness",
+                        "visual_region_count",
+                    ],
+                }
+            )
         if not settled:
             limitations.append(
                 {
@@ -1212,6 +1287,8 @@ def probe_page(
             worker_capture_incomplete
             or bool(unknown_nonbootstrap_resources)
             or bool(blocked_requests)
+            or page_state["domNodeLimitReached"]
+            or page_state["geometryCandidateLimitReached"]
             or aggregation.fallback_rule is not None
         )
         if interstitial_kind is not None:
@@ -1224,13 +1301,21 @@ def probe_page(
             record_status = "partial"
             failure_code = (
                 "resource-limit"
-                if aggregation.fallback_rule is not None
+                if (
+                    page_state["domNodeLimitReached"]
+                    or page_state["geometryCandidateLimitReached"]
+                    or aggregation.fallback_rule is not None
+                )
                 else "measurement-unavailable"
             )
 
         limits_reached = []
         if not settled:
             limits_reached.append("time")
+        if page_state["domNodeLimitReached"]:
+            limits_reached.append("dom-nodes")
+        if page_state["geometryCandidateLimitReached"]:
+            limits_reached.append("candidates")
         if aggregation.fallback_rule is not None:
             limits_reached.append("regions")
 

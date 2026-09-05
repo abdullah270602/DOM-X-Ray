@@ -61,6 +61,10 @@ These are initial safety values for the 10-site risk spike, not timeless product
 
 When a cap is reached, the scanner stops the affected collection, records the exact limit, marks the scan partial when interpretation is materially incomplete, and suppresses any invalidated hero candidate.
 
+For the DOM boundary, the scanner reads the top-level document's element count once, then evaluates at most the first 20,000 elements in deterministic document order. If more exist, `rawDomNodeCount` remains the exact observed collection length, `inspectedNodeCount` records the bounded prefix, `limitsReached` includes `dom-nodes`, and a scan limitation invalidates complete geometry, candidate-count, maximum-depth, login-gate, scene-completeness, and visual-region interpretations. The probe never silently calls that prefix the whole page.
+
+Within the inspected prefix, at most 5,000 qualifying geometry candidates are retained, again in deterministic document order. Discovering another qualifying element sets `limitsReached: ["candidates"]`, produces a partial `resource-limit` record, and invalidates complete geometry, candidate-count, scene-completeness, and visual-region interpretations. This boundary precedes perceptual aggregation and is distinct from the 650 rendered-scene budget. Tests may lower either boundary, but the probe rejects values above the production hard ceilings. The two boundaries are exercised at smaller injected values in deterministic fixtures so the production defaults remain testable without a 20,000-node test artifact.
+
 ## Network measurement
 
 ### Canonical transfer value

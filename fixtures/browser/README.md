@@ -2,16 +2,18 @@
 
 These pages are Gate 0 instrumentation evidence, not the public application stack. A loopback-only Python server emits response bodies with exact declared sizes. A local policy proxy maps reserved `.test` hosts to that server, relays response bytes unchanged, and validates redirect targets before Chromium receives them. The verifier then compares:
 
-- every document element evaluated against the area, viewport, display, visibility, opacity, and nonvisual-tag candidate rules;
+- every document element on uncapped fixtures—and only the declared deterministic prefix on the capped fixture—evaluated against the area, viewport, display, visibility, opacity, and nonvisual-tag candidate rules;
 - five explicit hidden/tiny/offscreen exclusions, one partially clipped inclusion retaining its raw rectangle, and every hand-marked geometry expectation within 1 CSS pixel;
 - deterministic preorder IDs, nearest-represented parent links, sanitized selectors, and a high-entropy selector canary;
 - exact image URL-to-element links—including one URL reused by two elements—while stylesheets, fonts, scripts, and fetches remain page-level;
-- identical node, nearest-candidate parent, raw depth, stacking-context, geometry, selector, count, redirect-chain, and attribution fingerprints across repeated clean and redirect captures;
+- identical node, nearest-candidate parent, raw depth, stacking-context, geometry, selector, count, redirect-chain, attribution, and retained-cap-prefix fingerprints across repeated clean, redirect, DOM-limit, and candidate-limit captures;
 - every `Network.loadingFinished.encodedDataLength` total against the exact HTTP bytes emitted by the server;
 - the same CDP total against declared body payload within the product's 2% tolerance;
 - the fixed 1440 × 900, DPR 1, `en-US`, UTC profile, cold cache by default plus one explicit mixed-cache source fixture;
 - the post-DOMContentLoaded quiet window, including the image-heavy fixture's mutation reset;
 - four external requests collapsing into three registrable-domain fixture hubs;
+- a deterministic first-40-element inspection boundary on a larger document, retaining the exact raw count while producing an explicit partial result that invalidates complete geometry, depth, candidate, scene, and login-gate interpretations;
+- a deterministic first-12-geometry-candidate boundary on a fully inspected document, distinct from the later 650-object aggregation budget and reproduced byte-for-byte on repeat;
 - a 723-candidate page reducing to exactly 650 rendered regions, with 73 omitted candidate IDs retained once as aggregate members and preorder order deciding an otherwise tied cutoff;
 - two same-footprint, evidence-free wrappers collapsing into their represented ancestor while exact image attribution and represented parent links remain intact;
 - 654 mandatory candidates producing a partial 650-object overview while four evidence-only nodes—including an exact-linked image with its raw rectangle and symmetric resource link—remain inspectable under `mandatory-overflow-v1`;

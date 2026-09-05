@@ -25,6 +25,8 @@ from scanner.admission_policy import ScanAdmissionGate
 from scanner.browser_probe import (
     HTTP_ERROR_INTERSTITIAL_CLASSIFIER_VERSION,
     INTERSTITIAL_CLASSIFIER_VERSION,
+    MAX_GEOMETRY_CANDIDATES,
+    MAX_INSPECTED_ELEMENTS,
     SCANNER_USER_AGENT,
     classify_interstitial_v1,
     classify_transfer_source,
@@ -470,7 +472,16 @@ def deterministic_fingerprint(record: dict) -> tuple:
         json.dumps(item, sort_keys=True, separators=(",", ":"))
         for item in record["insights"]
     )
-    return nodes, links, counts, insights
+    outcome = (
+        record["status"],
+        record["failureCode"],
+        tuple(record["capture"]["limitsReached"]),
+        tuple(
+            json.dumps(item, sort_keys=True, separators=(",", ":"))
+            for item in record["limitations"]
+        ),
+    )
+    return nodes, links, counts, insights, outcome
 
 
 def main() -> None:
@@ -493,6 +504,7 @@ def main() -> None:
     positive_hero_fingerprints = {}
     wrapper_fingerprint = None
     overflow_fingerprint = None
+    capture_limit_fingerprints = {}
     admission_now = [1_000.0]
     admission_gate = ScanAdmissionGate(
         duplicate_window_seconds=300,
@@ -513,6 +525,20 @@ def main() -> None:
                 browser.version == EXPECTED_CHROMIUM_VERSION,
                 f"Chromium version {browser.version} != pinned proof version {EXPECTED_CHROMIUM_VERSION}",
             )
+            limit_guard_url = f"http://clean.test:{server.server_port}/clean/"
+            for invalid_limits in (
+                {"max_inspected_elements": 0},
+                {"max_inspected_elements": True},
+                {"max_inspected_elements": MAX_INSPECTED_ELEMENTS + 1},
+                {"max_geometry_candidates": 0},
+                {"max_geometry_candidates": True},
+                {"max_geometry_candidates": MAX_GEOMETRY_CANDIDATES + 1},
+            ):
+                try:
+                    probe_page(browser, limit_guard_url, **invalid_limits)
+                except ValueError:
+                    continue
+                raise AssertionError(f"capture limit guard accepted {invalid_limits}")
             for name, fixture in FIXTURES.items():
                 server.clear_ledger()
                 proxy.clear_state()
@@ -530,6 +556,8 @@ def main() -> None:
                     cache_disabled=fixture.cache_disabled,
                     trusted_loopback_fixture=fixture.trusted_loopback,
                     policy_block_log=proxy.blocked if fixture.use_policy_proxy else None,
+                    max_inspected_elements=fixture.max_inspected_elements,
+                    max_geometry_candidates=fixture.max_geometry_candidates,
                 )
                 record = result.record
                 validate_semantics(
@@ -604,10 +632,19 @@ def main() -> None:
                 assert_rects(record, fixture.expected_rects, result.fixture_node_ids)
                 for marker in fixture.expected_excluded_markers:
                     require(marker not in result.fixture_node_ids, f"excluded candidate survived: {marker}")
-                require(
-                    record["page"]["rawDomNodeCount"] == record["capture"]["inspectedNodeCount"],
-                    f"{name} did not inspect every raw element",
-                )
+                if "dom-nodes" in fixture.expected_limits:
+                    require(
+                        record["page"]["rawDomNodeCount"]
+                        > record["capture"]["inspectedNodeCount"]
+                        == fixture.max_inspected_elements,
+                        f"{name} did not stop at the configured DOM inspection limit",
+                    )
+                else:
+                    require(
+                        record["page"]["rawDomNodeCount"]
+                        == record["capture"]["inspectedNodeCount"],
+                        f"{name} did not inspect every raw element",
+                    )
                 require(
                     record["capture"]["candidateNodeCount"]
                     == record["capture"]["renderedRegionCount"]
@@ -634,6 +671,42 @@ def main() -> None:
                         record["capture"]["renderedRegionCount"] == fixture.expected_rendered_count,
                         f"{name} rendered {record['capture']['renderedRegionCount']} regions",
                     )
+
+                limitation_by_code = {
+                    item["code"]: item for item in record["limitations"]
+                }
+                if "dom-nodes" in fixture.expected_limits:
+                    require(
+                        set(limitation_by_code["dom-inspection-limit"]["invalidatesMetrics"])
+                        == {
+                            "candidate_count",
+                            "geometry",
+                            "login_gate_classification",
+                            "max_dom_depth",
+                            "scene_completeness",
+                            "visual_region_count",
+                        },
+                        "DOM inspection cap does not disclose every invalidated interpretation",
+                    )
+                if "candidates" in fixture.expected_limits:
+                    require(
+                        record["capture"]["candidateNodeCount"]
+                        == fixture.max_geometry_candidates
+                        and set(
+                            limitation_by_code["geometry-candidate-limit"][
+                                "invalidatesMetrics"
+                            ]
+                        )
+                        == {
+                            "candidate_count",
+                            "geometry",
+                            "scene_completeness",
+                            "visual_region_count",
+                        },
+                        "geometry candidate cap does not preserve its exact boundary and caveat",
+                    )
+                if name in {"dom-limit", "candidate-limit"}:
+                    capture_limit_fingerprints[name] = deterministic_fingerprint(record)
 
                 rendered_ids = {item["id"] for item in scene_nodes}
                 member_ids = [
@@ -1635,6 +1708,27 @@ def main() -> None:
                 overflow_fingerprint == deterministic_fingerprint(repeated_overflow),
                 "mandatory-overflow evidence/scene partition changed on repeat",
             )
+            for limit_name in ("dom-limit", "candidate-limit"):
+                limit_fixture = FIXTURES[limit_name]
+                limit_url = (
+                    f"http://{limit_fixture.host}:{server.server_port}"
+                    f"{limit_fixture.route}"
+                )
+                server.clear_ledger()
+                proxy.clear_state()
+                repeated_limit = probe_page(
+                    browser,
+                    limit_url,
+                    proxy_server=proxy.url,
+                    policy_block_log=proxy.blocked,
+                    max_inspected_elements=limit_fixture.max_inspected_elements,
+                    max_geometry_candidates=limit_fixture.max_geometry_candidates,
+                ).record
+                require(
+                    capture_limit_fingerprints[limit_name]
+                    == deterministic_fingerprint(repeated_limit),
+                    f"{limit_name} boundary or retained-prefix evidence changed on repeat",
+                )
             assert_redirect_policy(browser, server, proxy)
         finally:
             browser.close()
@@ -1649,7 +1743,8 @@ def main() -> None:
         "Validated deterministic node, aggregation, redirect, attribution, source, interstitial, and policy fingerprints "
         "across repeated captures."
     )
-    print("Validated deterministic hero selection on 3 positive and 15 no-standout/interstitial browser fixtures.")
+    print("Validated deterministic hero selection on 3 positive and 17 no-standout/interstitial browser fixtures.")
+    print("Validated bounded DOM inspection and geometry-candidate collection.")
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
     print("Validated 4 transfer-source priority cases.")
     print("Validated 13 interstitial-classifier safety guards.")
