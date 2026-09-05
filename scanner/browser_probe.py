@@ -34,6 +34,10 @@ QUALIFYING_TYPES = {
 ALLOWED_METHODS = {"GET", "HEAD", "OPTIONS"}
 REDIRECT_LIMIT = 10
 INTERSTITIAL_CLASSIFIER_VERSION = "login-gate-structural-v1"
+SCANNER_USER_AGENT = "DOM-X-Ray-Scanner-Fixture/0.1"
+SENSITIVE_OUTBOUND_HEADERS = frozenset(
+    {"authorization", "cookie", "proxy-authorization", "referer"}
+)
 
 
 INIT_SCRIPT = r"""
@@ -281,7 +285,13 @@ def _make_request_guard(
             )
             route.abort("blockedbyclient")
         else:
-            route.continue_()
+            headers = {
+                name: value
+                for name, value in request.headers.items()
+                if name.lower() not in SENSITIVE_OUTBOUND_HEADERS
+            }
+            headers["user-agent"] = SCANNER_USER_AGENT
+            route.continue_(headers=headers)
 
     return guard
 
@@ -296,7 +306,11 @@ def probe_navigation_policy(
 
     validate_fixture_target(url)
     blocked_requests: list[dict[str, str]] = []
-    context = browser.new_context(accept_downloads=False, proxy={"server": proxy_server})
+    context = browser.new_context(
+        accept_downloads=False,
+        proxy={"server": proxy_server},
+        user_agent=SCANNER_USER_AGENT,
+    )
     context.clear_permissions()
     context.route("**/*", _make_request_guard(blocked_requests))
     page = context.new_page()
@@ -358,6 +372,7 @@ def probe_page(
         reduced_motion="no-preference",
         service_workers="allow",
         accept_downloads=False,
+        user_agent=SCANNER_USER_AGENT,
         proxy={"server": proxy_server} if proxy_server else None,
     )
     try:

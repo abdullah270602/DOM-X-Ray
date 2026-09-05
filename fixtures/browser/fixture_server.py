@@ -219,6 +219,14 @@ FIXTURES = {
             ("GET", "/private-image", "private-literal-host"),
         ),
     ),
+    "unsafe-get": FixtureSpec(
+        name="unsafe-get",
+        host="unsafe-get.test",
+        route="/unsafe-get/",
+        expected_payload_bytes=34_000,
+        expected_request_count=2,
+        expected_rects={"unsafe-main": (240, 180, 960, 540)},
+    ),
     "wrapper-collapse": FixtureSpec(
         name="wrapper-collapse",
         host="collapse.test",
@@ -269,6 +277,7 @@ PAGE_SPECS = {
     "/unknown-byte/": ("unknown-byte.html", 25_000, "text/html; charset=utf-8"),
     "/interstitial/login/": ("interstitial.html", 28_000, "text/html; charset=utf-8"),
     "/policy-boundary/": ("policy-boundary.html", 32_000, "text/html; charset=utf-8"),
+    "/unsafe-get/": ("unsafe-get.html", 30_000, "text/html; charset=utf-8"),
     "/wrapper-collapse/": ("wrapper-collapse.html", 35_000, "text/html; charset=utf-8"),
     "/mandatory-overflow/": ("mandatory-overflow.html", 80_000, "text/html; charset=utf-8"),
 }
@@ -406,6 +415,13 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                 "status": status,
                 "bodyBytes": len(body) if self.command != "HEAD" else 0,
                 "wireBytes": len(header) + (len(body) if self.command != "HEAD" else 0),
+                "sensitiveHeadersPresent": tuple(
+                    name
+                    for name in ("Authorization", "Cookie", "Proxy-Authorization", "Referer")
+                    if self.headers.get(name)
+                ),
+                "userAgent": self.headers.get("User-Agent", ""),
+                "queryPresent": "?" in self.path,
             }
         )
 
@@ -444,6 +460,17 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             )
             self.close_connection = True
             time.sleep(3)
+            return
+
+        if route == "/unsafe-get/side-effect":
+            self._write_response(
+                200,
+                "application/octet-stream",
+                _binary_body(4_000, "application/octet-stream"),
+                extra_headers=(
+                    ("X-Fixture-Secret", "response-secret-canary-3085174692"),
+                ),
+            )
             return
 
         redirect_specs = {
@@ -499,7 +526,16 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                 ).encode("utf-8")
                 source = source.replace(b"{{OVERFLOW_NODES}}", overflow_nodes)
             body = _pad_text(source, target_size, content_type)
-            self._write_response(200, content_type, body)
+            extra_headers = ()
+            if route == "/unsafe-get/":
+                extra_headers = (
+                    (
+                        "Set-Cookie",
+                        "fixture=browser-cookie-secret-canary-7602941835; Path=/; SameSite=Lax",
+                    ),
+                    ("X-Fixture-Secret", "response-secret-canary-3085174692"),
+                )
+            self._write_response(200, content_type, body, extra_headers=extra_headers)
             return
 
         if route in ASSET_SPECS:

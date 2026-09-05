@@ -15,7 +15,13 @@ from threading import Lock, Thread
 from typing import Iterator
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
-from scanner.browser_probe import _match_url, _redacted_url, request_block_reason
+from scanner.browser_probe import (
+    SCANNER_USER_AGENT,
+    SENSITIVE_OUTBOUND_HEADERS,
+    _match_url,
+    _redacted_url,
+    request_block_reason,
+)
 
 
 REDIRECT_LIMIT = 10
@@ -52,13 +58,20 @@ class FixturePolicyProxy(ThreadingTCPServer):
             self.blocked.clear()
             self.document_chain.clear()
 
-    def record_request(self, url: str, method: str, is_document: bool) -> None:
+    def record_request(
+        self,
+        url: str,
+        method: str,
+        is_document: bool,
+        incoming_sensitive_headers: tuple[str, ...],
+    ) -> None:
         with self.state_lock:
             self.ledger.append(
                 {
                     "url": _redacted_url(url),
                     "method": method,
                     "document": is_document,
+                    "incomingSensitiveHeaders": incoming_sensitive_headers,
                 }
             )
             if is_document:
@@ -134,7 +147,19 @@ class FixturePolicyHandler(StreamRequestHandler):
             header_map.get("sec-fetch-dest", "").lower() == "document"
             or header_map.get("upgrade-insecure-requests") == "1"
         )
-        self.server.record_request(url, method, is_document)
+        incoming_sensitive_headers = tuple(
+            sorted(
+                name.lower()
+                for name, _value in headers
+                if name.lower() in SENSITIVE_OUTBOUND_HEADERS
+            )
+        )
+        self.server.record_request(
+            url,
+            method,
+            is_document,
+            incoming_sensitive_headers,
+        )
 
         reason = request_block_reason(method, url)
         if reason is None and (not parsed.hostname or not parsed.hostname.endswith(".test")):
@@ -158,10 +183,18 @@ class FixturePolicyHandler(StreamRequestHandler):
         forwarded_headers = [
             (name, value)
             for name, value in headers
-            if name.lower() not in {"connection", "host", "proxy-connection"}
+            if name.lower()
+            not in {
+                "connection",
+                "host",
+                "proxy-connection",
+                "user-agent",
+                *SENSITIVE_OUTBOUND_HEADERS,
+            }
         ]
         outbound = f"{method} {path} {version}\r\n".encode("iso-8859-1")
         outbound += f"Host: {parsed.netloc}\r\n".encode("iso-8859-1")
+        outbound += f"User-Agent: {SCANNER_USER_AGENT}\r\n".encode("ascii")
         outbound += b"".join(
             f"{name}: {value}\r\n".encode("iso-8859-1")
             for name, value in forwarded_headers

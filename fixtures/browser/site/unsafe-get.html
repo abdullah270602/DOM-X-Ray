@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Unsafe GET policy fixture</title>
+  <style>
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { background: #f4f0e8; color: #242821; font: 24px/1.4 sans-serif; }
+    main { box-sizing: border-box; margin: 180px 240px; width: 960px; height: 540px; padding: 72px; border: 2px solid #242821; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="unsafe-main" id="unsafeSecret483920174652">
+    <h1>Anonymous GET boundary</h1>
+    <p>One deliberately state-changing GET request is issued by this fixture.</p>
+    <form hidden>
+      <input name="identity" value="form-secret-canary-6250718493">
+      <input type="password" value="password-secret-canary-4197362058">
+    </form>
+  </main>
+  <script>
+    localStorage.setItem('fixture', 'local-storage-secret-canary-1529083647');
+    sessionStorage.setItem('fixture', 'session-storage-secret-canary-8074136295');
+    fetch('/unsafe-get/side-effect?token=query-secret-canary-2948175063', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer authorization-secret-canary-9317462058' },
+      referrer: `${location.origin}/referrer-source?token=referrer-secret-canary-5702184963`,
+      referrerPolicy: 'unsafe-url',
+    }).then(response => response.arrayBuffer()).then(body => {
+      document.body.dataset.receivedBytes = String(body.byteLength);
+    });
+  </script>
+</body>
+</html>

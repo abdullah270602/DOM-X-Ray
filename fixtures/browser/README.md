@@ -24,6 +24,8 @@ These pages are Gate 0 instrumentation evidence, not the public application stac
 - continuous DOM mutation independently reaching the bounded hard stop while retaining useful but explicitly partial geometry;
 - a stable HTTP 200 credential gate classified structurally as an interstitial, retaining orientation geometry while emitting no insight, making no form submission, and storing no form values;
 - two unsafe methods and two literal-private subresources rejected by the policy proxy before origin contact, with public block responses retained as targeted evidence and private URLs omitted from the normalized record;
+- one deliberately state-changing GET reaching origin exactly once, with recent identical-result reuse and same-origin cooling producing no second contact under an injectable policy clock;
+- Cookie, Authorization, Proxy-Authorization, and Referer stripped before origin forwarding, ten cookie/header/query/form/storage/selector canaries absent from normalized and fixture evidence, and an explicit fixture-only scanner user-agent at origin;
 - private-literal, credentialed, disallowed-scheme, cyclic, and over-ten-hop redirects rejected at the proxy before the forbidden target reaches the server;
 - ten local request-policy cases for allowed methods, blocked methods, credentials, schemes, and literal private hosts;
 - five fixture-target boundary cases that keep normal proof traffic restricted to credential-free, query-free reserved HTTP `.test` pages; only the service-worker secure-origin fixture can opt into exact-host `localhost` trust;
@@ -39,4 +41,4 @@ python -m playwright install chromium
 python scripts/verify_browser_fixtures.py
 ```
 
-The loopback policy proxy exists only inside this deterministic proof. Passing it proves the named redirect, unsafe-method, and literal-private-subresource behavior but not production public-IP resolution, an enforceable deployment egress boundary, DNS-rebinding resistance, service-worker bootstrap byte accounting, cooling-window enforcement, or unsafe-GET containment. The localhost service-worker exception is scoped to the test harness and does not weaken the public-target boundary. Those remaining controls are explicit Gate 0 work.
+The loopback policy proxy and in-memory admission gate exist only inside this deterministic proof. Passing them proves the named redirect, unsafe-method, literal-private-subresource, sensitive-header, exact-result reuse, and same-origin cooling behavior, but not production public-IP resolution, an enforceable deployment egress boundary, DNS-rebinding resistance, service-worker bootstrap byte accounting, durable distributed rate enforcement, or approved launch durations. The localhost service-worker exception and scanner identity are fixture-scoped and do not weaken or decide the public-target boundary. Those remaining controls are explicit Gate 0 work.

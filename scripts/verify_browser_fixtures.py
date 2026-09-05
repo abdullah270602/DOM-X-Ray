@@ -21,8 +21,10 @@ from scanner.aggregation import (
     MandatoryOverflowError,
     aggregate_nodes,
 )
+from scanner.admission_policy import ScanAdmissionGate
 from scanner.browser_probe import (
     INTERSTITIAL_CLASSIFIER_VERSION,
+    SCANNER_USER_AGENT,
     classify_interstitial_v1,
     classify_transfer_source,
     probe_navigation_policy,
@@ -279,6 +281,69 @@ def assert_aggregation_guards() -> None:
         raise AssertionError("aggregation invented a DOM scene with no available slot")
 
 
+def assert_admission_policy_guards() -> None:
+    now = [100.0]
+    gate = ScanAdmissionGate(
+        duplicate_window_seconds=300,
+        origin_cooling_seconds=60,
+        clock=lambda: now[0],
+    )
+    target = "https://example.test/page"
+    first = gate.reserve(target)
+    require(first.action == "scan", "first target reservation was not admitted")
+
+    in_flight = gate.reserve(target)
+    require(
+        in_flight.action == "reject"
+        and in_flight.reason == "identical-scan-in-flight"
+        and in_flight.retry_after_seconds == 300,
+        "in-flight duplicate did not remain blocked without origin contact",
+    )
+
+    gate.complete(target, "scan-result-1")
+    reused = gate.reserve(target)
+    require(
+        reused.action == "reuse"
+        and reused.reason == "recent-identical-scan"
+        and reused.reusable_result_id == "scan-result-1",
+        "completed identical scan was not reused",
+    )
+
+    cooled = gate.reserve("https://example.test/other")
+    require(
+        cooled.action == "reject"
+        and cooled.reason == "origin-cooling"
+        and cooled.retry_after_seconds == 60,
+        "same-origin scan bypassed its cooling window",
+    )
+    require(
+        gate.reserve("https://other.test/page").action == "scan",
+        "cooling leaked across origins",
+    )
+
+    now[0] += 60.1
+    require(
+        gate.reserve("https://example.test/other").action == "scan",
+        "same-origin scan remained blocked after cooling expired",
+    )
+    require(
+        gate.reserve(target).action == "reuse",
+        "exact result reuse expired with the shorter origin window",
+    )
+
+    for invalid in (
+        "file:///tmp/page",
+        "https://user:secret@example.test/page",
+        "https://example.test/page?token=secret",
+        "https://example.test/page#fragment",
+    ):
+        try:
+            gate.reserve(invalid)
+        except ValueError:
+            continue
+        raise AssertionError(f"admission gate accepted invalid target {invalid}")
+
+
 def assert_redirect_policy(browser, server, proxy) -> None:
     cases = [
         ("private", "/redirect/private", "private-literal-host", ["/redirect/private"]),
@@ -391,6 +456,7 @@ def main() -> None:
     assert_transfer_source_priority()
     assert_interstitial_classifier_guards()
     assert_aggregation_guards()
+    assert_admission_policy_guards()
     summaries = []
     clean_fingerprint = None
     redirect_fingerprint = None
@@ -400,6 +466,12 @@ def main() -> None:
     policy_fingerprint = None
     wrapper_fingerprint = None
     overflow_fingerprint = None
+    admission_now = [1_000.0]
+    admission_gate = ScanAdmissionGate(
+        duplicate_window_seconds=300,
+        origin_cooling_seconds=60,
+        clock=lambda: admission_now[0],
+    )
 
     with (
         run_fixture_server() as server,
@@ -418,6 +490,11 @@ def main() -> None:
                 server.clear_ledger()
                 proxy.clear_state()
                 url = f"http://{fixture.host}:{server.server_port}{fixture.route}"
+                if name == "unsafe-get":
+                    require(
+                        admission_gate.reserve(url).action == "scan",
+                        "unsafe-GET fixture was not admitted exactly once",
+                    )
                 result = probe_page(
                     browser,
                     url,
@@ -1014,6 +1091,106 @@ def main() -> None:
                         ),
                         deterministic_fingerprint(record),
                     )
+                elif name == "unsafe-get":
+                    canaries = (
+                        "browser-cookie-secret-canary-7602941835",
+                        "response-secret-canary-3085174692",
+                        "form-secret-canary-6250718493",
+                        "password-secret-canary-4197362058",
+                        "local-storage-secret-canary-1529083647",
+                        "session-storage-secret-canary-8074136295",
+                        "query-secret-canary-2948175063",
+                        "authorization-secret-canary-9317462058",
+                        "referrer-secret-canary-5702184963",
+                        "unsafeSecret483920174652",
+                    )
+                    serialized_evidence = json.dumps(
+                        {
+                            "record": record,
+                            "proxyBlocked": result.blocked_requests,
+                            "proxyLedger": proxy.ledger,
+                            "serverLedger": server.ledger,
+                        },
+                        sort_keys=True,
+                    )
+                    require(
+                        all(canary not in serialized_evidence for canary in canaries),
+                        "unsafe-GET fixture leaked a secret canary into normalized evidence",
+                    )
+                    require(
+                        any(
+                            item["selector"] == "main#xray-redacted"
+                            for item in record["nodes"]
+                        ),
+                        "high-entropy unsafe-GET selector was not redacted",
+                    )
+
+                    server_paths = [str(item["path"]) for item in server.ledger]
+                    require(
+                        server_paths.count("/unsafe-get/") == 1
+                        and server_paths.count("/unsafe-get/side-effect") == 1,
+                        "unsafe GET was missing or retried during one capture",
+                    )
+                    side_effect_server = next(
+                        item
+                        for item in server.ledger
+                        if item["path"] == "/unsafe-get/side-effect"
+                    )
+                    require(
+                        side_effect_server["method"] == "GET"
+                        and side_effect_server["queryPresent"] is True
+                        and not side_effect_server["sensitiveHeadersPresent"],
+                        "egress forwarded cookie, authorization, or referrer credentials",
+                    )
+                    require(
+                        all(
+                            item["userAgent"] == SCANNER_USER_AGENT
+                            for item in server.ledger
+                        ),
+                        "fixture-only scanner identity did not reach every origin request",
+                    )
+
+                    side_effect_proxy = next(
+                        item
+                        for item in proxy.ledger
+                        if urlsplit(str(item["url"])).path
+                        == "/unsafe-get/side-effect"
+                    )
+                    require(
+                        tuple(side_effect_proxy["incomingSensitiveHeaders"])
+                        == ("authorization", "cookie", "referer"),
+                        "fixture did not exercise all three sensitive outbound headers",
+                    )
+
+                    ledger_before_admission_checks = copy.deepcopy(server.ledger)
+                    admission_gate.complete(url, "fixture-scan-unsafe-get")
+                    reused = admission_gate.reserve(url)
+                    require(
+                        reused.action == "reuse"
+                        and reused.reusable_result_id == "fixture-scan-unsafe-get",
+                        "identical unsafe-GET scan was not reused",
+                    )
+                    cooled = admission_gate.reserve(
+                        f"http://{fixture.host}:{server.server_port}/unsafe-get/other"
+                    )
+                    require(
+                        cooled.action == "reject"
+                        and cooled.reason == "origin-cooling"
+                        and cooled.retry_after_seconds == 60,
+                        "same-origin unsafe-GET scan bypassed cooling",
+                    )
+                    admission_now[0] += 60.1
+                    require(
+                        admission_gate.reserve(
+                            f"http://{fixture.host}:{server.server_port}/unsafe-get/other"
+                        ).action
+                        == "scan",
+                        "same-origin admission did not reopen after cooling",
+                    )
+                    require(
+                        server.ledger == ledger_before_admission_checks,
+                        "admission reuse/cooling checks contacted the unsafe origin",
+                    )
                 elif name == "wrapper-collapse":
                     main_id = result.fixture_node_ids["collapse-main"]
                     article_id = result.fixture_node_ids["collapse-article"]
@@ -1296,8 +1473,10 @@ def main() -> None:
     print("Validated 4 transfer-source priority cases.")
     print("Validated 6 interstitial-classifier safety guards.")
     print("Validated 4 aggregation safety guards.")
+    print("Validated scan reuse and per-origin cooling with an injectable policy clock.")
     print("Validated 5 browser-enforced redirect rejection cases.")
     print("Validated 4 live unsafe-method/private-subresource blocks.")
+    print("Validated one unsafe GET, sensitive-header stripping, and ten secret canaries.")
     print("Validated 1 redirect-chain negative control.")
 
 
