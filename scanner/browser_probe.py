@@ -16,6 +16,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 from playwright.sync_api import Browser, Route
 
+from scanner.aggregation import aggregate_nodes
+
 
 VIEWPORT = {"width": 1440, "height": 900}
 QUALIFYING_TYPES = {
@@ -339,6 +341,11 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
               const nonvisual = new Set([
                 'head', 'meta', 'link', 'title', 'base', 'script', 'style', 'noscript', 'template'
               ]);
+              const semanticTags = new Set([
+                'header', 'nav', 'main', 'article', 'section', 'aside', 'footer', 'form'
+              ]);
+              const replacedTags = new Set(['img', 'video', 'canvas', 'iframe', 'svg']);
+              const shiftNodes = new Set(window.__domXRayProbe.shiftNodeRefs);
               const safeToken = token => /^[a-zA-Z][a-zA-Z0-9_-]{0,31}$/.test(token);
               const redactToken = token => {
                 if (!safeToken(token) || token.length > 18) return 'xray-redacted';
@@ -394,13 +401,42 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                 if (style.display === 'none') continue;
                 if (['hidden', 'collapse'].includes(style.visibility)) continue;
                 if (Number(style.opacity) <= 0.01) continue;
+                const resourceUrls = exactResourceUrls(element);
+                const stackRule = stackingRule(element);
+                const semantic = semanticTags.has(tag) || Boolean(element.getAttribute('role'));
+                const hasDirectText = [...element.childNodes].some(
+                  node => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent.trim())
+                );
+                const borderWidth = ['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth']
+                  .reduce((sum, property) => sum + (Number.parseFloat(style[property]) || 0), 0);
+                const hasDistinctPaint = hasDirectText
+                  || style.backgroundImage !== 'none'
+                  || !['transparent', 'rgba(0, 0, 0, 0)'].includes(style.backgroundColor)
+                  || borderWidth > 0
+                  || style.boxShadow !== 'none'
+                  || style.outlineStyle !== 'none';
                 candidates.push({
                   element,
                   index,
                   id: `n-${String(index + 1).padStart(5, '0')}`,
                   box,
-                  stackingRule: stackingRule(element),
-                  exactResourceUrls: exactResourceUrls(element),
+                  clippedRect: {
+                    x: Math.max(box.left, 0),
+                    y: Math.max(box.top, 0),
+                    width: clippedWidth,
+                    height: clippedHeight,
+                  },
+                  stackingRule: stackRule,
+                  exactResourceUrls: resourceUrls,
+                  mandatory: element === document.documentElement
+                    || element === document.body
+                    || semantic
+                    || replacedTags.has(tag)
+                    || resourceUrls.length > 0
+                    || Boolean(stackRule)
+                    || shiftNodes.has(element),
+                  semanticDistinctness: semantic ? 1 : 0,
+                  hasDistinctPaint,
                 });
               }
               const candidateIds = new Map(candidates.map(item => [item.element, item.id]));
@@ -420,6 +456,11 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                   stackingRule: item.stackingRule,
                   exactResourceUrls: item.exactResourceUrls,
                   fixtureMarker: element.dataset.xrayId || null,
+                  clippedRect: item.clippedRect,
+                  mandatory: item.mandatory,
+                  semanticDistinctness: item.semanticDistinctness,
+                  hasDistinctPaint: item.hasDistinctPaint,
+                  preorderIndex: item.index,
                 };
               });
               return {
@@ -522,6 +563,31 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
             }
             for item in page_state["nodes"]
         ]
+        aggregation_metadata = {
+            item["id"]: {
+                "preorderIndex": item["preorderIndex"],
+                "clippedRect": item["clippedRect"],
+                "mandatory": item["mandatory"],
+                "semanticDistinctness": item["semanticDistinctness"],
+                "hasDistinctPaint": item["hasDistinctPaint"],
+            }
+            for item in page_state["nodes"]
+        }
+        external_hub_count = len(
+            {
+                resource["registrableDomain"]
+                for resource in resource_rows
+                if resource["party"] == "third" and resource["registrableDomain"] is not None
+            }
+        )
+        aggregation = aggregate_nodes(
+            nodes,
+            aggregation_metadata,
+            resource_rows,
+            max_scene_objects=650,
+            external_hub_count=external_hub_count,
+        )
+        nodes = aggregation.nodes
         shifts = [
             {
                 "id": f"ls-{index + 1:03d}",
@@ -579,9 +645,9 @@ def probe_page(browser: Browser, url: str, *, hard_stop_seconds: float = 12.0) -
                 "timezone": "UTC",
                 "region": "local-gate-0",
                 "inspectedNodeCount": page_state["inspectedNodeCount"],
-                "candidateNodeCount": len(nodes),
-                "renderedRegionCount": len(nodes),
-                "aggregatedNodeCount": 0,
+                "candidateNodeCount": aggregation.candidate_count,
+                "renderedRegionCount": aggregation.rendered_count,
+                "aggregatedNodeCount": aggregation.aggregated_count,
                 "requestCount": len(resource_rows),
                 "requestsWithoutByteData": sum(row["transferredBytes"] is None for row in resource_rows),
                 "transferAccountingRule": "cdp-loading-finished-encoded-data-length-v1",

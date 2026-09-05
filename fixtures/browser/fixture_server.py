@@ -27,6 +27,10 @@ class FixtureSpec:
     expected_request_count: int
     expected_rects: dict[str, tuple[float, float, float, float]]
     expected_excluded_markers: tuple[str, ...] = ()
+    expected_omitted_markers: tuple[str, ...] = ()
+    expected_exact_element_links: int = 0
+    expected_rendered_count: int | None = None
+    expected_aggregated_count: int = 0
 
 
 FIXTURES = {
@@ -53,6 +57,7 @@ FIXTURES = {
             "exclude-tiny",
             "exclude-offscreen",
         ),
+        expected_exact_element_links=2,
     ),
     "image-heavy": FixtureSpec(
         name="image-heavy",
@@ -70,6 +75,7 @@ FIXTURES = {
             "n-caption": (96, 782, 1248, 24),
             "n-footer": (0, 840, 1440, 60),
         },
+        expected_exact_element_links=3,
     ),
     "third-party": FixtureSpec(
         name="third-party",
@@ -86,6 +92,22 @@ FIXTURES = {
             "n-comments": (96, 770, 820, 100),
             "n-footer": (960, 800, 384, 70),
         },
+        expected_exact_element_links=1,
+    ),
+    "aggregation": FixtureSpec(
+        name="aggregation",
+        host="aggregation.test",
+        route="/aggregation/",
+        expected_payload_bytes=100_000,
+        expected_request_count=2,
+        expected_rects={
+            "agg-main": (20, 20, 1016, 812),
+            "agg-tile-000": (20, 20, 30, 30),
+            "agg-tile-646": (564, 734, 30, 30),
+        },
+        expected_omitted_markers=("agg-tile-647", "agg-tile-719"),
+        expected_rendered_count=650,
+        expected_aggregated_count=73,
     ),
 }
 
@@ -94,6 +116,7 @@ PAGE_SPECS = {
     "/clean/": ("clean.html", 42_000, "text/html; charset=utf-8"),
     "/image-heavy/": ("image-heavy.html", 48_000, "text/html; charset=utf-8"),
     "/third-party/": ("third-party.html", 52_000, "text/html; charset=utf-8"),
+    "/aggregation/": ("aggregation.html", 80_000, "text/html; charset=utf-8"),
 }
 
 
@@ -115,6 +138,7 @@ ASSET_SPECS = {
     "/assets/comments.js": ("assets/comments.js", 210_000, "text/javascript; charset=utf-8"),
     "/media/lead.svg": (None, 310_000, "image/svg+xml"),
     "/api/thread": (None, 62_000, "application/octet-stream"),
+    "/assets/aggregation.css": ("assets/aggregation.css", 20_000, "text/css; charset=utf-8"),
 }
 
 
@@ -220,6 +244,12 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             relative_path, target_size, content_type = PAGE_SPECS[route]
             source = (ROOT / relative_path).read_text(encoding="utf-8")
             source = source.replace("{{PORT}}", str(self.server.server_port)).encode("utf-8")
+            if b"{{TILES}}" in source:
+                tiles = "".join(
+                    f'<div data-xray-id="agg-tile-{index:03d}"></div>'
+                    for index in range(720)
+                ).encode("utf-8")
+                source = source.replace(b"{{TILES}}", tiles)
             body = _pad_text(source, target_size, content_type)
             self._write_response(200, content_type, body)
             return

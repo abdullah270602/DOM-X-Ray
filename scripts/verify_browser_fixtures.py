@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from fixtures.browser.fixture_server import FIXTURES, run_fixture_server
+from scanner.aggregation import MandatoryOverflowError, aggregate_nodes
 from scanner.browser_probe import probe_page, request_block_reason, validate_fixture_target
 from scripts.validate_fixtures import validate_semantics
 
@@ -45,7 +46,6 @@ def assert_rects(
 
 def assert_exact_attribution(record: dict) -> int:
     images = [item for item in record["resources"] if item["type"] == "image"]
-    require(images, "fixture has no image resource to attribute")
     require(
         all(item["attributionScope"] == "exact-element" and item["attributedNodeIds"] for item in images),
         "an image resource lacks exact element attribution",
@@ -105,6 +105,61 @@ def assert_request_policy() -> None:
         raise AssertionError(f"fixture-only target boundary accepted {target}")
 
 
+def assert_aggregation_guards() -> None:
+    def node(node_id: str, parent_id: str | None = None) -> dict:
+        return {
+            "id": node_id,
+            "parentId": parent_id,
+            "tag": "div",
+            "selector": "div",
+            "rect": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "domDepth": 0 if parent_id is None else 1,
+            "stackingContext": {"creates": False, "rule": None},
+            "memberNodeIds": [],
+            "aggregationRule": None,
+            "resourceIds": [],
+        }
+
+    def metadata(*, mandatory: bool, preorder: int) -> dict:
+        return {
+            "preorderIndex": preorder,
+            "clippedRect": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "mandatory": mandatory,
+            "semanticDistinctness": 0,
+            "hasDistinctPaint": True,
+        }
+
+    resource_node = node("resource")
+    resource_node["resourceIds"] = ["res-1"]
+    try:
+        aggregate_nodes([resource_node], {"resource": metadata(mandatory=False, preorder=0)}, [])
+    except ValueError as error:
+        require("resource-bearing" in str(error), "resource mandatory guard raised the wrong error")
+    else:
+        raise AssertionError("aggregation accepted a nonmandatory resource-bearing candidate")
+
+    stacking_node = node("stacking")
+    stacking_node["stackingContext"] = {"creates": True, "rule": "positioned-z-index"}
+    try:
+        aggregate_nodes([stacking_node], {"stacking": metadata(mandatory=False, preorder=0)}, [])
+    except ValueError as error:
+        require("stacking-context" in str(error), "stacking mandatory guard raised the wrong error")
+    else:
+        raise AssertionError("aggregation accepted a nonmandatory stacking-context candidate")
+
+    mandatory_nodes = [node("root"), node("child", "root")]
+    mandatory_metadata = {
+        "root": metadata(mandatory=True, preorder=0),
+        "child": metadata(mandatory=True, preorder=1),
+    }
+    try:
+        aggregate_nodes(mandatory_nodes, mandatory_metadata, [], max_scene_objects=1)
+    except MandatoryOverflowError:
+        pass
+    else:
+        raise AssertionError("aggregation emitted an over-budget mandatory scene")
+
+
 def deterministic_fingerprint(record: dict) -> tuple:
     nodes = tuple(
         (
@@ -116,6 +171,8 @@ def deterministic_fingerprint(record: dict) -> tuple:
             item["domDepth"],
             tuple(item["stackingContext"].items()),
             tuple(item["resourceIds"]),
+            tuple(item["memberNodeIds"]),
+            item["aggregationRule"],
         )
         for item in record["nodes"]
     )
@@ -140,6 +197,7 @@ def main() -> None:
     Draft202012Validator.check_schema(SCHEMA)
     validator = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
     assert_request_policy()
+    assert_aggregation_guards()
     summaries = []
     clean_fingerprint = None
 
@@ -176,13 +234,39 @@ def main() -> None:
                     f"{name} did not inspect every raw element",
                 )
                 require(
-                    record["capture"]["candidateNodeCount"] == len(record["nodes"]),
-                    f"{name} candidate count drifted",
+                    record["capture"]["candidateNodeCount"]
+                    == len(record["nodes"]) + record["capture"]["aggregatedNodeCount"],
+                    f"{name} candidate/aggregation counts drifted",
+                )
+                require(
+                    record["capture"]["renderedRegionCount"] == len(record["nodes"]),
+                    f"{name} rendered-region count drifted",
                 )
                 require(
                     record["capture"]["candidateNodeCount"] < record["capture"]["inspectedNodeCount"],
                     f"{name} candidate filtering excluded nothing",
                 )
+                require(
+                    record["capture"]["aggregatedNodeCount"] == fixture.expected_aggregated_count,
+                    f"{name} aggregated {record['capture']['aggregatedNodeCount']} candidates",
+                )
+                if fixture.expected_rendered_count is not None:
+                    require(
+                        record["capture"]["renderedRegionCount"] == fixture.expected_rendered_count,
+                        f"{name} rendered {record['capture']['renderedRegionCount']} regions",
+                    )
+
+                rendered_ids = {item["id"] for item in record["nodes"]}
+                member_ids = [
+                    member_id
+                    for item in record["nodes"]
+                    for member_id in item["memberNodeIds"]
+                ]
+                for marker in fixture.expected_omitted_markers:
+                    require(marker in result.fixture_node_ids, f"omitted marker was not a candidate: {marker}")
+                    node_id = result.fixture_node_ids[marker]
+                    require(node_id not in rendered_ids, f"omitted marker was rendered: {marker}")
+                    require(member_ids.count(node_id) == 1, f"omitted marker lost or duplicated: {marker}")
                 serialized_record = json.dumps(record, sort_keys=True)
                 require("data-xray-id" not in serialized_record, f"{name} leaked fixture attributes")
                 require(
@@ -196,6 +280,10 @@ def main() -> None:
                 if name == "clean":
                     require("xray-redacted" in serialized_record, "selector redaction marker is missing")
                 exact_image_links = assert_exact_attribution(record)
+                require(
+                    exact_image_links == fixture.expected_exact_element_links,
+                    f"{name} has {exact_image_links} exact element links",
+                )
                 cdp_total = assert_transfer(record, fixture.expected_payload_bytes)
 
                 if name == "clean":
@@ -218,6 +306,31 @@ def main() -> None:
                     domains = {item["registrableDomain"] for item in third_party}
                     require(len(third_party) == 4, f"expected 4 third-party requests, found {len(third_party)}")
                     require(len(domains) == 3, f"expected 3 external hubs, found {len(domains)}")
+                elif name == "aggregation":
+                    require(record["capture"]["candidateNodeCount"] == 723, "aggregation candidate count drifted")
+                    require(record["capture"]["renderedRegionCount"] == 650, "aggregation budget drifted")
+                    require(record["capture"]["aggregatedNodeCount"] == 73, "aggregation omission count drifted")
+                    kept_id = result.fixture_node_ids["agg-tile-646"]
+                    omitted_id = result.fixture_node_ids["agg-tile-647"]
+                    require(kept_id in rendered_ids, "preorder boundary tile 646 was omitted")
+                    require(omitted_id not in rendered_ids, "preorder boundary tile 647 was rendered")
+                    main_id = result.fixture_node_ids["agg-main"]
+                    main_node = next(item for item in record["nodes"] if item["id"] == main_id)
+                    require(len(main_node["memberNodeIds"]) == 73, "aggregation members were not attached to main")
+                    expected_members = {
+                        result.fixture_node_ids[f"agg-tile-{index:03d}"]
+                        for index in range(647, 720)
+                    }
+                    require(set(member_ids) == expected_members, "aggregation member set is incomplete or extraneous")
+                    third_party_hubs = {
+                        item["registrableDomain"]
+                        for item in record["resources"]
+                        if item["party"] == "third" and item["registrableDomain"] is not None
+                    }
+                    require(
+                        len(record["nodes"]) + len(third_party_hubs) <= 650,
+                        "rendered nodes and external hubs exceed the scene budget",
+                    )
 
                 served_payload = sum(int(item["bodyBytes"]) for item in server.ledger if item["status"] == 200)
                 served_wire = sum(int(item["wireBytes"]) for item in server.ledger if item["status"] == 200)
@@ -230,7 +343,9 @@ def main() -> None:
                     f"{name} CDP total {cdp_total} does not equal emitted wire bytes {served_wire}",
                 )
                 summaries.append(
-                    f"{name}: {len(record['nodes'])}/{record['capture']['inspectedNodeCount']} candidates, "
+                    f"{name}: {record['capture']['candidateNodeCount']} candidates -> "
+                    f"{record['capture']['renderedRegionCount']} regions "
+                    f"({record['capture']['aggregatedNodeCount']} aggregated), "
                     f"{exact_image_links} exact element links, {len(record['resources'])} requests, "
                     f"{cdp_total} exact CDP/wire bytes"
                 )
@@ -247,12 +362,13 @@ def main() -> None:
 
     print(
         f"Validated controlled Chromium {EXPECTED_CHROMIUM_VERSION} "
-        "against 3 deterministic browser fixtures."
+        "against 4 deterministic browser fixtures."
     )
     for summary in summaries:
         print(f"  {summary}")
     print("Validated deterministic node and attribution fingerprints across a repeated capture.")
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
+    print("Validated 3 aggregation safety guards.")
 
 
 if __name__ == "__main__":

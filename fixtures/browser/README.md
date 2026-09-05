@@ -12,6 +12,7 @@ These pages are Gate 0 instrumentation evidence, not the public application stac
 - the fixed 1440 × 900, DPR 1, `en-US`, UTC, cold-cache profile;
 - the post-DOMContentLoaded quiet window, including the image-heavy fixture's mutation reset;
 - four external requests collapsing into three registrable-domain fixture hubs;
+- a 723-candidate page reducing to exactly 650 rendered regions, with 73 omitted candidate IDs retained once as aggregate members and preorder order deciding an otherwise tied cutoff;
 - ten local request-policy cases for allowed methods, blocked methods, credentials, schemes, and literal private hosts;
 - five fixture-target boundary cases that keep this proof restricted to credential-free, query-free reserved HTTP `.test` pages;
 - the exact Chromium version expected from the pinned Playwright dependency.
@@ -26,4 +27,4 @@ python -m playwright install chromium
 python scripts/verify_browser_fixtures.py
 ```
 
-The host-resolver mapping to loopback exists only inside this proof. Passing it does not prove `perceptual-region-v1` aggregation, a public egress firewall, redirect validation, DNS-rebinding resistance, service-worker accounting, cooling-window enforcement, or unsafe-GET containment. Those remain explicit Gate 0 work.
+The host-resolver mapping to loopback exists only inside this proof. Passing it does not prove a public egress firewall, redirect validation, DNS-rebinding resistance, service-worker accounting, cooling-window enforcement, or unsafe-GET containment. Those remain explicit Gate 0 work.

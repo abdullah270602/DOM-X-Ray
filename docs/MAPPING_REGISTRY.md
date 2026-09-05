@@ -86,6 +86,8 @@ The renderer has a hard budget of 650 scene objects, including external hubs. `p
 
 The algorithm never describes omitted candidates as nonexistent. `rawDomNodeCount`, `inspectedNodeCount`, `candidateNodeCount`, `aggregatedNodeCount`, and `renderedRegionCount` remain separate.
 
+The Gate 0 browser proof exercises the over-budget path with 723 candidates: 650 render, 73 remain inspectable as aggregate members, and equal-ranked tiles use preorder order for the retained cutoff. Wrapper-collapse and mandatory-overflow behavior still require dedicated integration fixtures. Until the region-level mandatory-overflow fallback is implemented, the proof reducer explicitly refuses that condition instead of emitting a record that violates the hard budget.
+
 If mandatory objects alone exceed the budget, the scan is partial and the viewer uses a region-level fallback. It does not silently discard exact evidence.
 
 ## Hero selection

@@ -1,0 +1,5 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+body { position: relative; background: #f4f0e8; }
+main { position: absolute; left: 20px; top: 20px; width: 1016px; height: 812px; display: grid; grid-template-columns: repeat(30, 30px); grid-auto-rows: 30px; gap: 4px; }
+main > div { width: 30px; height: 30px; background: #bcb5a8; }
