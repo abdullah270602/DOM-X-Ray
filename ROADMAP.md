@@ -41,6 +41,8 @@ Pivot rule: if the concept requires invented causality to feel dramatic, remove 
 
 **Question:** Does truthful data produce a legible and desirable physical world?
 
+Current status: **composition approved; implementation not started**. The approved **Instrument Panorama** reference and `docs/VIEWER_CONTRACT.md` define the first-viewport spatial contract. The application stack and deployment target remain explicit pre-scaffold decisions.
+
 Build exactly three local, deterministic scan fixtures:
 
 1. **Clean:** shallow structure, modest transfer weight, almost entirely first party.
@@ -200,7 +202,7 @@ Decision rules:
 - A gate's status changes only with linked evidence: test output, captured artifact, benchmark, or research notes.
 - New scope enters the backlog; it does not enter the current gate unless it is required for that gate's exit criteria.
 - “Looks good” never substitutes for comprehension, provenance, performance, or reliability evidence.
-- Current open decisions: implementation stack, deployment target, persistent comp-first versus code-first workflow preference, storage/retention policy, and the exact representative URL corpus.
+- Current open decisions: implementation stack, deployment target, storage/retention policy, and the exact representative URL corpus. The current viewer follows a comp-first workflow; **Instrument Panorama** is the approved implementation reference.
 
 ## Core event chain
 

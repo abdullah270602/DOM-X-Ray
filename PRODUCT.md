@@ -75,11 +75,13 @@ The product name is **DOM X-Ray**.
 
 Its character is a serious scientific instrument with a slightly mischievous reveal. It should feel like an architectural museum model or physical inspection table, not a generic analytics dashboard, neon cyberpunk scene, decorative particle field, or “roast my site” gimmick.
 
-The previously approved DOM X-Ray concept in the Three.js Concept Atlas is the current visual reference. It establishes the quality bar but does not substitute for a future implementation-specific design contract.
+The Three.js Concept Atlas established the visual world. The user has now approved the implementation-specific **Instrument Panorama** composition. Its spatial relationships are the first-viewport contract; the detailed responsive, data-binding, interaction, and accessibility rules live in `docs/VIEWER_CONTRACT.md`.
 
 ## Evidence on Hand
 
 - Approved interactive concept atlas: `C:\Users\Abdullah Naseem\.codex\visualizations\2026\09\04\01a06e25-99f2-77a3-a31c-f0ab8fd7e502\threejs-concept-atlas.html`
+- Approved first-viewport composition: `C:\Users\Abdullah Naseem\Documents\ChatGPT\DOM-X-Ray\.impeccable\mocks\decision\architectural-section.png` (**Instrument Panorama**, approved 2026-09-06).
+- Approved viewer contract: `C:\Users\Abdullah Naseem\Documents\ChatGPT\DOM-X-Ray\docs\VIEWER_CONTRACT.md`.
 - Confirmed product choice: a public website-exploration toy, not a developer-first diagnostic workspace.
 - Confirmed interaction preference: an interactive viewer rather than static boards alone.
 - No production scanner, representative scan dataset, usability findings, performance benchmark, testimonials, or public traction evidence exists yet. Future work must not fabricate them.
@@ -94,4 +96,4 @@ The previously approved DOM X-Ray concept in the Three.js Concept Atlas is the c
 
 ## Accessibility & Inclusion
 
-Open baseline to confirm before implementation: the non-3D shell and all evidence must meet WCAG 2.2 AA; core exploration must have keyboard and touch alternatives; color cannot carry meaning alone; and `prefers-reduced-motion` must replace the cinematic reveal with an understandable stepped or static presentation. The hero fact and evidence must remain available as text even when WebGL is unavailable.
+Implementation baseline: the non-3D shell and all evidence must meet WCAG 2.2 AA; core exploration must have keyboard and touch alternatives; color cannot carry meaning alone; and `prefers-reduced-motion` must replace the cinematic reveal with an understandable stepped or static presentation. The hero fact and evidence must remain available as text even when WebGL is unavailable.
