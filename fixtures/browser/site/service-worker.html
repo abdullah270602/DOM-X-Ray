@@ -9,10 +9,13 @@
     html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
     body { position: relative; background: #f4f0e8; }
     main { position: absolute; left: 120px; top: 120px; width: 1200px; height: 600px; background: #dce7e2; }
+    img { position: absolute; left: 60px; top: 100px; width: 320px; height: 180px; }
   </style>
 </head>
 <body>
-  <main data-xray-id="worker-main"></main>
+  <main data-xray-id="worker-main">
+    <img data-xray-id="worker-image" src="/media/worker-payload.svg" alt="Fixture payload">
+  </main>
   <script>
     (async () => {
       await navigator.serviceWorker.register('/sw.js');

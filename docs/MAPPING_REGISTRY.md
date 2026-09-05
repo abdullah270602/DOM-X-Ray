@@ -133,7 +133,7 @@ Selecting a plate, weight, hub, cable, scar, or aggregate reveals:
 - Sanitized DOM selector, resource URL, or registrable domain when available.
 - Transformation formula and mapped value.
 - Aggregation members and rule.
-- Cache/worker/network source, capture timestamp, and limitations.
+- Page/worker request owner, cache/worker/network transfer source, capture timestamp, and limitations.
 
 The same information must exist in keyboard, touch, and non-WebGL paths.
 

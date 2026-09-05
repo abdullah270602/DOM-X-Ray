@@ -15,7 +15,9 @@ These pages are Gate 0 instrumentation evidence, not the public application stac
 - a 723-candidate page reducing to exactly 650 rendered regions, with 73 omitted candidate IDs retained once as aggregate members and preorder order deciding an otherwise tied cutoff;
 - a cross-host 302 → 307 → 200 navigation retaining all three document responses, ordered hop/predecessor identity, exact wire bytes, first/third-party classification against the final page domain, and no redirect-query canary in the scan or fixture ledgers;
 - two sequential fetches of one cacheable asset stored as network then cache, with a measured-zero cache transfer and exactly one origin hit;
-- a worker-produced fetch stored as service-worker rather than network, with zero page-session transfer bytes and no origin hit, while the separately fetched worker script is disclosed as unobserved worker-target traffic that makes the scan partial;
+- a worker-produced client response stored as service-worker rather than network, with zero page-session transfer bytes and no origin hit, plus its worker-owned origin fetch captured once with exact CDP wire bytes and target-qualified identity;
+- one URL requested independently as a page image and worker fetch, preserved as two records while only the page-owned image receives exact element attribution;
+- the worker bootstrap represented once as service-worker-owned with unknown bytes because its transfer precedes target attachment, forcing a partial record and suppressing request-count and whole-load byte claims;
 - private-literal, credentialed, disallowed-scheme, cyclic, and over-ten-hop redirects rejected at the proxy before the forbidden target reaches the server;
 - ten local request-policy cases for allowed methods, blocked methods, credentials, schemes, and literal private hosts;
 - five fixture-target boundary cases that keep normal proof traffic restricted to credential-free, query-free reserved HTTP `.test` pages; only the service-worker secure-origin fixture can opt into exact-host `localhost` trust;
@@ -31,4 +33,4 @@ python -m playwright install chromium
 python scripts/verify_browser_fixtures.py
 ```
 
-The loopback policy proxy exists only inside this deterministic proof. Passing it proves the named redirect behavior but not production public-IP resolution, an enforceable deployment egress boundary, DNS-rebinding resistance, full worker-target accounting, cooling-window enforcement, or unsafe-GET containment. The localhost service-worker exception is scoped to the test harness and does not weaken the public-target boundary. Those remaining controls are explicit Gate 0 work.
+The loopback policy proxy exists only inside this deterministic proof. Passing it proves the named redirect behavior but not production public-IP resolution, an enforceable deployment egress boundary, DNS-rebinding resistance, service-worker bootstrap byte accounting, cooling-window enforcement, or unsafe-GET containment. The localhost service-worker exception is scoped to the test harness and does not weaken the public-target boundary. Those remaining controls are explicit Gate 0 work.

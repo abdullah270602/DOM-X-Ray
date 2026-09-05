@@ -222,6 +222,11 @@ def validate_semantics(
             missing_byte_count += 1
         scope = resource["attributionScope"]
         targets = resource["attributedNodeIds"]
+        if resource.get("requestOwner") == "service-worker":
+            require(
+                scope in {"page-level", "unknown"} and not targets,
+                f"{label} worker-owned resource claims element attribution: {resource['id']}",
+            )
         if scope in {"exact-element", "exact-resource-link"}:
             require(bool(targets), f"{label} exact attribution has no node: {resource['id']}")
         if scope in {"page-level", "unknown"}:

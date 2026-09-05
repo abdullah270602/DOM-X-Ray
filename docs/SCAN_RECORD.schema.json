@@ -398,6 +398,10 @@
           "enum": ["document", "stylesheet", "image", "media", "font", "script", "fetch", "xhr", "other"]
         },
         "initiatorType": { "type": ["string", "null"] },
+        "requestOwner": {
+          "description": "Execution context that initiated the request when the instrument can distinguish it.",
+          "enum": ["page", "service-worker", "unknown"]
+        },
         "party": { "enum": ["first", "third", "unknown"] },
         "partyRule": { "type": "string", "minLength": 1 },
         "transferSource": { "enum": ["network", "cache", "service-worker", "unknown"] },

@@ -95,7 +95,11 @@ Network, cache, service-worker, and unknown are mutually exclusive stored transf
 
 The Gate 0 mixed-cache fixture deliberately enables cache in one fresh context and fetches the same immutable resource twice. It proves network-then-cache order, an exact measured-zero cache transfer, and one origin hit. Normal capture fixtures and the production profile remain cold-cache observations.
 
-The current page-session proof classifies a worker-produced response and proves that response does not reach the origin. Chromium fetches the worker script through a separate worker target, which this probe does not yet observe. Whenever a service-worker target is present, the probe therefore emits a partial record with `service-worker-target-unobserved` and invalidates request-count and total-transferred-byte claims. Full capture must attach worker targets and deduplicate worker-owned and frame-owned observations by protocol identity and ownership; ambiguous duplicates remain unknown rather than being counted twice.
+The scanner auto-attaches related service-worker targets before worker execution. Page and worker requests use `(owner target, protocol request ID, redirect hop)` internally; URL equality never deduplicates requests. The normalized `requestOwner` distinguishes page from service-worker initiation. The worker-produced client response remains page-owned and service-worker-sourced, while a worker's own origin fetch is a separate worker-owned network request. This preserves both causal roles without counting the zero-transfer client response as a second network transfer.
+
+Chromium fetches the bootstrap worker script before its target Network domain can emit the canonical `loadingFinished` byte value. The scanner still represents that request once from the attached target URL, with service-worker ownership, unknown transfer source, and `null` bytes. It emits a partial record with `service-worker-bootstrap-bytes-unavailable` and invalidates request-count and total-transferred-byte claims. A missing target or unfinished worker request has its own partial-record limitation. The scanner never refetches the bootstrap or substitutes declared body size for missing protocol evidence.
+
+The Gate 0 fixture proves exact worker-owned fetch bytes against the origin wire ledger, separation from the service-worker-produced client response, and stable ownership/source fingerprints across fresh contexts. Complete bootstrap byte accounting remains open until the pinned browser exposes a defensible signal.
 
 ### Method and residual side-effect boundary
 

@@ -8,6 +8,7 @@ DNS rebinding defense, queueing, and public-suffix handling remain release gates
 from __future__ import annotations
 
 import ipaddress
+import json
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -315,9 +316,13 @@ def probe_page(
 ) -> ProbeResult:
     validate_fixture_target(url, allow_trusted_loopback=trusted_loopback_fixture)
     blocked_requests: list[dict[str, str]] = []
-    network: dict[tuple[str, int], dict[str, Any]] = {}
-    current_hops: dict[str, int] = {}
-    chain_ordinals: dict[str, int] = {}
+    network: dict[tuple[str, str, int], dict[str, Any]] = {}
+    current_hops: dict[tuple[str, str], int] = {}
+    chain_ordinals: dict[tuple[str, str], int] = {}
+    next_chain_ordinal = [0]
+    worker_sessions: dict[str, str] = {}
+    worker_target_ids: set[str] = set()
+    next_worker_command_id = [0]
     last_network_activity = [time.monotonic()]
     navigation_started = time.monotonic()
     started_at = datetime.now(timezone.utc)
@@ -333,29 +338,39 @@ def probe_page(
         accept_downloads=False,
         proxy={"server": proxy_server} if proxy_server else None,
     )
-    context.clear_permissions()
-    if proxy_server is None:
-        context.route(
-            "**/*",
-            _make_request_guard(
-                blocked_requests,
-                trusted_loopback_origin=_origin(url) if trusted_loopback_fixture else None,
-            ),
-        )
-    context.add_init_script(INIT_SCRIPT)
-    page = context.new_page()
-    page.on("popup", lambda popup: popup.close())
-    cdp = context.new_cdp_session(page)
-    main_frame_id = cdp.send("Page.getFrameTree")["frameTree"]["frame"]["id"]
+    try:
+        context.clear_permissions()
+        if proxy_server is None:
+            context.route(
+                "**/*",
+                _make_request_guard(
+                    blocked_requests,
+                    trusted_loopback_origin=_origin(url) if trusted_loopback_fixture else None,
+                ),
+            )
+        context.add_init_script(INIT_SCRIPT)
+        page = context.new_page()
+        page.on("popup", lambda popup: popup.close())
+        cdp = context.new_cdp_session(page)
+        main_frame_id = cdp.send("Page.getFrameTree")["frameTree"]["frame"]["id"]
+    except Exception:
+        context.close()
+        raise
 
-    def on_request(params: dict[str, Any]) -> None:
+    def record_request(
+        owner_key: str,
+        request_owner: str,
+        params: dict[str, Any],
+    ) -> None:
         request_id = params["requestId"]
-        if request_id not in chain_ordinals:
-            chain_ordinals[request_id] = len(chain_ordinals) + 1
+        request_key = (owner_key, request_id)
+        if request_key not in chain_ordinals:
+            next_chain_ordinal[0] += 1
+            chain_ordinals[request_key] = next_chain_ordinal[0]
             hop_index = 0
         else:
-            hop_index = current_hops[request_id] + 1
-            previous = network[(request_id, hop_index - 1)]
+            hop_index = current_hops[request_key] + 1
+            previous = network[(owner_key, request_id, hop_index - 1)]
             redirect_response = params.get("redirectResponse")
             if redirect_response is not None:
                 previous["status"] = redirect_response.get("status")
@@ -369,10 +384,12 @@ def probe_page(
                 previous["redirectedToUrl"] = params["request"]["url"]
                 if previous["type"] in QUALIFYING_TYPES:
                     last_network_activity[0] = time.monotonic()
-        current_hops[request_id] = hop_index
-        network[(request_id, hop_index)] = {
+        current_hops[request_key] = hop_index
+        network[(owner_key, request_id, hop_index)] = {
+            "ownerKey": owner_key,
+            "requestOwner": request_owner,
             "requestId": request_id,
-            "chainOrdinal": chain_ordinals[request_id],
+            "chainOrdinal": chain_ordinals[request_key],
             "hopIndex": hop_index,
             "url": params["request"]["url"],
             "method": params["request"]["method"],
@@ -386,12 +403,18 @@ def probe_page(
             "fromServiceWorker": False,
             "failed": False,
             "redirectedToUrl": None,
-            "isMainNavigation": params.get("frameId") == main_frame_id and params.get("type") == "Document",
+            "isMainNavigation": (
+                request_owner == "page"
+                and params.get("frameId") == main_frame_id
+                and params.get("type") == "Document"
+            ),
+            "workerBootstrap": False,
         }
 
-    def on_response(params: dict[str, Any]) -> None:
+    def record_response(owner_key: str, params: dict[str, Any]) -> None:
         request_id = params["requestId"]
-        item = network.get((request_id, current_hops.get(request_id, 0)))
+        request_key = (owner_key, request_id)
+        item = network.get((owner_key, request_id, current_hops.get(request_key, 0)))
         if item is None:
             return
         response = params["response"]
@@ -400,9 +423,10 @@ def probe_page(
         item["fromDiskCache"] = response.get("fromDiskCache", False)
         item["fromServiceWorker"] = response.get("fromServiceWorker", False)
 
-    def on_finished(params: dict[str, Any]) -> None:
+    def record_finished(owner_key: str, params: dict[str, Any]) -> None:
         request_id = params["requestId"]
-        item = network.get((request_id, current_hops.get(request_id, 0)))
+        request_key = (owner_key, request_id)
+        item = network.get((owner_key, request_id, current_hops.get(request_key, 0)))
         if item is None:
             return
         item["transferredBytes"] = int(round(params.get("encodedDataLength", 0)))
@@ -410,9 +434,10 @@ def probe_page(
         if item["type"] in QUALIFYING_TYPES:
             last_network_activity[0] = time.monotonic()
 
-    def on_failed(params: dict[str, Any]) -> None:
+    def record_failed(owner_key: str, params: dict[str, Any]) -> None:
         request_id = params["requestId"]
-        item = network.get((request_id, current_hops.get(request_id, 0)))
+        request_key = (owner_key, request_id)
+        item = network.get((owner_key, request_id, current_hops.get(request_key, 0)))
         if item is None:
             return
         item["failed"] = True
@@ -420,19 +445,114 @@ def probe_page(
         if item["type"] in QUALIFYING_TYPES:
             last_network_activity[0] = time.monotonic()
 
-    def on_served_from_cache(params: dict[str, Any]) -> None:
+    def record_served_from_cache(owner_key: str, params: dict[str, Any]) -> None:
         request_id = params["requestId"]
-        item = network.get((request_id, current_hops.get(request_id, 0)))
+        request_key = (owner_key, request_id)
+        item = network.get((owner_key, request_id, current_hops.get(request_key, 0)))
         if item is not None:
             item["fromDiskCache"] = True
 
-    cdp.on("Network.requestWillBeSent", on_request)
-    cdp.on("Network.responseReceived", on_response)
-    cdp.on("Network.loadingFinished", on_finished)
-    cdp.on("Network.loadingFailed", on_failed)
-    cdp.on("Network.requestServedFromCache", on_served_from_cache)
-    cdp.send("Network.enable")
-    cdp.send("Network.setCacheDisabled", {"cacheDisabled": cache_disabled})
+    def send_worker_command(session_id: str, method: str, params: dict[str, Any] | None = None) -> None:
+        next_worker_command_id[0] += 1
+        cdp.send(
+            "Target.sendMessageToTarget",
+            {
+                "sessionId": session_id,
+                "message": json.dumps(
+                    {
+                        "id": next_worker_command_id[0],
+                        "method": method,
+                        "params": params or {},
+                    }
+                ),
+            },
+        )
+
+    def on_attached_to_target(params: dict[str, Any]) -> None:
+        session_id = params["sessionId"]
+        target = params["targetInfo"]
+        if target.get("type") != "service_worker":
+            send_worker_command(session_id, "Runtime.runIfWaitingForDebugger")
+            return
+
+        target_id = target["targetId"]
+        worker_sessions[session_id] = target_id
+        if target_id not in worker_target_ids:
+            worker_target_ids.add(target_id)
+            next_chain_ordinal[0] += 1
+            bootstrap_id = f"bootstrap:{target_id}"
+            network[(target_id, bootstrap_id, 0)] = {
+                "ownerKey": target_id,
+                "requestOwner": "service-worker",
+                "requestId": bootstrap_id,
+                "chainOrdinal": next_chain_ordinal[0],
+                "hopIndex": 0,
+                "url": target.get("url", ""),
+                "method": "GET",
+                "initiatorType": "service-worker-registration",
+                "type": "Script",
+                "startedTimestamp": time.monotonic(),
+                "decodedBodyBytes": None,
+                "transferredBytes": None,
+                "finishedTimestamp": None,
+                "fromDiskCache": False,
+                "fromServiceWorker": False,
+                "failed": False,
+                "redirectedToUrl": None,
+                "isMainNavigation": False,
+                "workerBootstrap": True,
+            }
+        send_worker_command(session_id, "Network.enable")
+        send_worker_command(
+            session_id,
+            "Network.setCacheDisabled",
+            {"cacheDisabled": cache_disabled},
+        )
+        send_worker_command(session_id, "Runtime.runIfWaitingForDebugger")
+
+    def on_received_from_target(params: dict[str, Any]) -> None:
+        session_id = params["sessionId"]
+        owner_key = worker_sessions.get(session_id)
+        if owner_key is None:
+            return
+        message = json.loads(params["message"])
+        method = message.get("method")
+        event = message.get("params", {})
+        if method == "Network.requestWillBeSent":
+            record_request(owner_key, "service-worker", event)
+        elif method == "Network.responseReceived":
+            record_response(owner_key, event)
+        elif method == "Network.loadingFinished":
+            record_finished(owner_key, event)
+        elif method == "Network.loadingFailed":
+            record_failed(owner_key, event)
+        elif method == "Network.requestServedFromCache":
+            record_served_from_cache(owner_key, event)
+
+    try:
+        cdp.on("Network.requestWillBeSent", lambda params: record_request("page", "page", params))
+        cdp.on("Network.responseReceived", lambda params: record_response("page", params))
+        cdp.on("Network.loadingFinished", lambda params: record_finished("page", params))
+        cdp.on("Network.loadingFailed", lambda params: record_failed("page", params))
+        cdp.on(
+            "Network.requestServedFromCache",
+            lambda params: record_served_from_cache("page", params),
+        )
+        cdp.on("Target.attachedToTarget", on_attached_to_target)
+        cdp.on("Target.receivedMessageFromTarget", on_received_from_target)
+        cdp.send("Network.enable")
+        cdp.send("Network.setCacheDisabled", {"cacheDisabled": cache_disabled})
+        cdp.send(
+            "Target.setAutoAttach",
+            {
+                "autoAttach": True,
+                "waitForDebuggerOnStart": True,
+                "flatten": False,
+            },
+        )
+    except Exception:
+        context.close()
+        raise
 
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=10_000)
@@ -641,14 +761,13 @@ def probe_page(
         ordered_network = sorted(
             network.values(),
             key=lambda value: (
-                value.get("startedTimestamp") or 0,
                 value["chainOrdinal"],
                 value["hopIndex"],
                 value["url"],
             ),
         )
         resource_id_by_hop = {
-            (item["requestId"], item["hopIndex"]): f"r-{index + 1:03d}"
+            (item["ownerKey"], item["requestId"], item["hopIndex"]): f"r-{index + 1:03d}"
             for index, item in enumerate(ordered_network)
         }
         resource_rows = []
@@ -665,13 +784,21 @@ def probe_page(
             start = item.get("startedTimestamp")
             finish = item.get("finishedTimestamp")
             duration_ms = round((finish - start) * 1000, 3) if start is not None and finish is not None else None
-            resource_id = resource_id_by_hop[(item["requestId"], item["hopIndex"])]
+            resource_id = resource_id_by_hop[
+                (item["ownerKey"], item["requestId"], item["hopIndex"])
+            ]
             redirected_from_id = (
-                resource_id_by_hop.get((item["requestId"], item["hopIndex"] - 1))
+                resource_id_by_hop.get(
+                    (item["ownerKey"], item["requestId"], item["hopIndex"] - 1)
+                )
                 if item["hopIndex"] > 0
                 else None
             )
-            attributed_node_ids = exact_targets.get(_match_url(item["url"]), [])
+            attributed_node_ids = (
+                exact_targets.get(_match_url(item["url"]), [])
+                if item["requestOwner"] == "page"
+                else []
+            )
             resource_rows.append(
                 {
                     "id": resource_id,
@@ -680,6 +807,7 @@ def probe_page(
                     "registrableDomain": resource_domain,
                     "type": _resource_type(item["type"]),
                     "initiatorType": item["initiatorType"],
+                    "requestOwner": item["requestOwner"],
                     "party": "first" if resource_domain == final_page_domain else "third",
                     "partyRule": "registrable-domain-v1-fixture",
                     "transferSource": transfer_source,
@@ -773,17 +901,49 @@ def probe_page(
                     "invalidatesMetrics": ["geometry"],
                 }
             )
-        service_worker_target_present = bool(context.service_workers)
-        if service_worker_target_present:
+        worker_bootstrap_unmeasured = any(
+            item["workerBootstrap"] for item in ordered_network
+        )
+        service_worker_present = bool(context.service_workers) or any(
+            item["fromServiceWorker"] for item in ordered_network
+        )
+        worker_target_unobserved = service_worker_present and not worker_target_ids
+        unfinished_worker_request = any(
+            item["requestOwner"] == "service-worker"
+            and not item["workerBootstrap"]
+            and item["finishedTimestamp"] is None
+            for item in ordered_network
+        )
+        if worker_bootstrap_unmeasured:
+            limitations.append(
+                {
+                    "code": "service-worker-bootstrap-bytes-unavailable",
+                    "scope": "scan",
+                    "targetId": None,
+                    "message": (
+                        "The service-worker bootstrap script request was identified, but its "
+                        "transfer bytes were unavailable before target attachment."
+                    ),
+                    "invalidatesMetrics": ["request_count", "total_transferred_bytes"],
+                }
+            )
+        if worker_target_unobserved:
             limitations.append(
                 {
                     "code": "service-worker-target-unobserved",
                     "scope": "scan",
                     "targetId": None,
-                    "message": (
-                        "A service-worker response was observed, but worker-target requests were "
-                        "outside this page-session capture."
-                    ),
+                    "message": "A service worker was present, but its target could not be attached.",
+                    "invalidatesMetrics": ["request_count", "total_transferred_bytes"],
+                }
+            )
+        if unfinished_worker_request:
+            limitations.append(
+                {
+                    "code": "service-worker-request-incomplete",
+                    "scope": "scan",
+                    "targetId": None,
+                    "message": "A worker-owned request did not finish inside the capture window.",
                     "invalidatesMetrics": ["request_count", "total_transferred_bytes"],
                 }
             )
@@ -799,13 +959,18 @@ def probe_page(
             )
 
         duration_ms = round((capture_monotonic - navigation_started) * 1000, 3)
+        worker_capture_incomplete = (
+            worker_bootstrap_unmeasured
+            or worker_target_unobserved
+            or unfinished_worker_request
+        )
         record = {
             "schemaVersion": "0.1.0",
             "mappingVersion": "mapping-v0.1.0",
             "scanId": f"browser-proof-{urlsplit(url).hostname}",
-            "status": "complete" if settled and not service_worker_target_present else "partial",
+            "status": "complete" if settled and not worker_capture_incomplete else "partial",
             "failureCode": (
-                None if settled and not service_worker_target_present else "measurement-unavailable"
+                None if settled and not worker_capture_incomplete else "measurement-unavailable"
             ),
             "requestedUrl": _redacted_url(url),
             "finalUrl": _redacted_url(page_state["finalUrl"]),
@@ -830,7 +995,11 @@ def probe_page(
                 "aggregatedNodeCount": aggregation.aggregated_count,
                 "requestCount": len(resource_rows),
                 "requestsWithoutByteData": sum(row["transferredBytes"] is None for row in resource_rows),
-                "transferAccountingRule": "cdp-loading-finished-encoded-data-length-v1",
+                "transferAccountingRule": (
+                    "cdp-page-worker-target-loading-finished-v1"
+                    if worker_target_ids
+                    else "cdp-loading-finished-encoded-data-length-v1"
+                ),
                 "redirectCount": len(redirect_rows),
                 "redirectLimit": REDIRECT_LIMIT,
                 "redirects": redirect_rows,
@@ -862,4 +1031,15 @@ def probe_page(
             },
         )
     finally:
+        try:
+            cdp.send(
+                "Target.setAutoAttach",
+                {
+                    "autoAttach": False,
+                    "waitForDebuggerOnStart": False,
+                    "flatten": False,
+                },
+            )
+        except PlaywrightError:
+            pass
         context.close()

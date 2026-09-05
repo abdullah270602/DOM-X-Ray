@@ -37,6 +37,7 @@ class FixtureSpec:
     use_policy_proxy: bool = True
     trusted_loopback: bool = False
     expected_unobserved_paths: tuple[str, ...] = ()
+    expected_missing_byte_count: int = 0
 
 
 FIXTURES = {
@@ -143,12 +144,17 @@ FIXTURES = {
         name="service-worker",
         host="localhost",
         route="/service-worker/",
-        expected_payload_bytes=35_000,
-        expected_request_count=2,
-        expected_rects={"worker-main": (120, 120, 1200, 600)},
+        expected_payload_bytes=75_000,
+        expected_request_count=5,
+        expected_rects={
+            "worker-main": (120, 120, 1200, 600),
+            "worker-image": (180, 220, 320, 180),
+        },
+        expected_exact_element_links=1,
         use_policy_proxy=False,
         trusted_loopback=True,
         expected_unobserved_paths=("/sw.js",),
+        expected_missing_byte_count=1,
     ),
 }
 
@@ -187,6 +193,7 @@ ASSET_SPECS = {
     "/media/redirect-first.svg": (None, 15_000, "image/svg+xml"),
     "/media/redirect-third.svg": (None, 15_000, "image/svg+xml"),
     "/assets/cache-payload.bin": (None, 100_000, "application/octet-stream"),
+    "/media/worker-payload.svg": (None, 20_000, "image/svg+xml"),
     "/sw.js": ("sw.js", 10_000, "text/javascript; charset=utf-8"),
 }
 

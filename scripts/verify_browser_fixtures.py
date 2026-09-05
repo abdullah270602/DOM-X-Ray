@@ -70,9 +70,17 @@ def assert_exact_attribution(record: dict) -> int:
     return sum(len(item["attributedNodeIds"]) for item in images)
 
 
-def assert_transfer(record: dict, expected_payload_bytes: int) -> int:
+def assert_transfer(
+    record: dict,
+    expected_payload_bytes: int,
+    expected_missing_byte_count: int = 0,
+) -> int:
     known = [item["transferredBytes"] for item in record["resources"] if item["transferredBytes"] is not None]
-    require(len(known) == len(record["resources"]), "fixture has missing CDP byte data")
+    missing_count = len(record["resources"]) - len(known)
+    require(
+        missing_count == expected_missing_byte_count,
+        f"fixture has {missing_count} resources with missing CDP byte data",
+    )
     total = int(sum(known))
     delta = abs(total - expected_payload_bytes) / expected_payload_bytes
     require(
@@ -273,6 +281,9 @@ def deterministic_fingerprint(record: dict) -> tuple:
                 item.get("redirectHopIndex"),
                 item.get("redirectedFromResourceId"),
                 item.get("responseStatus"),
+                item.get("requestOwner"),
+                item["transferSource"],
+                item["transferredBytes"],
                 item["attributionScope"],
                 tuple(item["attributedNodeIds"]),
             )
@@ -311,6 +322,8 @@ def main() -> None:
     summaries = []
     clean_fingerprint = None
     redirect_fingerprint = None
+    cache_fingerprint = None
+    worker_fingerprint = None
 
     with (
         run_fixture_server() as server,
@@ -420,7 +433,11 @@ def main() -> None:
                     exact_image_links == fixture.expected_exact_element_links,
                     f"{name} has {exact_image_links} exact element links",
                 )
-                cdp_total = assert_transfer(record, fixture.expected_payload_bytes)
+                cdp_total = assert_transfer(
+                    record,
+                    fixture.expected_payload_bytes,
+                    fixture.expected_missing_byte_count,
+                )
 
                 if name == "clean":
                     require(not record["layoutShifts"], "clean fixture recorded a layout shift")
@@ -548,6 +565,7 @@ def main() -> None:
                         sum(item["path"] == "/assets/cache-payload.bin" for item in server.ledger) == 1,
                         "cache payload reached the server more than once",
                     )
+                    cache_fingerprint = deterministic_fingerprint(record)
                 elif name == "service-worker":
                     worker_rows = [
                         item
@@ -564,12 +582,82 @@ def main() -> None:
                         "worker-produced response did not preserve measured zero transfer bytes",
                     )
                     require(
+                        worker_rows[0]["requestOwner"] == "page",
+                        "worker-produced client response lost page ownership",
+                    )
+                    shared_asset_rows = [
+                        item
+                        for item in record["resources"]
+                        if urlsplit(item["displayUrl"]).path
+                        == "/media/worker-payload.svg"
+                    ]
+                    require(
+                        len(shared_asset_rows) == 2,
+                        "same-URL page and worker requests were collapsed or duplicated",
+                    )
+                    page_asset_rows = [
+                        item for item in shared_asset_rows if item["requestOwner"] == "page"
+                    ]
+                    worker_fetch_rows = [
+                        item
+                        for item in shared_asset_rows
+                        if item["requestOwner"] == "service-worker"
+                    ]
+                    require(
+                        len(page_asset_rows) == 1
+                        and page_asset_rows[0]["type"] == "image"
+                        and page_asset_rows[0]["attributionScope"] == "exact-element"
+                        and page_asset_rows[0]["attributedNodeIds"],
+                        "same-URL page image lost its exact element attribution",
+                    )
+                    require(len(worker_fetch_rows) == 1, "worker-owned fetch was not observed once")
+                    require(
+                        worker_fetch_rows[0]["requestOwner"] == "service-worker"
+                        and worker_fetch_rows[0]["transferSource"] == "network"
+                        and worker_fetch_rows[0]["transferredBytes"] is not None,
+                        "worker-owned fetch lacks measured worker/network evidence",
+                    )
+                    require(
+                        worker_fetch_rows[0]["attributionScope"] == "page-level"
+                        and not worker_fetch_rows[0]["attributedNodeIds"],
+                        "worker-owned fetch was incorrectly attributed to an element",
+                    )
+                    bootstrap_rows = [
+                        item
+                        for item in record["resources"]
+                        if urlsplit(item["displayUrl"]).path == "/sw.js"
+                    ]
+                    require(len(bootstrap_rows) == 1, "worker bootstrap request was not represented once")
+                    require(
+                        bootstrap_rows[0]["requestOwner"] == "service-worker"
+                        and bootstrap_rows[0]["transferSource"] == "unknown"
+                        and bootstrap_rows[0]["transferredBytes"] is None,
+                        "worker bootstrap did not preserve its unknown-byte boundary",
+                    )
+                    require(
+                        record["capture"]["requestsWithoutByteData"] == 1,
+                        "worker bootstrap missing-byte count drifted",
+                    )
+                    require(
+                        record["capture"]["transferAccountingRule"]
+                        == "cdp-page-worker-target-loading-finished-v1",
+                        "worker target capture did not select its accounting rule",
+                    )
+                    require(
                         all(item["path"] != "/sw/worker-data" for item in server.ledger),
                         "worker-produced response unexpectedly reached the origin server",
                     )
                     require(
                         sum(item["path"] == "/sw.js" for item in server.ledger) == 1,
                         "worker script did not reach the origin exactly once",
+                    )
+                    require(
+                        sum(
+                            item["path"] == "/media/worker-payload.svg"
+                            for item in server.ledger
+                        )
+                        == 2,
+                        "same-URL page and worker requests did not reach the origin twice",
                     )
                     require(
                         record["failureCode"] == "measurement-unavailable",
@@ -579,18 +667,19 @@ def main() -> None:
                         item["code"]: item for item in record["limitations"]
                     }
                     require(
-                        "service-worker-target-unobserved" in worker_limitations,
-                        "worker target gap was not disclosed",
+                        "service-worker-bootstrap-bytes-unavailable" in worker_limitations,
+                        "worker bootstrap byte gap was not disclosed",
                     )
                     require(
                         set(
-                            worker_limitations["service-worker-target-unobserved"][
+                            worker_limitations["service-worker-bootstrap-bytes-unavailable"][
                                 "invalidatesMetrics"
                             ]
                         )
                         == {"request_count", "total_transferred_bytes"},
                         "worker target gap does not invalidate the affected metrics",
                     )
+                    worker_fingerprint = deterministic_fingerprint(record)
 
                 unobserved_paths = set(fixture.expected_unobserved_paths)
                 observed_ledger = [
@@ -630,7 +719,8 @@ def main() -> None:
                     f"{record['capture']['renderedRegionCount']} regions "
                     f"({record['capture']['aggregatedNodeCount']} aggregated), "
                     f"{exact_image_links} exact element links, {len(record['resources'])} requests, "
-                    f"{cdp_total} exact CDP/wire bytes"
+                    f"{cdp_total} known CDP/wire bytes, "
+                    f"{record['capture']['requestsWithoutByteData']} missing-byte requests"
                 )
 
             clean = FIXTURES["clean"]
@@ -650,6 +740,32 @@ def main() -> None:
                 redirect_fingerprint == deterministic_fingerprint(repeated_redirect),
                 "redirect hop IDs, predecessors, URLs, statuses, or attribution changed on repeat",
             )
+            cache = FIXTURES["cache"]
+            cache_url = f"http://{cache.host}:{server.server_port}{cache.route}"
+            server.clear_ledger()
+            proxy.clear_state()
+            repeated_cache = probe_page(
+                browser,
+                cache_url,
+                proxy_server=proxy.url,
+                cache_disabled=False,
+            ).record
+            require(
+                cache_fingerprint == deterministic_fingerprint(repeated_cache),
+                "cache request order, sources, bytes, or geometry changed on repeat",
+            )
+            worker = FIXTURES["service-worker"]
+            worker_url = f"http://{worker.host}:{server.server_port}{worker.route}"
+            server.clear_ledger()
+            repeated_worker = probe_page(
+                browser,
+                worker_url,
+                trusted_loopback_fixture=True,
+            ).record
+            require(
+                worker_fingerprint == deterministic_fingerprint(repeated_worker),
+                "worker target attachment, ownership, sources, bytes, or geometry changed on repeat",
+            )
             assert_redirect_policy(browser, server, proxy)
         finally:
             browser.close()
@@ -660,7 +776,10 @@ def main() -> None:
     )
     for summary in summaries:
         print(f"  {summary}")
-    print("Validated deterministic node, redirect, and attribution fingerprints across repeated captures.")
+    print(
+        "Validated deterministic node, redirect, attribution, and source fingerprints "
+        "across repeated captures."
+    )
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
     print("Validated 4 transfer-source priority cases.")
     print("Validated 3 aggregation safety guards.")

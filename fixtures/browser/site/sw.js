@@ -9,8 +9,12 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.pathname !== '/sw/worker-data') return;
-  event.respondWith(new Response('w'.repeat(4096), {
-    status: 200,
-    headers: { 'Content-Type': 'application/octet-stream' },
-  }));
+  event.respondWith((async () => {
+    const upstream = await fetch('/media/worker-payload.svg');
+    await upstream.arrayBuffer();
+    return new Response('w'.repeat(4096), {
+      status: 200,
+      headers: { 'Content-Type': 'application/octet-stream' },
+    });
+  })());
 });
