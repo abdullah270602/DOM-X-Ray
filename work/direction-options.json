@@ -1,0 +1,148 @@
+{
+  "title": "Choose the DOM X-Ray visual world",
+  "question": "Which physical metaphor should govern the first interactive result viewer? Keep one, steer the hand, or re-roll.",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Survey Bench",
+      "kicker": "THE ROLL",
+      "lineage": "cartographic relief maps and measured survey tables",
+      "thesis": "The captured page becomes a measured relief whose elevation is DOM ancestry, never performance or importance.",
+      "palette": ["#E8E0CF", "#26312B", "#D64A32", "#2E6770", "#B6A98D"],
+      "materials": ["contour paper", "survey pins", "acetate sections", "engraved ruler"],
+      "viewport": "A full-width measured relief dominates the screen; a cross-section rail cuts through it while the hero fact and URL sit as quiet field notes at the margins.",
+      "risk": "Elevation could be mistaken for quality; every view must label it as DOM depth and keep the formula one action away.",
+      "raised": [
+        {
+          "from": "Oscilloscope Signal Bench",
+          "raise": "The section rail now steps on a fixed numbered graticule with keyboard-addressable measurement cursors."
+        },
+        {
+          "from": "Experiential Shader Portal",
+          "raise": "The measured world owns the whole viewport instead of being trapped inside a dashboard card."
+        },
+        {
+          "from": "Earthy Identity System",
+          "raise": "Active tools receive unmistakable physical stamp states instead of generic selected pills."
+        },
+        {
+          "from": "Brine Calendar",
+          "raise": "Structure, weight, and origins each change material behavior—not merely accent color."
+        }
+      ],
+      "comp": ".impeccable/mocks/decision/survey-bench.png"
+    },
+    {
+      "id": "model-pick",
+      "label": "Architectural Section Table",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "architectural museum models and the approved DOM X-Ray atlas",
+      "thesis": "A familiar webpage peels into a physical cutaway whose plates, mass, and external machinery remain tied to inspectable evidence.",
+      "palette": ["#E9E1D2", "#20251F", "#D9492F", "#2D6571", "#B8AA8B"],
+      "materials": ["translucent drafting film", "graphite", "inspection stamps", "museum-model board"],
+      "viewport": "The page stands nearly front-on on a warm inspection table, then its measured layers separate in depth; one precise fact and one URL action anchor the left edge.",
+      "risk": "It is the most familiar direction from the approved atlas, so execution must go beyond a tasteful 3D stack and make evidence inspection unforgettable.",
+      "comp": ".impeccable/mocks/decision/architectural-section.png"
+    },
+    {
+      "id": "challenger-star-atlas",
+      "label": "Celestial Dependency Atlas",
+      "verdict": "competitive",
+      "lineage": "celestial star charts and coordinate plates",
+      "thesis": "Page regions become chart plates while resource mass sets magnitude and third-party origins form named constellations beyond the viewport boundary.",
+      "palette": ["#0A1021", "#F2F2E9", "#FF4D2E", "#24374F", "#5A6477"],
+      "materials": ["matte night ink", "chalk grain", "etched coordinates", "red inspection light"],
+      "viewport": "A dark coordinate field fills the screen with the recognizable page as a bright chart plate; exact resources orbit as magnitude-ranked marks with sparse marginal readouts.",
+      "case": "It strongly identifies with technical early adopters and could produce striking shares, but makes DOM geometry less immediately literal than the survey bench.",
+      "risk": "Constellations can imply relationships the scan did not measure; only exact resource links may connect, and decorative mythic figures are omitted.",
+      "comp": ".impeccable/mocks/decision/celestial-atlas.png",
+      "hero": "https://impeccable.style/worlds/cards/notation-diagram-systems-star-atlas-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/notation-diagram-systems-star-atlas.webp"
+    },
+    {
+      "id": "challenger-multiplane",
+      "label": "Multiplane Page Stage",
+      "verdict": "competitive",
+      "lineage": "multiplane cel-animation cameras and painted stage flats",
+      "thesis": "The visible page is one composed image until the camera racks focus and separates its measured structural planes.",
+      "palette": ["#18241E", "#D8DED3", "#E7A747", "#657A73", "#6B3D2D"],
+      "materials": ["gouache planes", "linen scrims", "registration pegs", "camera glass"],
+      "viewport": "The page fills the center as a crisp front cel; the reveal pulls through layered planes while evidence labels remain fixed on the nearest clear acetate.",
+      "case": "Its native motion explains depth beautifully and holds product clarity, but its cinematic softness weakens the serious-instrument character.",
+      "risk": "Painted atmosphere could overpower truth; all page geometry must stay diagrammatic and screenshot-derived rather than illustrative.",
+      "comp": ".impeccable/mocks/decision/multiplane-stage.png",
+      "hero": "https://impeccable.style/worlds/cards/cinema-cinematography-editing-multiplane-cel-dawn-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/cinema-cinematography-editing-multiplane-cel-dawn.webp"
+    },
+    {
+      "id": "challenger-oscilloscope",
+      "label": "Oscilloscope Signal Bench",
+      "verdict": "declined",
+      "lineage": "CRT oscilloscopes and signal benches",
+      "thesis": "The page becomes a triggered measurement trace with resource channels and movable cursors.",
+      "palette": ["#07110E", "#8DF7A7", "#E3A948", "#53605C"],
+      "materials": ["phosphor glass", "etched graticule", "detented knobs"],
+      "viewport": "One ten-division screen overlays structure and transfer channels with numeric readouts below.",
+      "case": "Developers recognize the instrument, but a continuous waveform falsely suggests time-series evidence the first version does not capture.",
+      "kept": "A fixed measurement grid and cursor controls with discrete, reproducible steps.",
+      "risk": "It would push the product toward dark technical nostalgia and away from a public, spatial page cutaway."
+    },
+    {
+      "id": "challenger-shader",
+      "label": "Experiential Shader Portal",
+      "verdict": "declined",
+      "lineage": "full-bleed GPU studio portals",
+      "thesis": "The scan result fills the browser as one living GPU field with marginal evidence controls.",
+      "palette": ["#151B18", "#EAE7DD", "#E14B32", "#4F736F"],
+      "materials": ["living pixels", "film grain", "incandescent cursor"],
+      "viewport": "A fullscreen reactive field carries the scene while thin labels sit at the outer edges.",
+      "case": "It identifies with creative technologists, but the shader becomes the subject and obscures the measured page.",
+      "kept": "Total first-viewport commitment: the artifact fills the screen and the interface recedes.",
+      "risk": "It drifts toward decorative WebGL, exactly the category DOM X-Ray must refuse."
+    },
+    {
+      "id": "challenger-earthy",
+      "label": "Earthy Identity System",
+      "verdict": "declined",
+      "lineage": "nineties handmade corporate identity",
+      "thesis": "A warm stamped field manual turns scans into friendly mapped stations.",
+      "palette": ["#B6523D", "#687047", "#D1A743", "#D7C4A2"],
+      "materials": ["kraft paper", "woodcut ink", "torn edges"],
+      "viewport": "A world-map sheet organizes the scan as tactile stations with stamped completion states.",
+      "case": "The tone is humane, but neither the audience nor the mechanism naturally belongs to lifestyle packaging.",
+      "kept": "Controls should feel physically marked and unmistakably active, not cosmetically highlighted.",
+      "risk": "It could make a precise browser measurement feel folksy and commercially nostalgic."
+    },
+    {
+      "id": "challenger-brine",
+      "label": "Measured Material Shelf",
+      "verdict": "declined",
+      "lineage": "seasonal pickling and fermentation logs",
+      "thesis": "Each exploration mode matures as a distinct vessel with visible material state.",
+      "palette": ["#EEF0E8", "#D35C62", "#6B2136", "#56704B", "#8A6545"],
+      "materials": ["clear vessels", "brine haze", "kraft labels"],
+      "viewport": "Three state vessels sit on a measured shelf with dated labels and thresholds.",
+      "case": "The material states are legible, but the culinary ritual has no credible relationship to page structure or transfer evidence.",
+      "kept": "Modes must differ through material behavior and interaction, not just color tinting.",
+      "risk": "The metaphor would become whimsical decoration and could imply change over time that was not recorded."
+    }
+  ],
+  "reroll": {
+    "registers": ["safer", "bolder"]
+  },
+  "buildPath": {
+    "value": "comp",
+    "toggle": true
+  },
+  "canon": true,
+  "canonCard": {
+    "label": "The category standard",
+    "thesis": "A polished dark developer dashboard places a Three.js model beside metric cards and familiar filters.",
+    "palette": ["#0F172A", "#F8FAFC", "#38BDF8", "#64748B"],
+    "materials": ["dark app chrome", "metric cards", "clean grid"],
+    "viewport": "A top bar and left control rail frame a centered 3D page model with KPI cards on the right.",
+    "risk": "Immediately usable but interchangeable with existing observability products, and 3D reads as decoration.",
+    "comp": ".impeccable/mocks/decision/category-standard.png"
+  },
+  "steer": true
+}

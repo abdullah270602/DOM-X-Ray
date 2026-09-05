@@ -1,0 +1,13 @@
+Use case: ui-mockup
+Asset type: desktop web first-viewport direction comp, 16:9 landscape
+Primary request: Design a complete high-fidelity first screen for DOM X-Ray as a celestial dependency atlas. The measured webpage is a bright coordinate plate on a deep-navy chart; exact resource bytes determine star-mark magnitude, and third-party registrable domains form named external groups beyond the viewport boundary. This must read as an interactive website result viewer, not a poster or generic space illustration.
+Scene/backdrop: edge-to-edge matte night chart with precise coordinate graticule and sparse marginal instrument labels
+Subject: recognizable synthetic webpage geometry preserved as translucent rectangular chart plates, exact resource marks anchored only to attributed nodes, one red selection reticle, one external dependency group, and a truthful hero fact
+Style/medium: award-quality dark scientific-atlas UI, crisp etched rules, chalk-white plotted marks, minimal warm red inspection light
+Composition/framing: 1440x900-style desktop viewport; chart occupies at least three-quarters of screen; tiny left-top DOM X-RAY wordmark and URL/X-RAY action; hero fact anchored lower left; Structure/Weight/Origins and Replay/Evidence sit as marginal chart controls; no card grid
+Lighting/mood: midnight observatory under red-safe light, precise and quiet
+Color palette: night #0A1021, stardust #F2F2E9, inspection red #FF4D2E, chart blue #24374F, fog #5A6477
+Materials/textures: matte ink, chalk grain, etched coordinates, archival chart paper
+Text (verbatim): "DOM X-RAY"; "example.com"; "X-RAY"; "THIS IMAGE CARRIED 61% OF THE TRANSFER"; "STRUCTURE"; "WEIGHT"; "ORIGINS"; "REPLAY"; "EVIDENCE"; "EXACT LINKS ONLY"; "SYNTHETIC PREVIEW"
+Constraints: product purpose and controls readable from the image alone; connections only where exact attribution exists; accessible contrast; page plate remains recognizable
+Avoid: decorative constellations, zodiac figures, generic galaxy, globe, neon cyberpunk, particles for ambience, dashboard cards, glassmorphism, code editor, roast language, fake performance score, excessive glow

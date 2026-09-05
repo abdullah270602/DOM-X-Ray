@@ -1,0 +1,12 @@
+Use case: ui-mockup
+Asset type: desktop web first-viewport direction comp, 16:9 landscape
+Primary request: Design the impeccably executed category-standard version of DOM X-Ray: a polished dark developer dashboard with a central Three.js DOM model, left navigation/control rail, top URL scan bar, right-side metric cards, and bottom timeline. It should be highly usable and conventional, explicitly serving as the familiar comparison option.
+Scene/backdrop: deep slate application shell
+Subject: centered 3D exploded webpage model, metric panels for transferred bytes, DOM nodes, requests and third-party origins, clear mode tabs, evidence drawer affordance
+Style/medium: premium modern SaaS observability dashboard UI mockup, restrained and precise
+Composition/framing: 1440x900 desktop application; fixed top bar, slim left rail, large central viewport, stacked KPI cards on right, compact bottom timeline
+Color palette: slate #0F172A, near-white #F8FAFC, blue #38BDF8, muted #64748B, warning amber #F59E0B
+Materials/textures: dark app chrome, crisp 1px dividers, matte panels
+Text (verbatim): "DOM X-RAY"; "example.com"; "SCAN"; "8.4 MB TRANSFERRED"; "612 DOM NODES"; "46 REQUESTS"; "7 EXTERNAL ORIGINS"; "STRUCTURE"; "WEIGHT"; "ORIGINS"; "VIEW EVIDENCE"; "SYNTHETIC PREVIEW"
+Constraints: credible production dashboard; accessible contrast; obvious URL action and metric hierarchy; no fabricated customers or benchmark claims
+Avoid: neon cyberpunk, noisy particles, glassmorphism, consumer gaming UI, roast language, illegible microtext, generic stock imagery

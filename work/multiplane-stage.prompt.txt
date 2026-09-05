@@ -1,0 +1,13 @@
+Use case: ui-mockup
+Asset type: desktop web first-viewport direction comp, 16:9 landscape
+Primary request: Design a complete high-fidelity first screen for DOM X-Ray as a multiplane page stage. A recognizable captured webpage begins as one crisp front cel, then measured DOM ancestry separates into diagrammatic planes on a physical multiplane camera table; evidence labels stay fixed on the nearest clear acetate. This must read as an interactive website result viewer, not concept art or a cinematic poster.
+Scene/backdrop: dark umber camera table and registration rig, with desaturated painted planes and clear acetate annotations
+Subject: synthetic webpage made from layered rectangular cels, precise registration pegs, one weighted image plate, one external teal origin beyond the set, one red focus bracket, and one truthful hero fact
+Style/medium: high-fidelity editorial web UI using tactile cel-animation materials while keeping page geometry technical and exact
+Composition/framing: 1440x900-style desktop viewport; page stage fills central/right two-thirds in strong perspective; narrow left rail carries DOM X-RAY, URL/X-RAY action and hero fact; bottom clear cel carries Structure/Weight/Origins, Replay and Evidence; no conventional dashboard
+Lighting/mood: quiet animation camera room at dawn, serious tool with cinematic depth
+Color palette: deep umber #18241E, cel white #D8DED3, lamp amber #E7A747, slate teal #657A73, inspection red-brown #B24B38
+Materials/textures: gouache-edged planes, linen scrims, clear acetate, metal registration pegs, camera glass
+Text (verbatim): "DOM X-RAY"; "example.com"; "X-RAY"; "THIS IMAGE CARRIED 61% OF THE TRANSFER"; "STRUCTURE"; "WEIGHT"; "ORIGINS"; "REPLAY"; "EVIDENCE"; "DEPTH = DOM ANCESTRY"; "SYNTHETIC PREVIEW"
+Constraints: page measurements stay diagrammatic and screenshot-derived; viewer task obvious in seconds; accessible text contrast; controls appear operable
+Avoid: illustrated forest, cottage, characters, fantasy scenery, generic film poster, dashboard cards, neon, cyberpunk, particles, glassmorphism, roast language, fake scores, excessive blur
