@@ -100,6 +100,39 @@ def validate_registry(registry: dict[str, Any], fixtures: list[dict[str, Any]]) 
             require(0 <= value <= 1, f"hero threshold {key} is outside 0–1")
     require(hero["supportMetricMaximum"] == 3, "support metric limit drifted")
     require(hero["fallbackShareEligible"] is False, "neutral fallback must not masquerade as share-worthy")
+    require(hero["eligibleStatuses"] == ["complete", "partial"], "hero status boundary drifted")
+    require(
+        hero["knownByteCoverageRule"]
+        == "count(resources where transferredBytes is known) / count(resources)",
+        "known-value coverage proxy is ambiguous",
+    )
+    require(
+        hero["rankingOrder"]
+        == [
+            "effect-strength-desc",
+            "measurement-coverage-desc",
+            "exact-attribution-desc",
+            "visual-share-desc",
+            "observed-evidence-desc",
+            "source-order-asc",
+            "candidate-id-asc",
+        ],
+        "hero comparator is not fully deterministic",
+    )
+    require(
+        hero["disabledCandidateKinds"] == ["structure", "layout-shift"],
+        "an unthresholded hero kind was enabled",
+    )
+    require(
+        hero["enabledCandidates"]
+        == [
+            "dominant-resource-type-share-v1",
+            "third-party-request-share-v1",
+            "third-party-byte-share-v1",
+            "largest-exact-resource-share-v1",
+        ],
+        "hero candidate set drifted",
+    )
 
     for fixture in fixtures:
         require(fixture["mappingVersion"] == registry["version"], f"{fixture['scanId']} mapping version mismatch")

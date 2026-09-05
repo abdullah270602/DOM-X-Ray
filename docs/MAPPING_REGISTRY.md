@@ -101,7 +101,13 @@ Prototype candidate thresholds:
 - Third-party bytes own at least 50% when known-byte coverage is at least 90%.
 - One exactly linked resource owns at least 35% and 500,000 known received bytes.
 
-Candidates are ranked by normalized effect strength, measurement coverage, attribution scope, and visual consequence. Exact element attribution wins a tie over page-level evidence; observed wins a tie over derived; DOM order provides the final deterministic tie-breaker.
+`knownByteCoverageMinimum` is a known-transfer-value coverage proxy: resources with a numeric `transferredBytes` value divided by all normalized resources. It is not a claim that 90% of unknowable bytes were measured. The third-party request denominator contains only resources classified `first` or `third`; `unknown` party rows are excluded from both numerator and denominator.
+
+Eligible candidates are ranked by the exact registry order: threshold-normalized share margin, measurement coverage, exact attribution, visual share, observed evidence, source order, then candidate ID. Threshold-normalized share margin is `(observedShare - minimumShare) / (1 - minimumShare)`; byte minimums are eligibility gates rather than a second score. Percentages use `round(share * 1000) / 10`. Human-readable byte values use decimal KB/MB rounded to one decimal while raw integer bytes remain inspectable evidence.
+
+Any limitation that invalidates an essential numerator or denominator suppresses that candidate. `hero_insight` suppresses every candidate; `request_count` suppresses request-share candidates; `total_transferred_bytes`, `resource_type_transferred_bytes`, `third_party_transferred_bytes`, or an affected `resource_mass` suppresses the dependent byte candidate. Non-invalidating limitations remain attached to the selected insight so the partial-state presentation cannot hide them.
+
+Structure and layout-shift hero candidates are disabled in `mapping-v0.1.0` because the registry does not yet define a consequence threshold for either. A clean capture with no eligible weight or party candidate receives the neutral non-shareable fallback, not an unconditional structure superlative.
 
 If no candidate crosses a threshold, the result says no standout finding was captured and shows a neutral capture summary. That fallback is not automatically share-eligible.
 

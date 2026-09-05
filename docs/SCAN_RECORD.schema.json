@@ -147,6 +147,10 @@
       "type": ["number", "null"],
       "minimum": 0
     },
+    "nullableNonNegativeInteger": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
     "rect": {
       "type": "object",
       "additionalProperties": false,
@@ -409,8 +413,8 @@
         "party": { "enum": ["first", "third", "unknown"] },
         "partyRule": { "type": "string", "minLength": 1 },
         "transferSource": { "enum": ["network", "cache", "service-worker", "unknown"] },
-        "transferredBytes": { "$ref": "#/$defs/nullableNonNegativeNumber" },
-        "decodedBodyBytes": { "$ref": "#/$defs/nullableNonNegativeNumber" },
+        "transferredBytes": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "decodedBodyBytes": { "$ref": "#/$defs/nullableNonNegativeInteger" },
         "durationMs": { "$ref": "#/$defs/nullableNonNegativeNumber" },
         "requestChainId": { "type": "string", "minLength": 1 },
         "redirectHopIndex": { "type": "integer", "minimum": 0 },

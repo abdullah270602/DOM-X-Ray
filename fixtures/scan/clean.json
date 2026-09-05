@@ -156,37 +156,6 @@
     }
   ],
   "layoutShifts": [],
-  "insights": [
-    {
-      "id": "i-structure",
-      "kind": "structure",
-      "hero": true,
-      "statement": "11 inspected DOM nodes became 4 rendered regions in this captured load.",
-      "evidence": [
-        {
-          "role": "primary",
-          "level": "observed",
-          "attributionScope": "page-level",
-          "metric": "inspected_dom_nodes",
-          "value": 11,
-          "unit": "nodes",
-          "sourceRefs": ["#/page/rawDomNodeCount"],
-          "rule": "capture-dom-node-count-v1"
-        },
-        {
-          "role": "support",
-          "level": "derived",
-          "attributionScope": "page-level",
-          "metric": "rendered_regions",
-          "value": 4,
-          "unit": "regions",
-          "sourceRefs": ["#/capture/renderedRegionCount"],
-          "rule": "region-aggregation-v1"
-        }
-      ],
-      "selectionRule": "clean-structure-summary-v1",
-      "limitationCodes": []
-    }
-  ],
+  "insights": [],
   "limitations": []
 }

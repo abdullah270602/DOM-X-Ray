@@ -352,8 +352,7 @@ def validate_semantics(
     )
 
     if record["scanId"] == "fixture-clean":
-        hero = hero_insights[0]
-        require(hero["evidence"][0]["value"] == record["page"]["rawDomNodeCount"], "clean hero mismatch")
+        require(not hero_insights, "clean fallback was promoted to a hero without a threshold")
     elif record["scanId"] == "fixture-image-heavy":
         known = [resource for resource in resources.values() if resource["transferredBytes"] is not None]
         total = sum(resource["transferredBytes"] for resource in known)
@@ -399,13 +398,15 @@ def main() -> None:
         records[fixture_name] = record
 
     clean = records["clean.json"]
+    image_heavy = records["image-heavy.json"]
 
     expect_failure("duplicate node id", clean, lambda item: item["nodes"].append(copy.deepcopy(item["nodes"][0])), validator)
-    expect_failure("orphan evidence pointer", clean, lambda item: item["insights"][0]["evidence"][0]["sourceRefs"].append("#/missing/value"), validator)
-    expect_failure("two hero insights", clean, lambda item: item["insights"].append(copy.deepcopy(item["insights"][0])), validator)
+    expect_failure("orphan evidence pointer", image_heavy, lambda item: item["insights"][0]["evidence"][0]["sourceRefs"].append("#/missing/value"), validator)
+    expect_failure("two hero insights", image_heavy, lambda item: item["insights"].append(copy.deepcopy(item["insights"][0])), validator)
     expect_failure("missing aggregation rule", clean, lambda item: item["nodes"][1].update({"aggregationRule": None}), validator)
     expect_failure("missing-byte count drift", clean, lambda item: item["resources"][0].update({"transferredBytes": None}), validator)
-    expect_failure("prohibited tracker claim", clean, lambda item: item["insights"][0].update({"statement": "4 trackers in this captured load."}), validator)
+    expect_failure("fractional byte count", clean, lambda item: item["resources"][0].update({"transferredBytes": 1.5}), validator)
+    expect_failure("prohibited tracker claim", image_heavy, lambda item: item["insights"][0].update({"statement": "4 trackers in this captured load."}), validator)
     expect_failure("blocked scene", clean, lambda item: item.update({"status": "blocked", "failureCode": "blocked-by-policy"}), validator)
     expect_failure("page-level element blame", clean, lambda item: item["resources"][0].update({"attributedNodeIds": ["n-body"]}), validator)
     expect_failure("party/domain mismatch", clean, lambda item: item["resources"][0].update({"registrableDomain": "other.example"}), validator)
@@ -413,7 +414,7 @@ def main() -> None:
     expect_failure("inspected count exceeds raw DOM", clean, lambda item: item["page"].update({"rawDomNodeCount": 10}), validator)
     expect_failure("parent cycle", clean, lambda item: item["nodes"][0].update({"parentId": "n-logo"}), validator)
 
-    print(f"Validated {len(records)} fixtures and 12 negative controls against Gate 0.")
+    print(f"Validated {len(records)} fixtures and 13 negative controls against Gate 0.")
 
 
 if __name__ == "__main__":

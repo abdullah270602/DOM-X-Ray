@@ -268,7 +268,7 @@
           "rule": "round(imageBytes * 1000 / totalBytes) / 10"
         }
       ],
-      "selectionRule": "dominant-resource-type-over-70pct-v1",
+      "selectionRule": "dominant-resource-type-share-v1",
       "limitationCodes": []
     }
   ],

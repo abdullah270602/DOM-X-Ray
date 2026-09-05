@@ -18,6 +18,7 @@ from urllib.parse import urlsplit, urlunsplit
 from playwright.sync_api import Browser, Error as PlaywrightError, Route
 
 from scanner.aggregation import aggregate_nodes
+from scanner.insights import select_hero_insight
 
 
 VIEWPORT = {"width": 1440, "height": 900}
@@ -1287,6 +1288,7 @@ def probe_page(
             "insights": [],
             "limitations": limitations,
         }
+        record["insights"] = select_hero_insight(record)
         return ProbeResult(
             record=record,
             blocked_requests=blocked_requests,

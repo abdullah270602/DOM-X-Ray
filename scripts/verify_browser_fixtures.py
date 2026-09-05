@@ -466,7 +466,11 @@ def deterministic_fingerprint(record: dict) -> tuple:
             for item in record["capture"].get("redirects", [])
         ),
     )
-    return nodes, links, counts
+    insights = tuple(
+        json.dumps(item, sort_keys=True, separators=(",", ":"))
+        for item in record["insights"]
+    )
+    return nodes, links, counts, insights
 
 
 def main() -> None:
@@ -486,6 +490,7 @@ def main() -> None:
     error_fingerprints = {}
     policy_fingerprint = None
     storage_fingerprint = None
+    positive_hero_fingerprints = {}
     wrapper_fingerprint = None
     overflow_fingerprint = None
     admission_now = [1_000.0]
@@ -545,6 +550,29 @@ def main() -> None:
                     tuple(record["capture"]["limitsReached"]) == fixture.expected_limits,
                     f"{name} has unexpected capture limits",
                 )
+                hero_insights = [item for item in record["insights"] if item["hero"]]
+                if fixture.expected_hero_selection_rule is None:
+                    require(
+                        not hero_insights,
+                        f"{name} produced an uncontracted hero insight: "
+                        f"{[item['selectionRule'] for item in hero_insights]}",
+                    )
+                else:
+                    require(len(hero_insights) == 1, f"{name} did not produce exactly one hero")
+                    primary = [
+                        item for item in hero_insights[0]["evidence"] if item["role"] == "primary"
+                    ]
+                    require(
+                        hero_insights[0]["selectionRule"]
+                        == fixture.expected_hero_selection_rule
+                        and len(primary) == 1
+                        and primary[0]["metric"] == fixture.expected_hero_primary_metric,
+                        f"{name} selected the wrong hero candidate or primary metric",
+                    )
+                    positive_hero_fingerprints[name] = tuple(
+                        json.dumps(item, sort_keys=True, separators=(",", ":"))
+                        for item in hero_insights
+                    )
                 actual_blocks = {
                     (
                         str(item["method"]),
@@ -669,11 +697,19 @@ def main() -> None:
                         record["capture"]["stabilizationMs"] >= 1_300,
                         "capture did not honor the mutation-reset quiet interval",
                     )
+                    require(
+                        hero_insights[0]["evidence"][0]["value"] == 87.5,
+                        "image-heavy hero percentage drifted",
+                    )
                 elif name == "third-party":
                     third_party = [item for item in record["resources"] if item["party"] == "third"]
                     domains = {item["registrableDomain"] for item in third_party}
                     require(len(third_party) == 4, f"expected 4 third-party requests, found {len(third_party)}")
                     require(len(domains) == 3, f"expected 3 external hubs, found {len(domains)}")
+                    require(
+                        hero_insights[0]["evidence"][0]["value"] == 4,
+                        "third-party request hero count drifted",
+                    )
                 elif name == "aggregation":
                     require(record["capture"]["candidateNodeCount"] == 723, "aggregation candidate count drifted")
                     require(record["capture"]["renderedRegionCount"] == 650, "aggregation budget drifted")
@@ -725,6 +761,10 @@ def main() -> None:
                     third_party = [item for item in record["resources"] if item["party"] == "third"]
                     require(len(first_party) == 3, f"redirect fixture has {len(first_party)} first-party resources")
                     require(len(third_party) == 3, f"redirect fixture has {len(third_party)} third-party resources")
+                    require(
+                        hero_insights[0]["evidence"][0]["value"] == 3,
+                        "redirect hero did not count both foreign hops and the foreign image",
+                    )
                     document_hops = [item for item in record["resources"] if item["type"] == "document"]
                     require(
                         [item["redirectHopIndex"] for item in document_hops] == [0, 1, 2],
@@ -1408,6 +1448,25 @@ def main() -> None:
                 clean_fingerprint == deterministic_fingerprint(repeated),
                 "clean fixture node IDs, parents, geometry, selectors, or attribution changed on repeat",
             )
+            for hero_name in ("image-heavy", "third-party"):
+                hero_fixture = FIXTURES[hero_name]
+                hero_url = f"http://{hero_fixture.host}:{server.server_port}{hero_fixture.route}"
+                server.clear_ledger()
+                proxy.clear_state()
+                repeated_hero = probe_page(
+                    browser,
+                    hero_url,
+                    proxy_server=proxy.url,
+                    policy_block_log=proxy.blocked,
+                ).record
+                repeated_hero_fingerprint = tuple(
+                    json.dumps(item, sort_keys=True, separators=(",", ":"))
+                    for item in repeated_hero["insights"]
+                )
+                require(
+                    positive_hero_fingerprints[hero_name] == repeated_hero_fingerprint,
+                    f"{hero_name} hero statement, evidence, or ranking changed on repeat",
+                )
             redirect = FIXTURES["redirect"]
             redirect_url = f"http://{redirect.host}:{server.server_port}{redirect.route}"
             server.clear_ledger()
@@ -1590,6 +1649,7 @@ def main() -> None:
         "Validated deterministic node, aggregation, redirect, attribution, source, interstitial, and policy fingerprints "
         "across repeated captures."
     )
+    print("Validated deterministic hero selection on 3 positive and 15 no-standout/interstitial browser fixtures.")
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
     print("Validated 4 transfer-source priority cases.")
     print("Validated 13 interstitial-classifier safety guards.")

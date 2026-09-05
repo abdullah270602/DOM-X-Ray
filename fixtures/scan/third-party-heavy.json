@@ -303,7 +303,7 @@
           "rule": "capture-request-count-v1"
         }
       ],
-      "selectionRule": "third-party-request-share-over-40pct-v1",
+      "selectionRule": "third-party-request-share-v1",
       "limitationCodes": ["resource-bytes-unavailable"]
     }
   ],

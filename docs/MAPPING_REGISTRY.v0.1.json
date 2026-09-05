@@ -42,13 +42,34 @@
   },
   "heroSelection": {
     "allowedPrimaryEvidence": ["observed", "derived"],
+    "eligibleStatuses": ["complete", "partial"],
     "knownByteCoverageMinimum": 0.9,
+    "knownByteCoverageRule": "count(resources where transferredBytes is known) / count(resources)",
     "dominantResourceTypeShareMinimum": 0.6,
     "dominantResourceTypeBytesMinimum": 500000,
     "thirdPartyRequestShareMinimum": 0.5,
     "thirdPartyByteShareMinimum": 0.5,
     "largestExactResourceShareMinimum": 0.35,
     "largestExactResourceBytesMinimum": 500000,
+    "effectStrengthRule": "(observedShare - minimumShare) / (1 - minimumShare)",
+    "rankingOrder": [
+      "effect-strength-desc",
+      "measurement-coverage-desc",
+      "exact-attribution-desc",
+      "visual-share-desc",
+      "observed-evidence-desc",
+      "source-order-asc",
+      "candidate-id-asc"
+    ],
+    "enabledCandidates": [
+      "dominant-resource-type-share-v1",
+      "third-party-request-share-v1",
+      "third-party-byte-share-v1",
+      "largest-exact-resource-share-v1"
+    ],
+    "disabledCandidateKinds": ["structure", "layout-shift"],
+    "percentRoundingRule": "round(share * 1000) / 10",
+    "byteDisplayRule": "decimal KB or MB rounded to one decimal; raw integer bytes remain evidence",
     "supportMetricMaximum": 3,
     "fallback": "no-standout-capture-summary",
     "fallbackShareEligible": false

@@ -12,9 +12,10 @@ This ledger prevents documentation volume from being mistaken for completion. A 
 | Goal gates, metrics, and pivot rules | `ROADMAP.md` | Pass |
 | Allowed measurements, claims, attribution, and missing-data behavior | `docs/TRUTH_CONTRACT.md` | Pass as contract; implementation unproven |
 | Versioned scan record encodes the three target archetypes | `docs/SCAN_RECORD.schema.json`, `fixtures/scan/*.json` | Pass |
-| Cross-record provenance, five distinct node-count meanings, parent acyclicity, party/domain consistency, hero rules, and negative mutations | `python scripts/validate_fixtures.py` | Pass: 3 fixtures + 12 negative controls |
+| Cross-record provenance, five distinct node-count meanings, parent acyclicity, party/domain consistency, hero rules, and negative mutations | `python scripts/validate_fixtures.py` | Pass: 3 fixtures + 13 negative controls |
 | Versioned semantic-to-scene formulas and reveal timing | `docs/MAPPING_REGISTRY.md`, `docs/MAPPING_REGISTRY.v0.1.json` | Pass as prototype contract |
 | Mapping monotonicity, deterministic fixture transforms, object cap, unknown states, and five-second duration | `python scripts/validate_mapping.py` | Pass: 3 fixtures + 6 negative controls |
+| Deterministic hero selection and claim suppression | `scanner/insights.py`, `python scripts/verify_insights.py`, live browser assertions | Pass: complete comparator, four enabled evidence candidates, neutral fallback, exact-attribution and 90% known-value boundaries, limitation suppression, hostile-copy independence, 3 positive browser outcomes, and 15 no-standout/interstitial outcomes |
 | Fixed browser/capture protocol | `docs/CAPTURE_PROTOCOL.md`, `scanner/browser_probe.py` | Partial implementation proven on local deterministic pages |
 | Scanner threat model and release-blocking controls | `docs/THREAT_MODEL.md` | Pass as model; automated controls unproven |
 | Privacy-minimized product telemetry and primary metric formulas | `docs/TELEMETRY.md` | Pass as contract; instrumentation unproven |
@@ -37,14 +38,16 @@ This ledger prevents documentation volume from being mistaken for completion. A 
 ```sh
 python scripts/validate_fixtures.py
 python scripts/validate_mapping.py
+python scripts/verify_insights.py
 python scripts/verify_browser_fixtures.py
 ```
 
 Expected output:
 
 ```text
-Validated 3 fixtures and 12 negative controls against Gate 0.
+Validated 3 fixtures and 13 negative controls against Gate 0.
 Validated mapping-v0.1.0 against 3 fixtures and 6 negative controls; reveal duration is 5.0 seconds.
+Validated deterministic hero selection across 3 scan fixtures and 7 boundary cases.
 Validated controlled Chromium 140.0.7339.16 against 18 deterministic browser fixtures.
   clean: 11 candidates -> 11 regions (0 aggregated), 2 exact element links, 5 requests, 180770 known CDP/wire bytes, 0 missing-byte requests
   image-heavy: 11 candidates -> 11 regions (0 aggregated), 3 exact element links, 7 requests, 5201071 known CDP/wire bytes, 0 missing-byte requests
@@ -65,6 +68,7 @@ Validated controlled Chromium 140.0.7339.16 against 18 deterministic browser fix
   wrapper-collapse: 7 candidates -> 5 regions (2 aggregated), 1 exact element links, 2 requests, 50305 known CDP/wire bytes, 0 missing-byte requests
   mandatory-overflow: 654 candidates -> 650 regions (4 aggregated), 1 exact element links, 2 requests, 90305 known CDP/wire bytes, 0 missing-byte requests
 Validated deterministic node, aggregation, redirect, attribution, source, interstitial, and policy fingerprints across repeated captures.
+Validated deterministic hero selection on 3 positive and 15 no-standout/interstitial browser fixtures.
 Validated 10 request-policy cases and 5 fixture-boundary cases.
 Validated 4 transfer-source priority cases.
 Validated 13 interstitial-classifier safety guards.

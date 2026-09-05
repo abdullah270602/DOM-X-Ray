@@ -44,6 +44,8 @@ class FixtureSpec:
     expected_failure_code: str | None = None
     expected_limits: tuple[str, ...] = ()
     expected_blocked_requests: tuple[tuple[str, str, str], ...] = ()
+    expected_hero_selection_rule: str | None = None
+    expected_hero_primary_metric: str | None = None
 
 
 FIXTURES = {
@@ -89,6 +91,8 @@ FIXTURES = {
             "n-footer": (0, 840, 1440, 60),
         },
         expected_exact_element_links=3,
+        expected_hero_selection_rule="dominant-resource-type-share-v1",
+        expected_hero_primary_metric="image_transfer_share",
     ),
     "third-party": FixtureSpec(
         name="third-party",
@@ -106,6 +110,8 @@ FIXTURES = {
             "n-footer": (960, 800, 384, 70),
         },
         expected_exact_element_links=1,
+        expected_hero_selection_rule="third-party-request-share-v1",
+        expected_hero_primary_metric="third_party_requests",
     ),
     "aggregation": FixtureSpec(
         name="aggregation",
@@ -136,6 +142,8 @@ FIXTURES = {
         expected_exact_element_links=2,
         expected_redirect_count=2,
         expected_final_host="final.test",
+        expected_hero_selection_rule="third-party-request-share-v1",
+        expected_hero_primary_metric="third_party_requests",
     ),
     "cache": FixtureSpec(
         name="cache",
