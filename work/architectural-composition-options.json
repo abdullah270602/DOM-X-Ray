@@ -1,0 +1,40 @@
+{
+  "title": "Choose the DOM X-Ray composition",
+  "question": "Which first viewport should become the interactive result viewer? Choose one, or use the note to say what should carry across.",
+  "options": [
+    {
+      "id": "instrument-panorama",
+      "label": "Instrument Panorama",
+      "lineage": "the locked direction comp",
+      "thesis": "A broad instrument rail, physical cutaway, and external machine make the entire measured system visible in one sweep.",
+      "palette": ["#E9E1D2", "#20251F", "#D9492F", "#2D6571", "#B8AA8B"],
+      "materials": ["drafting paper", "vellum plates", "brass pins", "inspection ink"],
+      "viewport": "The result model owns the center, URL and hero evidence sit at left, and the teal external-origin machine closes the right edge.",
+      "risk": "The machinery and evidence field compete slightly with the page itself on a small laptop.",
+      "comp": ".impeccable/mocks/decision/architectural-section.png"
+    },
+    {
+      "id": "exploded-evidence",
+      "label": "Exploded Evidence Poster",
+      "lineage": "architectural section table, pushed toward feed impact",
+      "thesis": "A diagonal exploded cutaway gives the result an unmistakable silhouette while one exact image becomes the red evidence moment.",
+      "palette": ["#E9E1D2", "#20251F", "#D9492F", "#2D6571", "#B8AA8B"],
+      "materials": ["museum board", "acetate stack", "brass registration", "teal film transport"],
+      "viewport": "The left action and 87.5% image fact stay quiet and huge; six layers sweep diagonally into one external-origin mechanism.",
+      "risk": "The perspective must never imply that visual angle changes the measured geometry or ranking.",
+      "comp": ".impeccable/mocks/selected/architectural-section-viral-diagonal.png"
+    },
+    {
+      "id": "measured-front",
+      "label": "Measured Front Elevation",
+      "lineage": "architectural section table, optimized for comprehension",
+      "thesis": "A nearly front-on plate stack makes DOM depth, the hero fact, and the evidence drawer legible before any interaction.",
+      "palette": ["#E9E1D2", "#20251F", "#D9492F", "#2D6571", "#B8AA8B"],
+      "materials": ["ivory plan sheet", "clear acetate", "brass depth rail", "paper evidence drawer"],
+      "viewport": "A measured central elevation carries the 4-of-8 external-domain fact; one teal origin machine and one evidence drawer occupy the right.",
+      "risk": "Its calm symmetry is clearest, but the static poster has less immediate motion energy than the diagonal option.",
+      "comp": ".impeccable/mocks/selected/architectural-section-front-on.png"
+    }
+  ],
+  "steer": true
+}

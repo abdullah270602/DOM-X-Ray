@@ -1,0 +1,9 @@
+{
+  "prompt": "Create a premium desktop web-app hero comp, 16:9 at 1440×900, as VARIATION TWO of the attached DOM X-Ray “Architectural Section Table” reference. Preserve the same visual world: warm off-white drafting paper, graphite-black typography, translucent acetate page plates, brass registration pins, vermilion-red inspection marks, restrained petrol-teal external machinery, tactile museum-model board. Make this version more viral and poster-like: a large recognizable but generic editorial webpage cutaway occupies the center-right on a dramatic diagonal, with six measured DOM plates visibly exploded in depth and one exact-linked image plate pulled forward. At far right, a compact teal external-origin mechanism connects by one translucent evidence strip. Left side stays clean and readable: large stacked title “DOM / X-RAY”, a single URL field with example.test, a red X-RAY button, and one dominant truthful fixture fact: “IMAGES CARRIED 87.5% OF THIS CAPTURE”, plus a simple “VIEW EVIDENCE” action. Bottom edge has STRUCTURE, WEIGHT, ORIGINS and REPLAY controls integrated like a physical instrument. Add sparse depth labels (<html>, <body>, <main>, <figure>, <img>) and one red exact-attribution callout, but no decorative fake metrics. Use editorial Swiss hierarchy, real readable UI text, ample breathing room, straight or lightly chamfered controls, no rounded dashboard cards, no glassmorphism, no gradients, no neon, no cyberpunk, no generic SaaS layout. The composition must be implementation-friendly and readable on a small laptop. Show only the application viewport, no device frame, no moodboard collage.",
+  "createdAt": "2026-09-06",
+  "tool": "image_gen.imagegen",
+  "referenceImages": [
+    ".impeccable/mocks/decision/architectural-section.png"
+  ],
+  "approved": false
+}
