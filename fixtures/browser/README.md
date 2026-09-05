@@ -1,14 +1,19 @@
 # Deterministic Browser Fixtures
 
-These pages are Gate 0 instrumentation evidence, not the public application stack. A loopback-only Python server emits response bodies with exact declared sizes. A local policy proxy maps reserved `.test` hosts to that server, relays response bytes unchanged, and validates redirect targets before Chromium receives them. The verifier then compares:
+These pages are Gate 0 instrumentation evidence, not the public application stack. A loopback-only Python server emits response bodies with exact declared sizes. A local policy proxy maps reserved `.test` hosts to that server, relays admitted response bytes while removing its reserved marker header from origin responses, validates redirect targets, and enforces injected request and byte budgets before Chromium receives them. The verifier then compares:
 
 - every document element on uncapped fixtures—and only the declared deterministic prefix on the capped fixture—evaluated against the area, viewport, display, visibility, opacity, and nonvisual-tag candidate rules;
 - five explicit hidden/tiny/offscreen exclusions, one partially clipped inclusion retaining its raw rectangle, and every hand-marked geometry expectation within 1 CSS pixel;
 - deterministic preorder IDs, nearest-represented parent links, sanitized selectors, and a high-entropy selector canary;
 - exact image URL-to-element links—including one URL reused by two elements—while stylesheets, fonts, scripts, and fetches remain page-level;
-- identical node, nearest-candidate parent, raw depth, stacking-context, geometry, selector, count, redirect-chain, attribution, and retained-cap-prefix fingerprints across repeated clean, redirect, DOM-limit, and candidate-limit captures;
+- identical node, nearest-candidate parent, raw depth, stacking-context, geometry, selector, count, redirect-chain, attribution, and retained-limit fingerprints across repeated clean, redirect, DOM-limit, candidate-limit, request-limit, response-byte-limit, and total-byte-limit captures;
 - every `Network.loadingFinished.encodedDataLength` total against the exact HTTP bytes emitted by the server;
 - the same CDP total against declared body payload within the product's 2% tolerance;
+- an inclusive request boundary whose triggering request is never forwarded to the origin;
+- a per-response boundary that reads only the configured wire-byte allowance plus one detection byte and never relays the oversized upstream response;
+- a whole-capture boundary that counts exact previously relayed upstream bytes, reads only the remaining allowance plus one detection byte, and preserves the local limit response only as claim-invalidating evidence;
+- all three boundaries firing on the main document without a synthetic 509 being mistaken for a target error page, plus genuine and forged-marker target 509s that remain error-document interstitials;
+- two requests whose query-stripped display URLs are identical, with a random per-capture internal block ID attaching the response limit to the exact second occurrence while remaining absent from normalized evidence;
 - the fixed 1440 × 900, DPR 1, `en-US`, UTC profile, cold cache by default plus one explicit mixed-cache source fixture;
 - the post-DOMContentLoaded quiet window, including the image-heavy fixture's mutation reset;
 - four external requests collapsing into three registrable-domain fixture hubs;

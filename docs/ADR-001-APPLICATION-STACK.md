@@ -62,7 +62,7 @@ The viewer imports or copies validated fixture records through an explicit build
 - Production scanning of untrusted sites must not run as root with the browser sandbox disabled. The container and host require a reviewed non-root user, seccomp/user-namespace configuration, process limits, and network egress policy.
 - Gate 1 uses only checked-in deterministic fixtures. Public scanning is not enabled by scaffolding the viewer.
 - The existing scanner remains Python during Gate 1; this decision does not authorize a scanner rewrite.
-- Request-count, transferred-byte, whole-worker, and browser-process deadlines remain unresolved release gates recorded in `ROADMAP.md` and `docs/GATE_0_EVIDENCE.md`. A local fixture viewer does not satisfy or bypass them.
+- Request-count and transferred-byte semantics are proven only in the deterministic local egress proxy; production integration, whole-worker containment, and browser-process deadlines remain unresolved release gates recorded in `ROADMAP.md` and `docs/GATE_0_EVIDENCE.md`. A local fixture viewer does not satisfy or bypass them.
 
 ## Deployment target
 

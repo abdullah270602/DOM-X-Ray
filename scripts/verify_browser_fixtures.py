@@ -27,6 +27,9 @@ from scanner.browser_probe import (
     INTERSTITIAL_CLASSIFIER_VERSION,
     MAX_GEOMETRY_CANDIDATES,
     MAX_INSPECTED_ELEMENTS,
+    MAX_REQUESTS,
+    MAX_RESPONSE_BYTES,
+    MAX_TOTAL_RECEIVED_BYTES,
     SCANNER_USER_AGENT,
     classify_interstitial_v1,
     classify_transfer_source,
@@ -95,6 +98,12 @@ def assert_transfer(
     )
     total = int(sum(known))
     comparable_total = total - excluded_wire_bytes
+    if expected_payload_bytes == 0:
+        require(
+            comparable_total == 0,
+            f"CDP comparable total {comparable_total} should contain no origin bytes",
+        )
+        return total
     delta = abs(comparable_total - expected_payload_bytes) / expected_payload_bytes
     require(
         delta <= TRANSFER_TOLERANCE,
@@ -533,6 +542,15 @@ def main() -> None:
                 {"max_geometry_candidates": 0},
                 {"max_geometry_candidates": True},
                 {"max_geometry_candidates": MAX_GEOMETRY_CANDIDATES + 1},
+                {"max_requests": 0},
+                {"max_requests": True},
+                {"max_requests": MAX_REQUESTS + 1},
+                {"max_response_bytes": 0},
+                {"max_response_bytes": True},
+                {"max_response_bytes": MAX_RESPONSE_BYTES + 1},
+                {"max_total_received_bytes": 0},
+                {"max_total_received_bytes": True},
+                {"max_total_received_bytes": MAX_TOTAL_RECEIVED_BYTES + 1},
             ):
                 try:
                     probe_page(browser, limit_guard_url, **invalid_limits)
@@ -542,6 +560,11 @@ def main() -> None:
             for name, fixture in FIXTURES.items():
                 server.clear_ledger()
                 proxy.clear_state()
+                proxy.configure_limits(
+                    max_requests=fixture.max_requests,
+                    max_response_bytes=fixture.max_response_bytes,
+                    max_total_received_bytes=fixture.max_total_received_bytes,
+                )
                 url = f"http://{fixture.host}:{server.server_port}{fixture.route}"
                 if name == "unsafe-get":
                     require(
@@ -556,6 +579,9 @@ def main() -> None:
                     cache_disabled=fixture.cache_disabled,
                     trusted_loopback_fixture=fixture.trusted_loopback,
                     policy_block_log=proxy.blocked if fixture.use_policy_proxy else None,
+                    max_requests=fixture.max_requests,
+                    max_response_bytes=fixture.max_response_bytes,
+                    max_total_received_bytes=fixture.max_total_received_bytes,
                     max_inspected_elements=fixture.max_inspected_elements,
                     max_geometry_candidates=fixture.max_geometry_candidates,
                 )
@@ -620,6 +646,14 @@ def main() -> None:
                 require(
                     record["capture"]["requestCount"] == fixture.expected_request_count,
                     f"{name} request count is {record['capture']['requestCount']}",
+                )
+                require(
+                    record["capture"]["requestLimit"] == fixture.max_requests
+                    and record["capture"]["perResponseByteLimit"]
+                    == fixture.max_response_bytes
+                    and record["capture"]["totalByteLimit"]
+                    == fixture.max_total_received_bytes,
+                    f"{name} did not disclose its exact network boundaries",
                 )
                 require(
                     record["capture"]["redirectCount"] == fixture.expected_redirect_count,
@@ -705,7 +739,92 @@ def main() -> None:
                         },
                         "geometry candidate cap does not preserve its exact boundary and caveat",
                     )
-                if name in {"dom-limit", "candidate-limit"}:
+                if "requests" in fixture.expected_limits:
+                    request_limitation = limitation_by_code.get("request-limit")
+                    require(
+                        request_limitation is not None
+                        and set(request_limitation["invalidatesMetrics"])
+                        == {
+                            "page_behavior",
+                            "request_count",
+                            "resource_mass",
+                            "total_transferred_bytes",
+                        },
+                        "request cap did not disclose every invalidated interpretation",
+                    )
+                if name in {"response-byte-limit", "response-navigation-limit"}:
+                    response_limitations = [
+                        item
+                        for code, item in limitation_by_code.items()
+                        if code.startswith("response-byte-limit-")
+                    ]
+                    require(
+                        len(response_limitations) == 1
+                        and response_limitations[0]["scope"] == "resource"
+                        and response_limitations[0]["targetId"] is not None
+                        and set(response_limitations[0]["invalidatesMetrics"])
+                        == {
+                            "page_behavior",
+                            "request_count",
+                            "resource_mass",
+                            "total_transferred_bytes",
+                        },
+                        "per-response byte cap lacks exact resource evidence",
+                    )
+                    if name == "response-byte-limit":
+                        repeated_url_rows = [
+                            item
+                            for item in record["resources"]
+                            if urlsplit(item["displayUrl"]).path
+                            == "/assets/limit-sized.bin"
+                        ]
+                        require(
+                            len(repeated_url_rows) == 2
+                            and [item["responseStatus"] for item in repeated_url_rows]
+                            == [200, 509]
+                            and response_limitations[0]["targetId"]
+                            == repeated_url_rows[1]["id"],
+                            "block identity did not target the limited repeated-URL occurrence",
+                        )
+                if name in {"total-byte-limit", "total-navigation-limit"}:
+                    total_limitation = limitation_by_code.get("total-byte-limit")
+                    require(
+                        total_limitation is not None
+                        and total_limitation["scope"] == "scan"
+                        and set(total_limitation["invalidatesMetrics"])
+                        == {
+                            "page_behavior",
+                            "request_count",
+                            "resource_mass",
+                            "total_transferred_bytes",
+                        },
+                        "total byte cap did not disclose every invalidated interpretation",
+                    )
+                if name in {
+                    "request-navigation-limit",
+                    "response-navigation-limit",
+                    "total-navigation-limit",
+                }:
+                    document_rows = [
+                        item for item in record["resources"] if item["type"] == "document"
+                    ]
+                    require(
+                        HTTP_ERROR_INTERSTITIAL_CLASSIFIER_VERSION
+                        not in limitation_by_code
+                        and len(document_rows) == 1
+                        and document_rows[0]["responseStatus"] == 509,
+                        "synthetic main-document limit response was treated as a target error",
+                    )
+                if name in {
+                    "dom-limit",
+                    "candidate-limit",
+                    "request-limit",
+                    "response-byte-limit",
+                    "total-byte-limit",
+                    "request-navigation-limit",
+                    "response-navigation-limit",
+                    "total-navigation-limit",
+                }:
                     capture_limit_fingerprints[name] = deterministic_fingerprint(record)
 
                 rendered_ids = {item["id"] for item in scene_nodes}
@@ -750,10 +869,52 @@ def main() -> None:
                 )
                 cdp_total = assert_transfer(
                     record,
-                    fixture.expected_payload_bytes,
+                    (
+                        fixture.expected_cdp_payload_bytes
+                        if fixture.expected_cdp_payload_bytes is not None
+                        else fixture.expected_payload_bytes
+                    ),
                     fixture.expected_missing_byte_count,
                     blocked_wire,
                 )
+
+                if name in {"request-limit", "request-navigation-limit"}:
+                    request_block = next(
+                        item
+                        for item in result.blocked_requests
+                        if item["reason"] == "request-limit"
+                    )
+                    require(
+                        int(request_block.get("upstreamBytesRead", 0)) == 0
+                        and all(
+                            item["path"] != "/assets/limit-b.bin"
+                            for item in server.ledger
+                        ),
+                        "request cap contacted the request that triggered the boundary",
+                    )
+                elif name in {"response-byte-limit", "response-navigation-limit"}:
+                    response_block = next(
+                        item
+                        for item in result.blocked_requests
+                        if item["reason"] == "response-byte-limit"
+                    )
+                    require(
+                        int(response_block["upstreamBytesRead"])
+                        == fixture.max_response_bytes + 1,
+                        "per-response boundary read beyond its single detection byte",
+                    )
+                elif name in {"total-byte-limit", "total-navigation-limit"}:
+                    total_block = next(
+                        item
+                        for item in result.blocked_requests
+                        if item["reason"] == "total-byte-limit"
+                    )
+                    require(
+                        proxy.relayed_upstream_bytes
+                        + int(total_block["upstreamBytesRead"])
+                        == fixture.max_total_received_bytes + 1,
+                        "total byte boundary read beyond its single detection byte",
+                    )
 
                 if name == "clean":
                     require(not record["layoutShifts"], "clean fixture recorded a layout shift")
@@ -1107,8 +1268,13 @@ def main() -> None:
                         tuple(item["code"] for item in record["limitations"]),
                         deterministic_fingerprint(record),
                     )
-                elif name in {"http-error-404", "http-error-503"}:
-                    expected_http_status = 404 if name.endswith("404") else 503
+                elif name in {
+                    "http-error-404",
+                    "http-error-503",
+                    "http-error-509",
+                    "spoofed-block-header-509",
+                }:
+                    expected_http_status = int(name.rsplit("-", 1)[1])
                     document_resources = [
                         item for item in record["resources"] if item["type"] == "document"
                     ]
@@ -1137,6 +1303,13 @@ def main() -> None:
                         tuple(item["code"] for item in record["limitations"]),
                         deterministic_fingerprint(record),
                     )
+                    if name == "spoofed-block-header-509":
+                        require(
+                            proxy.relayed_upstream_bytes
+                            > proxy.relayed_browser_bytes
+                            and "b-000001" not in serialized_record,
+                            "origin block marker was not stripped or leaked into evidence",
+                        )
                 elif name == "subresource-error":
                     statuses = {
                         item["type"]: item["responseStatus"] for item in record["resources"]
@@ -1491,13 +1664,19 @@ def main() -> None:
                     for item in observed_ledger
                     if 100 <= int(item["status"]) <= 599
                 ) + blocked_wire
-                require(
-                    served_payload == fixture.expected_payload_bytes,
-                    f"{name} server payload ledger drifted: {served_payload}",
+                admitted_wire = (
+                    proxy.relayed_browser_bytes + blocked_wire
+                    if fixture.expected_cdp_payload_bytes is not None
+                    else served_wire
                 )
+                if fixture.expected_cdp_payload_bytes is None:
+                    require(
+                        served_payload == fixture.expected_payload_bytes,
+                        f"{name} server payload ledger drifted: {served_payload}",
+                    )
                 require(
-                    cdp_total == served_wire,
-                    f"{name} CDP total {cdp_total} does not equal emitted wire bytes {served_wire}",
+                    cdp_total == admitted_wire,
+                    f"{name} CDP total {cdp_total} does not equal admitted wire bytes {admitted_wire}",
                 )
                 summaries.append(
                     f"{name}: {record['capture']['candidateNodeCount']} candidates -> "
@@ -1603,7 +1782,12 @@ def main() -> None:
                 interstitial_fingerprint == repeated_interstitial_fingerprint,
                 "interstitial classification, limitation, or geometry changed on repeat",
             )
-            for error_name in ("http-error-404", "http-error-503"):
+            for error_name in (
+                "http-error-404",
+                "http-error-503",
+                "http-error-509",
+                "spoofed-block-header-509",
+            ):
                 error_fixture = FIXTURES[error_name]
                 error_url = (
                     f"http://{error_fixture.host}:{server.server_port}{error_fixture.route}"
@@ -1708,7 +1892,16 @@ def main() -> None:
                 overflow_fingerprint == deterministic_fingerprint(repeated_overflow),
                 "mandatory-overflow evidence/scene partition changed on repeat",
             )
-            for limit_name in ("dom-limit", "candidate-limit"):
+            for limit_name in (
+                "dom-limit",
+                "candidate-limit",
+                "request-limit",
+                "response-byte-limit",
+                "total-byte-limit",
+                "request-navigation-limit",
+                "response-navigation-limit",
+                "total-navigation-limit",
+            ):
                 limit_fixture = FIXTURES[limit_name]
                 limit_url = (
                     f"http://{limit_fixture.host}:{server.server_port}"
@@ -1716,19 +1909,29 @@ def main() -> None:
                 )
                 server.clear_ledger()
                 proxy.clear_state()
+                proxy.configure_limits(
+                    max_requests=limit_fixture.max_requests,
+                    max_response_bytes=limit_fixture.max_response_bytes,
+                    max_total_received_bytes=limit_fixture.max_total_received_bytes,
+                )
                 repeated_limit = probe_page(
                     browser,
                     limit_url,
                     proxy_server=proxy.url,
                     policy_block_log=proxy.blocked,
+                    max_requests=limit_fixture.max_requests,
+                    max_response_bytes=limit_fixture.max_response_bytes,
+                    max_total_received_bytes=limit_fixture.max_total_received_bytes,
                     max_inspected_elements=limit_fixture.max_inspected_elements,
                     max_geometry_candidates=limit_fixture.max_geometry_candidates,
                 ).record
                 require(
                     capture_limit_fingerprints[limit_name]
                     == deterministic_fingerprint(repeated_limit),
-                    f"{limit_name} boundary or retained-prefix evidence changed on repeat",
+                    f"{limit_name} boundary or retained evidence changed on repeat",
                 )
+            proxy.clear_state()
+            proxy.configure_limits()
             assert_redirect_policy(browser, server, proxy)
         finally:
             browser.close()
@@ -1743,8 +1946,12 @@ def main() -> None:
         "Validated deterministic node, aggregation, redirect, attribution, source, interstitial, and policy fingerprints "
         "across repeated captures."
     )
-    print("Validated deterministic hero selection on 3 positive and 17 no-standout/interstitial browser fixtures.")
+    print(
+        "Validated deterministic hero selection on 3 positive and "
+        f"{len(FIXTURES) - 3} no-standout/interstitial browser fixtures."
+    )
     print("Validated bounded DOM inspection and geometry-candidate collection.")
+    print("Validated enforced request, per-response byte, and total-byte capture boundaries.")
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
     print("Validated 4 transfer-source priority cases.")
     print("Validated 13 interstitial-classifier safety guards.")

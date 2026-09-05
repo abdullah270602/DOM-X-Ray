@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Total Byte Limit Fixture</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; }
+      body { display: grid; place-items: center; background: #e9e1d2; color: #20251f; }
+      main { box-sizing: border-box; width: 960px; height: 540px; padding: 72px; border: 2px solid currentColor; }
+    </style>
+  </head>
+  <body>
+    <main data-xray-id="network-limit-main">
+      <h1>Bounded total capture</h1>
+      <p>The second asset must stop before the scan exceeds its total byte budget.</p>
+    </main>
+    <script>
+      (async () => {
+        for (const path of ['/assets/limit-a.bin', '/assets/limit-b.bin']) {
+          const response = await fetch(path);
+          if (!response.ok) break;
+          await response.arrayBuffer();
+        }
+      })();
+    </script>
+  </body>
+</html>

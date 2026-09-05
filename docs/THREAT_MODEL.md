@@ -69,6 +69,8 @@ Application validation is defense in depth; the worker's network namespace or eg
 
 Gate 0 fixture evidence now proves a local egress proxy can preserve an allowed cross-host 302 → 307 → 200 chain while refusing private-literal, credentialed, disallowed-scheme, cyclic, and over-limit redirect targets before those targets reach the fixture server. This is deliberately narrower than production SSRF proof: public DNS resolution, all special-use ranges, rebinding, HTTPS tunneling, and deployment-level egress enforcement remain release blockers.
 
+The same local proxy now proves inclusive request admission, per-response wire-byte, and cumulative wire-byte limits. The triggering request is rejected before origin contact; an oversized response is read only through one boundary-detection byte and is never relayed to Chromium; and the resulting local limit response cannot become resource-mass or whole-load evidence. Synthetic responses use a random per-capture marker, origin responses have that marker header stripped, and no marker is persisted in normalized evidence; a hostile origin therefore cannot convert its own 509 into a trusted boundary event. These are deterministic enforcement semantics, not a production control: the deployment egress layer must reproduce them under concurrent workers and hostile public origins.
+
 ## Worker isolation profile
 
 - One disposable non-root browser context per scan; prefer one disposable worker/container per small bounded batch.

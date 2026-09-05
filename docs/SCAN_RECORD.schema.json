@@ -233,6 +233,21 @@
         },
         "requestCount": { "type": "integer", "minimum": 0 },
         "requestsWithoutByteData": { "type": "integer", "minimum": 0 },
+        "requestLimit": {
+          "description": "Maximum observed origin-bound request attempts, including the triggering attempt that receives a local boundary response instead of origin contact.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "perResponseByteLimit": {
+          "description": "Maximum upstream HTTP wire bytes accepted for one response.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "totalByteLimit": {
+          "description": "Maximum cumulative upstream HTTP wire bytes accepted for one capture.",
+          "type": "integer",
+          "minimum": 1
+        },
         "transferAccountingRule": { "type": "string", "minLength": 1 },
         "redirectCount": { "type": "integer", "minimum": 0 },
         "redirectLimit": { "type": "integer", "minimum": 0 },
@@ -249,6 +264,9 @@
         }
       },
       "dependentRequired": {
+        "requestLimit": ["perResponseByteLimit", "totalByteLimit"],
+        "perResponseByteLimit": ["requestLimit", "totalByteLimit"],
+        "totalByteLimit": ["requestLimit", "perResponseByteLimit"],
         "redirectCount": ["redirectLimit", "redirects"],
         "redirectLimit": ["redirectCount", "redirects"],
         "redirects": ["redirectCount", "redirectLimit"]

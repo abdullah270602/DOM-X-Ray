@@ -34,6 +34,12 @@ QUALIFYING_TYPES = {
 }
 ALLOWED_METHODS = {"GET", "HEAD", "OPTIONS"}
 REDIRECT_LIMIT = 10
+MAX_REQUESTS = 500
+MAX_RESPONSE_BYTES = 20_000_000
+MAX_TOTAL_RECEIVED_BYTES = 50_000_000
+NETWORK_LIMIT_REASONS = frozenset(
+    {"request-limit", "response-byte-limit", "total-byte-limit"}
+)
 MAX_INSPECTED_ELEMENTS = 20_000
 MAX_GEOMETRY_CANDIDATES = 5_000
 INTERSTITIAL_CLASSIFIER_VERSION = "login-gate-structural-v1"
@@ -352,10 +358,20 @@ def probe_page(
     cache_disabled: bool = True,
     trusted_loopback_fixture: bool = False,
     policy_block_log: list[dict[str, Any]] | None = None,
+    max_requests: int = MAX_REQUESTS,
+    max_response_bytes: int = MAX_RESPONSE_BYTES,
+    max_total_received_bytes: int = MAX_TOTAL_RECEIVED_BYTES,
     max_inspected_elements: int = MAX_INSPECTED_ELEMENTS,
     max_geometry_candidates: int = MAX_GEOMETRY_CANDIDATES,
 ) -> ProbeResult:
     for name, value, ceiling in (
+        ("max_requests", max_requests, MAX_REQUESTS),
+        ("max_response_bytes", max_response_bytes, MAX_RESPONSE_BYTES),
+        (
+            "max_total_received_bytes",
+            max_total_received_bytes,
+            MAX_TOTAL_RECEIVED_BYTES,
+        ),
         ("max_inspected_elements", max_inspected_elements, MAX_INSPECTED_ELEMENTS),
         ("max_geometry_candidates", max_geometry_candidates, MAX_GEOMETRY_CANDIDATES),
     ):
@@ -366,6 +382,12 @@ def probe_page(
     validate_fixture_target(url, allow_trusted_loopback=trusted_loopback_fixture)
     if proxy_server is not None and policy_block_log is None:
         raise ValueError("proxy-backed fixture capture requires its policy block log")
+    if proxy_server is None and (
+        max_requests != MAX_REQUESTS
+        or max_response_bytes != MAX_RESPONSE_BYTES
+        or max_total_received_bytes != MAX_TOTAL_RECEIVED_BYTES
+    ):
+        raise ValueError("lower network limits require an enforcing egress proxy")
     blocked_requests: list[dict[str, Any]] = (
         policy_block_log if policy_block_log is not None else []
     )
@@ -465,6 +487,7 @@ def probe_page(
                 and params.get("type") == "Document"
             ),
             "workerBootstrap": False,
+            "policyBlockId": None,
         }
         if network[(owner_key, request_id, hop_index)]["type"] in QUALIFYING_TYPES:
             active_qualifying_requests.add((owner_key, request_id, hop_index))
@@ -484,6 +507,14 @@ def probe_page(
         item["status"] = response.get("status")
         item["fromDiskCache"] = response.get("fromDiskCache", False)
         item["fromServiceWorker"] = response.get("fromServiceWorker", False)
+        item["policyBlockId"] = next(
+            (
+                str(value)
+                for name, value in response.get("headers", {}).items()
+                if str(name).lower() == "x-dom-x-ray-block-id"
+            ),
+            None,
+        )
 
     def record_finished(owner_key: str, params: dict[str, Any]) -> None:
         request_id = params["requestId"]
@@ -569,6 +600,7 @@ def probe_page(
                 "redirectedToUrl": None,
                 "isMainNavigation": False,
                 "workerBootstrap": True,
+                "policyBlockId": None,
             }
         send_worker_command(session_id, "Network.enable")
         send_worker_command(
@@ -944,14 +976,24 @@ def probe_page(
             (str(item["method"]).upper(), str(item["url"])): str(item["reason"])
             for item in blocked_requests
         }
+        blocked_by_id = {
+            str(item["blockId"]): item
+            for item in blocked_requests
+            if item.get("blockId") is not None
+        }
         resource_rows = []
-        resource_ids_by_block_key: dict[tuple[str, str], list[str]] = {}
+        resource_id_by_block_id: dict[str, str] = {}
         for item in ordered_network:
             parsed = urlsplit(item["url"])
             if parsed.scheme not in {"http", "https"}:
                 continue
             block_key = (item["method"].upper(), _redacted_url(item["url"]))
-            if blocked_reason_by_key.get(block_key) in {
+            block_reason = (
+                str(blocked_by_id[item["policyBlockId"]]["reason"])
+                if item.get("policyBlockId") in blocked_by_id
+                else blocked_reason_by_key.get(block_key)
+            )
+            if block_reason in {
                 "credentials",
                 "fixture-host",
                 "private-literal-host",
@@ -1005,7 +1047,8 @@ def probe_page(
                     "attributedNodeIds": attributed_node_ids,
                 }
             )
-            resource_ids_by_block_key.setdefault(block_key, []).append(resource_id)
+            if item.get("policyBlockId") is not None:
+                resource_id_by_block_id[str(item["policyBlockId"])] = resource_id
 
         redirect_rows = [
             {
@@ -1080,6 +1123,7 @@ def probe_page(
             if item["isMainNavigation"] and item["redirectedToUrl"] is None
         ]
         final_document_status = None
+        terminal_main_document_limit_reason = None
         if terminal_main_documents:
             terminal_main_document = max(
                 terminal_main_documents,
@@ -1087,8 +1131,20 @@ def probe_page(
             )
             if terminal_main_document.get("status") is not None:
                 final_document_status = int(terminal_main_document["status"])
+            terminal_block = blocked_by_id.get(
+                str(terminal_main_document.get("policyBlockId"))
+            )
+            if (
+                terminal_block is not None
+                and str(terminal_block.get("reason")) in NETWORK_LIMIT_REASONS
+            ):
+                terminal_main_document_limit_reason = str(terminal_block["reason"])
         interstitial_signals = dict(page_state["interstitialSignals"])
-        interstitial_signals["finalDocumentStatus"] = final_document_status
+        interstitial_signals["finalDocumentStatus"] = (
+            None
+            if terminal_main_document_limit_reason is not None
+            else final_document_status
+        )
         interstitial_kind = classify_interstitial_v1(interstitial_signals)
         limitations = []
         if page_state["domNodeLimitReached"]:
@@ -1233,10 +1289,87 @@ def probe_page(
                 str(item.get("reason", "")),
             ),
         )
+        request_limit_reached = any(
+            str(item.get("reason")) == "request-limit"
+            for item in ordered_blocked_requests
+        )
+        byte_limit_reached = any(
+            str(item.get("reason"))
+            in NETWORK_LIMIT_REASONS - {"request-limit"}
+            for item in ordered_blocked_requests
+        )
+        request_limit_reported = False
+        total_byte_limit_reported = False
         for index, blocked in enumerate(ordered_blocked_requests):
-            block_key = (str(blocked["method"]).upper(), str(blocked["url"]))
-            matching_resource_ids = resource_ids_by_block_key.get(block_key, [])
-            target_id = matching_resource_ids.pop(0) if matching_resource_ids else None
+            target_id = resource_id_by_block_id.get(str(blocked.get("blockId")))
+            reason = str(blocked["reason"])
+            if reason == "request-limit":
+                if request_limit_reported:
+                    continue
+                request_limit_reported = True
+                limitations.append(
+                    {
+                        "code": "request-limit",
+                        "scope": "scan",
+                        "targetId": None,
+                        "message": (
+                            "The capture stopped origin-bound requests when its "
+                            f"{max_requests}-request boundary was reached."
+                        ),
+                        "invalidatesMetrics": [
+                            "page_behavior",
+                            "request_count",
+                            "resource_mass",
+                            "total_transferred_bytes",
+                        ],
+                    }
+                )
+                continue
+            if reason == "response-byte-limit":
+                limitations.append(
+                    {
+                        "code": (
+                            f"response-byte-limit-{target_id}"
+                            if target_id is not None
+                            else f"response-byte-limit-{index + 1}"
+                        ),
+                        "scope": "resource" if target_id is not None else "scan",
+                        "targetId": target_id,
+                        "message": (
+                            "The upstream response exceeded the per-response boundary of "
+                            f"{max_response_bytes} received bytes and was not relayed."
+                        ),
+                        "invalidatesMetrics": [
+                            "page_behavior",
+                            "request_count",
+                            "resource_mass",
+                            "total_transferred_bytes",
+                        ],
+                    }
+                )
+                continue
+            if reason == "total-byte-limit":
+                if total_byte_limit_reported:
+                    continue
+                total_byte_limit_reported = True
+                limitations.append(
+                    {
+                        "code": "total-byte-limit",
+                        "scope": "scan",
+                        "targetId": None,
+                        "message": (
+                            "The capture stopped upstream transfer when its total boundary of "
+                            f"{max_total_received_bytes} received bytes was reached."
+                        ),
+                        "invalidatesMetrics": [
+                            "page_behavior",
+                            "request_count",
+                            "resource_mass",
+                            "total_transferred_bytes",
+                        ],
+                    }
+                )
+                continue
             invalidates_metrics = ["page_behavior", "total_transferred_bytes"]
             invalidates_metrics.append(
                 "resource_mass" if target_id is not None else "request_count"
@@ -1302,6 +1435,9 @@ def probe_page(
             failure_code = (
                 "resource-limit"
                 if (
+                    request_limit_reached
+                    or byte_limit_reached
+                    or
                     page_state["domNodeLimitReached"]
                     or page_state["geometryCandidateLimitReached"]
                     or aggregation.fallback_rule is not None
@@ -1312,6 +1448,10 @@ def probe_page(
         limits_reached = []
         if not settled:
             limits_reached.append("time")
+        if request_limit_reached:
+            limits_reached.append("requests")
+        if byte_limit_reached:
+            limits_reached.append("bytes")
         if page_state["domNodeLimitReached"]:
             limits_reached.append("dom-nodes")
         if page_state["geometryCandidateLimitReached"]:
@@ -1348,6 +1488,9 @@ def probe_page(
                 "aggregatedNodeCount": aggregation.aggregated_count,
                 "requestCount": len(resource_rows),
                 "requestsWithoutByteData": sum(row["transferredBytes"] is None for row in resource_rows),
+                "requestLimit": max_requests,
+                "perResponseByteLimit": max_response_bytes,
+                "totalByteLimit": max_total_received_bytes,
                 "transferAccountingRule": (
                     "cdp-page-worker-target-loading-finished-v1"
                     if worker_target_ids

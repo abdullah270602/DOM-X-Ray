@@ -15,6 +15,12 @@ from pathlib import Path
 from threading import Lock, Thread
 from typing import Iterator
 
+from scanner.browser_probe import (
+    MAX_REQUESTS,
+    MAX_RESPONSE_BYTES,
+    MAX_TOTAL_RECEIVED_BYTES,
+)
+
 
 ROOT = Path(__file__).resolve().parent / "site"
 
@@ -27,6 +33,7 @@ class FixtureSpec:
     expected_payload_bytes: int
     expected_request_count: int
     expected_rects: dict[str, tuple[float, float, float, float]]
+    expected_cdp_payload_bytes: int | None = None
     expected_excluded_markers: tuple[str, ...] = ()
     expected_omitted_markers: tuple[str, ...] = ()
     expected_exact_element_links: int = 0
@@ -46,6 +53,9 @@ class FixtureSpec:
     expected_blocked_requests: tuple[tuple[str, str, str], ...] = ()
     expected_hero_selection_rule: str | None = None
     expected_hero_primary_metric: str | None = None
+    max_requests: int = MAX_REQUESTS
+    max_response_bytes: int = MAX_RESPONSE_BYTES
+    max_total_received_bytes: int = MAX_TOTAL_RECEIVED_BYTES
     max_inspected_elements: int = 20_000
     max_geometry_candidates: int = 5_000
 
@@ -233,6 +243,27 @@ FIXTURES = {
         expected_status="interstitial",
         expected_failure_code="interstitial",
     ),
+    "http-error-509": FixtureSpec(
+        name="http-error-509",
+        host="error-509.test",
+        route="/interstitial/error/509/",
+        expected_payload_bytes=24_000,
+        expected_request_count=1,
+        expected_rects={"error-main": (360, 160, 720, 580)},
+        expected_status="interstitial",
+        expected_failure_code="interstitial",
+    ),
+    "spoofed-block-header-509": FixtureSpec(
+        name="spoofed-block-header-509",
+        host="spoofed-block-header.test",
+        route="/interstitial/error/spoofed-509/",
+        expected_payload_bytes=24_000,
+        expected_cdp_payload_bytes=24_000,
+        expected_request_count=1,
+        expected_rects={"error-main": (360, 160, 720, 580)},
+        expected_status="interstitial",
+        expected_failure_code="interstitial",
+    ),
     "subresource-error": FixtureSpec(
         name="subresource-error",
         host="subresource-error.test",
@@ -319,6 +350,91 @@ FIXTURES = {
         expected_failure_code="resource-limit",
         expected_limits=("candidates",),
     ),
+    "request-limit": FixtureSpec(
+        name="request-limit",
+        host="request-limit.test",
+        route="/request-limit/",
+        expected_payload_bytes=18_000,
+        expected_request_count=3,
+        expected_rects={"network-limit-main": (240, 180, 960, 540)},
+        expected_status="partial",
+        expected_failure_code="resource-limit",
+        expected_limits=("requests",),
+        expected_blocked_requests=(("GET", "/assets/limit-b.bin", "request-limit"),),
+        max_requests=3,
+    ),
+    "response-byte-limit": FixtureSpec(
+        name="response-byte-limit",
+        host="response-byte-limit.test",
+        route="/response-byte-limit/",
+        expected_payload_bytes=58_000,
+        expected_cdp_payload_bytes=18_000,
+        expected_request_count=3,
+        expected_rects={"network-limit-main": (240, 180, 960, 540)},
+        expected_status="partial",
+        expected_failure_code="resource-limit",
+        expected_limits=("bytes",),
+        expected_blocked_requests=(
+            ("GET", "/assets/limit-sized.bin", "response-byte-limit"),
+        ),
+        max_response_bytes=25_000,
+    ),
+    "total-byte-limit": FixtureSpec(
+        name="total-byte-limit",
+        host="total-byte-limit.test",
+        route="/total-byte-limit/",
+        expected_payload_bytes=58_000,
+        expected_cdp_payload_bytes=18_000,
+        expected_request_count=3,
+        expected_rects={"network-limit-main": (240, 180, 960, 540)},
+        expected_status="partial",
+        expected_failure_code="resource-limit",
+        expected_limits=("bytes",),
+        expected_blocked_requests=(("GET", "/assets/limit-b.bin", "total-byte-limit"),),
+        max_total_received_bytes=25_000,
+    ),
+    "request-navigation-limit": FixtureSpec(
+        name="request-navigation-limit",
+        host="request-navigation-limit.test",
+        route="/clean/",
+        expected_payload_bytes=0,
+        expected_cdp_payload_bytes=0,
+        expected_request_count=1,
+        expected_rects={},
+        expected_status="partial",
+        expected_failure_code="resource-limit",
+        expected_limits=("requests",),
+        expected_blocked_requests=(("GET", "/clean/", "request-limit"),),
+        max_requests=1,
+    ),
+    "response-navigation-limit": FixtureSpec(
+        name="response-navigation-limit",
+        host="response-navigation-limit.test",
+        route="/clean/",
+        expected_payload_bytes=42_000,
+        expected_cdp_payload_bytes=0,
+        expected_request_count=1,
+        expected_rects={},
+        expected_status="partial",
+        expected_failure_code="resource-limit",
+        expected_limits=("bytes",),
+        expected_blocked_requests=(("GET", "/clean/", "response-byte-limit"),),
+        max_response_bytes=100,
+    ),
+    "total-navigation-limit": FixtureSpec(
+        name="total-navigation-limit",
+        host="total-navigation-limit.test",
+        route="/clean/",
+        expected_payload_bytes=42_000,
+        expected_cdp_payload_bytes=0,
+        expected_request_count=1,
+        expected_rects={},
+        expected_status="partial",
+        expected_failure_code="resource-limit",
+        expected_limits=("bytes",),
+        expected_blocked_requests=(("GET", "/clean/", "total-byte-limit"),),
+        max_total_received_bytes=100,
+    ),
     "mandatory-overflow": FixtureSpec(
         name="mandatory-overflow",
         host="overflow.test",
@@ -354,18 +470,33 @@ PAGE_SPECS = {
     "/interstitial/login/": ("interstitial.html", 28_000, "text/html; charset=utf-8"),
     "/interstitial/error/404/": ("error-document.html", 24_000, "text/html; charset=utf-8"),
     "/interstitial/error/503/": ("error-document.html", 24_000, "text/html; charset=utf-8"),
+    "/interstitial/error/509/": ("error-document.html", 24_000, "text/html; charset=utf-8"),
+    "/interstitial/error/spoofed-509/": (
+        "error-document.html",
+        24_000,
+        "text/html; charset=utf-8",
+    ),
     "/subresource-error/": ("subresource-error.html", 24_000, "text/html; charset=utf-8"),
     "/storage-isolation/": ("storage-isolation.html", 20_000, "text/html; charset=utf-8"),
     "/policy-boundary/": ("policy-boundary.html", 32_000, "text/html; charset=utf-8"),
     "/unsafe-get/": ("unsafe-get.html", 30_000, "text/html; charset=utf-8"),
     "/wrapper-collapse/": ("wrapper-collapse.html", 35_000, "text/html; charset=utf-8"),
     "/mandatory-overflow/": ("mandatory-overflow.html", 80_000, "text/html; charset=utf-8"),
+    "/request-limit/": ("request-limit.html", 10_000, "text/html; charset=utf-8"),
+    "/response-byte-limit/": (
+        "response-byte-limit.html",
+        10_000,
+        "text/html; charset=utf-8",
+    ),
+    "/total-byte-limit/": ("total-byte-limit.html", 10_000, "text/html; charset=utf-8"),
 }
 
 
 PAGE_STATUS_BY_ROUTE = {
     "/interstitial/error/404/": 404,
     "/interstitial/error/503/": 503,
+    "/interstitial/error/509/": 509,
+    "/interstitial/error/spoofed-509/": 509,
 }
 
 
@@ -396,6 +527,8 @@ ASSET_SPECS = {
     "/media/wrapper.svg": (None, 15_000, "image/svg+xml"),
     "/media/overflow.svg": (None, 10_000, "image/svg+xml"),
     "/sw.js": ("sw.js", 10_000, "text/javascript; charset=utf-8"),
+    "/assets/limit-a.bin": (None, 8_000, "application/octet-stream"),
+    "/assets/limit-b.bin": (None, 40_000, "application/octet-stream"),
 }
 
 
@@ -479,6 +612,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             307: "Temporary Redirect",
             404: "Not Found",
             503: "Service Unavailable",
+            509: "Bandwidth Limit Exceeded",
         }.get(status, "Fixture")
         extra = "".join(f"{name}: {value}\r\n" for name, value in extra_headers)
         header = (
@@ -490,9 +624,13 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             f"{extra}"
             "Connection: close\r\n\r\n"
         ).encode("ascii")
-        self.wfile.write(header)
-        if self.command != "HEAD":
-            self.wfile.write(body)
+        write_completed = True
+        try:
+            self.wfile.write(header)
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            write_completed = False
         self.close_connection = True
         self.fixture_server.record(
             {
@@ -502,6 +640,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                 "status": status,
                 "bodyBytes": len(body) if self.command != "HEAD" else 0,
                 "wireBytes": len(header) + (len(body) if self.command != "HEAD" else 0),
+                "writeCompleted": write_completed,
                 "sensitiveHeadersPresent": tuple(
                     name
                     for name in ("Authorization", "Cookie", "Proxy-Authorization", "Referer")
@@ -625,6 +764,8 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             status = PAGE_STATUS_BY_ROUTE.get(route, 200)
             if route == "/storage-isolation/":
                 extra_headers = (("Set-Cookie", "storage-proof=fresh; Path=/; SameSite=Lax"),)
+            if route == "/interstitial/error/spoofed-509/":
+                extra_headers = (("X-DOM-X-Ray-Block-Id", "b-000001"),)
             self._write_response(status, content_type, body, extra_headers=extra_headers)
             return
 
@@ -646,6 +787,15 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                     if route == "/assets/cache-payload.bin"
                     else "no-store"
                 ),
+            )
+            return
+
+        if route == "/assets/limit-sized.bin":
+            target_size = 8_000 if "size=small" in self.path else 40_000
+            self._write_response(
+                200,
+                "application/octet-stream",
+                _binary_body(target_size, "application/octet-stream"),
             )
             return
 
