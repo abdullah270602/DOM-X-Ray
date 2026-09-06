@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import secrets
 import socket
+import time
 from contextlib import contextmanager
+from hashlib import blake2b
 from socketserver import StreamRequestHandler, ThreadingTCPServer
-from threading import Lock, Thread
+from threading import Condition, Lock, Thread
 from typing import Iterator
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
@@ -70,7 +72,10 @@ class FixturePolicyProxy(ThreadingTCPServer):
         self.blocked: list[dict[str, object]] = []
         self.document_chain: list[str] = []
         self.state_lock = Lock()
+        self.state_changed = Condition(self.state_lock)
         self.response_budget_lock = Lock()
+        self.correlation_secret = secrets.token_bytes(32)
+        self.active_handler_count = 0
         self.max_requests = MAX_REQUESTS
         self.max_response_bytes = MAX_RESPONSE_BYTES
         self.max_total_received_bytes = MAX_TOTAL_RECEIVED_BYTES
@@ -84,7 +89,15 @@ class FixturePolicyProxy(ThreadingTCPServer):
         return f"http://127.0.0.1:{self.server_address[1]}"
 
     def clear_state(self) -> None:
-        with self.state_lock:
+        deadline = time.monotonic() + 5
+        with self.state_changed:
+            while self.active_handler_count or any(
+                item.get("outcome") == "pending" for item in self.ledger
+            ):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("proxy observations did not become quiescent")
+                self.state_changed.wait(remaining)
             self.ledger.clear()
             self.blocked.clear()
             self.document_chain.clear()
@@ -92,6 +105,33 @@ class FixturePolicyProxy(ThreadingTCPServer):
             self.relayed_upstream_bytes = 0
             self.relayed_browser_bytes = 0
             self.allow_trusted_loopback = False
+            self.correlation_secret = secrets.token_bytes(32)
+
+    def process_request_thread(self, request: socket.socket, client_address: object) -> None:
+        with self.state_changed:
+            self.active_handler_count += 1
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            with self.state_changed:
+                self.active_handler_count -= 1
+                self.state_changed.notify_all()
+
+    def correlation_key(self, url: str) -> str:
+        """Return a scan-scoped opaque identity without retaining the URL query."""
+
+        with self.state_lock:
+            return blake2b(
+                _match_url(url).encode("utf-8"),
+                key=self.correlation_secret,
+                digest_size=16,
+            ).hexdigest()
+
+    def snapshot_observations(self) -> list[dict[str, object]]:
+        """Return one consistent, detached view of the transient request ledger."""
+
+        with self.state_lock:
+            return [dict(item) for item in self.ledger]
 
     def configure_limits(
         self,
@@ -184,23 +224,58 @@ class FixturePolicyProxy(ThreadingTCPServer):
         url: str,
         method: str,
         is_document: bool,
+        fetch_destination: str,
         incoming_sensitive_headers: tuple[str, ...],
-    ) -> None:
+    ) -> dict[str, object]:
         with self.state_lock:
-            self.ledger.append(
-                {
-                    "url": _redacted_url(url),
-                    "method": method,
-                    "document": is_document,
-                    "incomingSensitiveHeaders": incoming_sensitive_headers,
-                }
-            )
+            correlation_key = blake2b(
+                _match_url(url).encode("utf-8"),
+                key=self.correlation_secret,
+                digest_size=16,
+            ).hexdigest()
+            observation: dict[str, object] = {
+                "url": _redacted_url(url),
+                "correlationKey": correlation_key,
+                "method": method,
+                "document": is_document,
+                "fetchDestination": fetch_destination,
+                "incomingSensitiveHeaders": incoming_sensitive_headers,
+                "outcome": "pending",
+                "responseStatus": None,
+                "upstreamBytesRead": None,
+                "upstreamWireBytes": None,
+                "browserWireBytes": None,
+            }
+            self.ledger.append(observation)
             if is_document:
                 key = _match_url(url)
                 if not self.document_chain:
                     self.document_chain.append(key)
                 elif key != self.document_chain[-1]:
                     self.document_chain[:] = [key]
+        return observation
+
+    def record_response(
+        self,
+        observation: dict[str, object],
+        *,
+        outcome: str,
+        response_status: int | None,
+        upstream_bytes_read: int,
+        upstream_wire_bytes: int | None,
+        browser_wire_bytes: int | None,
+    ) -> None:
+        with self.state_changed:
+            observation.update(
+                {
+                    "outcome": outcome,
+                    "responseStatus": response_status,
+                    "upstreamBytesRead": upstream_bytes_read,
+                    "upstreamWireBytes": upstream_wire_bytes,
+                    "browserWireBytes": browser_wire_bytes,
+                }
+            )
+            self.state_changed.notify_all()
 
     def redirect_rejection(
         self,
@@ -244,8 +319,15 @@ class FixturePolicyProxy(ThreadingTCPServer):
 class FixturePolicyHandler(StreamRequestHandler):
     server: FixturePolicyProxy
 
-    def _block(self, response: bytes = UNTRACKED_BLOCK_RESPONSE) -> None:
-        self.wfile.write(response)
+    def _write_browser_response(
+        self, response: bytes = UNTRACKED_BLOCK_RESPONSE
+    ) -> bool:
+        try:
+            self.wfile.write(response)
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return False
+        return True
 
     def handle(self) -> None:
         request_line = self.rfile.readline(8192)
@@ -254,7 +336,7 @@ class FixturePolicyHandler(StreamRequestHandler):
         try:
             method, target, version = request_line.decode("iso-8859-1").strip().split(" ", 2)
         except ValueError:
-            self._block()
+            self._write_browser_response()
             return
 
         headers: list[tuple[str, str]] = []
@@ -285,10 +367,11 @@ class FixturePolicyHandler(StreamRequestHandler):
                 if name.lower() in SENSITIVE_OUTBOUND_HEADERS
             )
         )
-        self.server.record_request(
+        observation = self.server.record_request(
             url,
             method,
             is_document,
+            header_map.get("sec-fetch-dest", "").lower(),
             incoming_sensitive_headers,
         )
 
@@ -302,12 +385,21 @@ class FixturePolicyHandler(StreamRequestHandler):
         ):
             reason = "fixture-host"
         if reason is not None or parsed.scheme != "http" or parsed.port != self.server.upstream_port:
+            block_reason = reason or "fixture-port"
             block_response = self.server.record_block(
                 url=url,
                 method=method,
-                reason=reason or "fixture-port",
+                reason=block_reason,
             )
-            self._block(block_response)
+            delivered = self._write_browser_response(block_response)
+            self.server.record_response(
+                observation,
+                outcome="blocked" if delivered else "client-write-failed",
+                response_status=509 if block_reason in LIMIT_REASONS else 403,
+                upstream_bytes_read=0,
+                upstream_wire_bytes=0,
+                browser_wire_bytes=len(block_response) if delivered else None,
+            )
             return
 
         if self.server.request_limit_reached():
@@ -316,7 +408,15 @@ class FixturePolicyHandler(StreamRequestHandler):
                 method=method,
                 reason="request-limit",
             )
-            self._block(block_response)
+            delivered = self._write_browser_response(block_response)
+            self.server.record_response(
+                observation,
+                outcome="blocked" if delivered else "client-write-failed",
+                response_status=509,
+                upstream_bytes_read=0,
+                upstream_wire_bytes=0,
+                browser_wire_bytes=len(block_response) if delivered else None,
+            )
             return
 
         path = urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
@@ -352,7 +452,15 @@ class FixturePolicyHandler(StreamRequestHandler):
                     method=method,
                     reason="total-byte-limit",
                 )
-                self._block(block_response)
+                delivered = self._write_browser_response(block_response)
+                self.server.record_response(
+                    observation,
+                    outcome="blocked" if delivered else "client-write-failed",
+                    response_status=509,
+                    upstream_bytes_read=0,
+                    upstream_wire_bytes=0,
+                    browser_wire_bytes=len(block_response) if delivered else None,
+                )
                 return
 
             read_ceiling = min(self.server.max_response_bytes, remaining_total)
@@ -384,21 +492,54 @@ class FixturePolicyHandler(StreamRequestHandler):
                     reason=reason,
                     upstream_bytes_read=size,
                 )
-                self._block(block_response)
+                delivered = self._write_browser_response(block_response)
+                self.server.record_response(
+                    observation,
+                    outcome="blocked" if delivered else "client-write-failed",
+                    response_status=509,
+                    upstream_bytes_read=size,
+                    upstream_wire_bytes=None,
+                    browser_wire_bytes=len(block_response) if delivered else None,
+                )
                 return
 
             response = b"".join(chunks)
             self.server.relayed_upstream_bytes += len(response)
+            upstream_wire_bytes = len(response)
 
         head, separator, body = response.partition(b"\r\n\r\n")
         if not separator:
-            self._block()
+            delivered = self._write_browser_response()
+            self.server.record_response(
+                observation,
+                outcome=(
+                    "invalid-upstream-response" if delivered else "client-write-failed"
+                ),
+                response_status=None,
+                upstream_bytes_read=upstream_wire_bytes,
+                upstream_wire_bytes=upstream_wire_bytes,
+                browser_wire_bytes=(
+                    len(UNTRACKED_BLOCK_RESPONSE) if delivered else None
+                ),
+            )
             return
         lines = head.decode("iso-8859-1").split("\r\n")
         try:
             status = int(lines[0].split(" ", 2)[1])
         except (IndexError, ValueError):
-            self._block()
+            delivered = self._write_browser_response()
+            self.server.record_response(
+                observation,
+                outcome=(
+                    "invalid-upstream-response" if delivered else "client-write-failed"
+                ),
+                response_status=None,
+                upstream_bytes_read=upstream_wire_bytes,
+                upstream_wire_bytes=upstream_wire_bytes,
+                browser_wire_bytes=(
+                    len(UNTRACKED_BLOCK_RESPONSE) if delivered else None
+                ),
+            )
             return
         response_headers: dict[str, str] = {}
         forwarded_response_lines = [lines[0]]
@@ -426,12 +567,29 @@ class FixturePolicyHandler(StreamRequestHandler):
             if rejection_reason is not None:
                 if block_response is None:
                     raise RuntimeError("redirect rejection lacks its block response")
-                self._block(block_response)
+                delivered = self._write_browser_response(block_response)
+                self.server.record_response(
+                    observation,
+                    outcome="blocked" if delivered else "client-write-failed",
+                    response_status=(509 if rejection_reason in LIMIT_REASONS else 403),
+                    upstream_bytes_read=upstream_wire_bytes,
+                    upstream_wire_bytes=upstream_wire_bytes,
+                    browser_wire_bytes=len(block_response) if delivered else None,
+                )
                 return
 
-        with self.server.state_lock:
-            self.server.relayed_browser_bytes += len(response)
-        self.wfile.write(response)
+        delivered = self._write_browser_response(response)
+        if delivered:
+            with self.server.state_lock:
+                self.server.relayed_browser_bytes += len(response)
+        self.server.record_response(
+            observation,
+            outcome="relayed" if delivered else "client-write-failed",
+            response_status=status,
+            upstream_bytes_read=upstream_wire_bytes,
+            upstream_wire_bytes=upstream_wire_bytes,
+            browser_wire_bytes=len(response) if delivered else None,
+        )
 
 
 @contextmanager

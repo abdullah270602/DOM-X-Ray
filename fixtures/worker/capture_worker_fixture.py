@@ -164,7 +164,10 @@ def main() -> None:
         raise ValueError("fixtureUpstreamPort is required with the policy proxy")
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=["--proxy-bypass-list=<-loopback>"],
+        )
         try:
             if use_policy_proxy:
                 assert upstream_port is not None
@@ -180,6 +183,8 @@ def main() -> None:
                         url,
                         proxy_server=proxy.url,
                         policy_block_log=proxy.blocked,
+                        egress_observation_snapshot=proxy.snapshot_observations,
+                        egress_correlation_key=proxy.correlation_key,
                         trusted_loopback_fixture=trusted_loopback,
                         cache_disabled=cache_disabled,
                         hard_stop_seconds=hard_stop_seconds,

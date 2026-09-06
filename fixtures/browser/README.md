@@ -7,7 +7,7 @@ These pages are Gate 0 instrumentation evidence, not the public application stac
 - deterministic preorder IDs, nearest-represented parent links, sanitized selectors, and a high-entropy selector canary;
 - exact image URL-to-element links—including one URL reused by two elements—while stylesheets, fonts, scripts, and fetches remain page-level;
 - identical node, nearest-candidate parent, raw depth, stacking-context, geometry, selector, count, redirect-chain, attribution, and retained-limit fingerprints across repeated clean, redirect, DOM-limit, candidate-limit, request-limit, response-byte-limit, and total-byte-limit captures;
-- every `Network.loadingFinished.encodedDataLength` total against the exact HTTP bytes emitted by the server;
+- every canonical CDP value—and the uniquely correlated service-worker bootstrap egress value—against the exact HTTP bytes emitted by the server/proxy;
 - the same CDP total against declared body payload within the product's 2% tolerance;
 - an inclusive request boundary whose triggering request is never forwarded to the origin;
 - a per-response boundary that reads only the configured wire-byte allowance plus one detection byte and never relays the oversized upstream response;
@@ -27,7 +27,7 @@ These pages are Gate 0 instrumentation evidence, not the public application stac
 - two sequential fetches of one cacheable asset stored as network then cache, with a measured-zero cache transfer and exactly one origin hit;
 - a worker-produced client response stored as service-worker rather than network, with zero page-session transfer bytes and no origin hit, plus its worker-owned origin fetch captured once with exact CDP wire bytes and target-qualified identity;
 - one URL requested independently as a page image and worker fetch, preserved as two records while only the page-owned image receives exact element attribution;
-- the worker bootstrap represented once as service-worker-owned with unknown bytes because its transfer precedes target attachment, forcing a partial record and suppressing request-count and whole-load byte claims;
+- the worker bootstrap represented once as service-worker-owned and matched to the proxy's exact delivered wire bytes only for a unique method/scan-scoped opaque full-URL `serviceworker` observation; query-distinct scripts do not collide, while repeated or noncanonical observations remain unknown;
 - an active qualifying fetch preventing quiet-window settlement, retaining `null` bytes and unknown source at the hard stop, and producing a resource-scoped limitation without a retry;
 - continuous DOM mutation independently reaching the bounded hard stop while retaining useful but explicitly partial geometry;
 - a stable HTTP 200 credential gate classified structurally as an interstitial, retaining orientation geometry while emitting no insight, making no form submission, and storing no form values;
@@ -52,4 +52,4 @@ python -m playwright install chromium
 python scripts/verify_browser_fixtures.py
 ```
 
-The loopback policy proxy, popup/download observers, and in-memory admission gate exist only inside this deterministic proof. Passing them proves the named redirect, unsafe-method, literal-private-subresource, sensitive-header, auxiliary-event containment, exact-result reuse, and same-origin cooling behavior, but not production public-IP resolution, an enforceable deployment egress boundary, DNS-rebinding resistance, service-worker bootstrap byte accounting, durable distributed rate enforcement, or approved launch durations. The localhost service-worker exception and scanner identity are fixture-scoped and do not weaken or decide the public-target boundary. Those remaining controls are explicit Gate 0 work.
+The loopback policy proxy, popup/download observers, and in-memory admission gate exist only inside this deterministic proof. Passing them proves the named redirect, unsafe-method, literal-private-subresource, sensitive-header, auxiliary-event containment, exact-result reuse, same-origin cooling, and local service-worker bootstrap-accounting behavior, but not production public-IP resolution, an enforceable deployment egress boundary, DNS-rebinding resistance, production bootstrap observations, durable distributed rate enforcement, or approved launch durations. The localhost service-worker exception and scanner identity are fixture-scoped and do not weaken or decide the public-target boundary. Those remaining controls are explicit Gate 0 work.

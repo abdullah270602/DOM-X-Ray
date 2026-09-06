@@ -12,7 +12,7 @@ import json
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 
 from playwright.sync_api import Browser, Error as PlaywrightError, Route
@@ -223,6 +223,67 @@ def _match_url(url: str) -> str:
     )
 
 
+def correlate_worker_bootstrap_egress_bytes(
+    network_rows: list[dict[str, Any]],
+    egress_observations: list[dict[str, Any]],
+    correlation_key: Callable[[str], str],
+) -> int:
+    """Apply exact proxy wire bytes to uniquely matched worker bootstrap rows.
+
+    The proxy retains only an opaque keyed identity for each full URL. An
+    identity/method group is usable only when it contains exactly one attached
+    worker bootstrap and one successfully relayed ``serviceworker`` fetch.
+    Repeated identical requests remain unknown rather than assigning bytes by
+    timing or list order.
+    """
+
+    bootstraps_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    observations_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in network_rows:
+        if not row.get("workerBootstrap") or row.get("transferredBytes") is not None:
+            continue
+        key = (
+            str(row.get("method", "")).upper(),
+            correlation_key(str(row.get("url", ""))),
+        )
+        bootstraps_by_key.setdefault(key, []).append(row)
+    for observation in egress_observations:
+        wire_bytes = observation.get("browserWireBytes")
+        status = observation.get("responseStatus")
+        opaque_key = observation.get("correlationKey")
+        if (
+            observation.get("fetchDestination") != "serviceworker"
+            or observation.get("outcome") != "relayed"
+            or not isinstance(opaque_key, str)
+            or not opaque_key
+            or isinstance(wire_bytes, bool)
+            or not isinstance(wire_bytes, int)
+            or wire_bytes < 0
+            or isinstance(status, bool)
+            or not isinstance(status, int)
+            or not 200 <= status < 300
+        ):
+            continue
+        key = (
+            str(observation.get("method", "")).upper(),
+            opaque_key,
+        )
+        observations_by_key.setdefault(key, []).append(observation)
+
+    matched = 0
+    for key, bootstraps in bootstraps_by_key.items():
+        observations = observations_by_key.get(key, [])
+        if len(bootstraps) != 1 or len(observations) != 1:
+            continue
+        bootstrap = bootstraps[0]
+        observation = observations[0]
+        bootstrap["transferredBytes"] = int(observation["browserWireBytes"])
+        bootstrap["status"] = int(observation["responseStatus"])
+        bootstrap["egressBootstrapBytes"] = True
+        matched += 1
+    return matched
+
+
 def correlate_policy_blocks(
     ordered_network: list[dict[str, Any]],
     blocked_requests: list[dict[str, Any]],
@@ -417,6 +478,8 @@ def probe_page(
     cache_disabled: bool = True,
     trusted_loopback_fixture: bool = False,
     policy_block_log: list[dict[str, Any]] | None = None,
+    egress_observation_snapshot: Callable[[], list[dict[str, Any]]] | None = None,
+    egress_correlation_key: Callable[[str], str] | None = None,
     max_requests: int = MAX_REQUESTS,
     max_response_bytes: int = MAX_RESPONSE_BYTES,
     max_total_received_bytes: int = MAX_TOTAL_RECEIVED_BYTES,
@@ -443,6 +506,10 @@ def probe_page(
     validate_fixture_target(url, allow_trusted_loopback=trusted_loopback_fixture)
     if proxy_server is not None and policy_block_log is None:
         raise ValueError("proxy-backed fixture capture requires its policy block log")
+    if (egress_observation_snapshot is None) != (egress_correlation_key is None):
+        raise ValueError("egress observation snapshot and correlation key must be paired")
+    if proxy_server is None and egress_observation_snapshot is not None:
+        raise ValueError("egress observations require their enforcing proxy")
     if proxy_server is None and (
         max_requests != MAX_REQUESTS
         or max_response_bytes != MAX_RESPONSE_BYTES
@@ -1050,6 +1117,15 @@ def probe_page(
         for item in page_state["nodes"]:
             for resource_url in item["exactResourceUrls"]:
                 exact_targets.setdefault(_match_url(resource_url), []).append(item["id"])
+        if (
+            egress_observation_snapshot is not None
+            and egress_correlation_key is not None
+        ):
+            correlate_worker_bootstrap_egress_bytes(
+                list(network.values()),
+                egress_observation_snapshot(),
+                egress_correlation_key,
+            )
         ordered_network = sorted(
             network.values(),
             key=lambda value: (
@@ -1328,7 +1404,8 @@ def probe_page(
                 }
             )
         worker_bootstrap_unmeasured = any(
-            item["workerBootstrap"] for item in ordered_network
+            item["workerBootstrap"] and item["transferredBytes"] is None
+            for item in ordered_network
         )
         bootstrap_resource_ids = {
             resource_id_by_hop[(item["ownerKey"], item["requestId"], item["hopIndex"])]
@@ -1615,9 +1692,13 @@ def probe_page(
                 "perResponseByteLimit": max_response_bytes,
                 "totalByteLimit": max_total_received_bytes,
                 "transferAccountingRule": (
-                    "cdp-page-worker-target-loading-finished-v1"
-                    if worker_target_ids
-                    else "cdp-loading-finished-encoded-data-length-v1"
+                    "cdp-plus-egress-service-worker-bootstrap-v1"
+                    if any(item.get("egressBootstrapBytes") for item in ordered_network)
+                    else (
+                        "cdp-page-worker-target-loading-finished-v1"
+                        if worker_target_ids
+                        else "cdp-loading-finished-encoded-data-length-v1"
+                    )
                 ),
                 "redirectCount": len(redirect_rows),
                 "redirectLimit": REDIRECT_LIMIT,

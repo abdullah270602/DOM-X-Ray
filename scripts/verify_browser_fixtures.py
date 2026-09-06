@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from fixtures.browser.fixture_server import FIXTURES, run_fixture_server
-from fixtures.browser.policy_proxy import run_policy_proxy
+from fixtures.browser.policy_proxy import FixturePolicyProxy, run_policy_proxy
 from scanner.aggregation import (
     MANDATORY_OVERFLOW_RULE,
     MandatoryOverflowError,
@@ -36,6 +36,7 @@ from scanner.browser_probe import (
     classify_interstitial_v1,
     classify_transfer_source,
     correlate_policy_blocks,
+    correlate_worker_bootstrap_egress_bytes,
     probe_navigation_policy,
     probe_page,
     request_block_reason,
@@ -97,7 +98,7 @@ def assert_transfer(
     missing_count = len(record["resources"]) - len(known)
     require(
         missing_count == expected_missing_byte_count,
-        f"fixture has {missing_count} resources with missing CDP byte data",
+        f"fixture has {missing_count} resources with missing canonical byte data",
     )
     total = int(sum(known))
     comparable_total = total - excluded_wire_bytes
@@ -114,6 +115,127 @@ def assert_transfer(
         f"{expected_payload_bytes} by {delta:.2%}",
     )
     return total
+
+
+def assert_worker_bootstrap_egress_correlation() -> None:
+    bootstrap = {
+        "workerBootstrap": True,
+        "method": "GET",
+        "url": "https://worker.test/sw.js?private=one",
+        "transferredBytes": None,
+        "status": None,
+    }
+    observation = {
+        "url": "https://worker.test/sw.js",
+        "correlationKey": "https://worker.test/sw.js?private=one",
+        "method": "GET",
+        "fetchDestination": "serviceworker",
+        "outcome": "relayed",
+        "responseStatus": 200,
+        "browserWireBytes": 10_164,
+    }
+    rows = [copy.deepcopy(bootstrap)]
+    require(
+        correlate_worker_bootstrap_egress_bytes(
+            rows,
+            [observation],
+            lambda value: value,
+        )
+        == 1
+        and rows[0]["transferredBytes"] == 10_164
+        and rows[0]["status"] == 200
+        and rows[0]["egressBootstrapBytes"] is True,
+        "unique worker bootstrap egress evidence did not correlate",
+    )
+
+    mismatched_rows = [copy.deepcopy(bootstrap)]
+    require(
+        correlate_worker_bootstrap_egress_bytes(
+            mismatched_rows,
+            [
+                {
+                    **observation,
+                    "correlationKey": "https://worker.test/sw.js?private=two",
+                }
+            ],
+            lambda value: value,
+        )
+        == 0
+        and mismatched_rows[0]["transferredBytes"] is None,
+        "a query-distinct worker observation was assigned to the wrong bootstrap",
+    )
+    ambiguous_rows = [copy.deepcopy(bootstrap), copy.deepcopy(bootstrap)]
+    require(
+        correlate_worker_bootstrap_egress_bytes(
+            ambiguous_rows,
+            [observation, {**observation, "browserWireBytes": 12_000}],
+            lambda value: value,
+        )
+        == 0
+        and all(row["transferredBytes"] is None for row in ambiguous_rows),
+        "repeated identical bootstrap observations were assigned by list order",
+    )
+    ignored_rows = [copy.deepcopy(bootstrap)]
+    require(
+        correlate_worker_bootstrap_egress_bytes(
+            ignored_rows,
+            [
+                {**observation, "fetchDestination": "empty"},
+                {**observation, "outcome": "pending"},
+                {**observation, "outcome": "client-write-failed"},
+                {**observation, "browserWireBytes": True},
+                {**observation, "responseStatus": 404},
+            ],
+            lambda value: value,
+        )
+        == 0
+        and ignored_rows[0]["transferredBytes"] is None,
+        "noncanonical egress evidence was accepted for a worker bootstrap",
+    )
+
+
+def assert_proxy_observation_contract(proxy: FixturePolicyProxy) -> None:
+    exact_url = "http://worker.test/sw.js?private=one"
+    other_url = "http://worker.test/sw.js?private=two"
+    first_key = proxy.correlation_key(exact_url)
+    require(
+        first_key != proxy.correlation_key(other_url),
+        "query-distinct proxy URLs received the same opaque identity",
+    )
+    observation = proxy.record_request(
+        exact_url,
+        "GET",
+        False,
+        "serviceworker",
+        (),
+    )
+    proxy.record_response(
+        observation,
+        outcome="client-write-failed",
+        response_status=200,
+        upstream_bytes_read=10_164,
+        upstream_wire_bytes=10_164,
+        browser_wire_bytes=None,
+    )
+    snapshot = proxy.snapshot_observations()
+    require(
+        len(snapshot) == 1
+        and snapshot[0]["url"] == "http://worker.test/sw.js"
+        and "private=" not in json.dumps(snapshot, sort_keys=True)
+        and snapshot[0]["correlationKey"] == first_key
+        and snapshot[0]["browserWireBytes"] is None,
+        "proxy observation leaked a query or invented delivered bytes",
+    )
+    snapshot[0]["outcome"] = "forged"
+    require(
+        proxy.snapshot_observations()[0]["outcome"] == "client-write-failed",
+        "proxy observation snapshot was not detached",
+    )
+    proxy.clear_state()
+    require(
+        proxy.correlation_key(exact_url) != first_key,
+        "proxy correlation identity did not rotate between scans",
+    )
 
 
 def assert_request_policy() -> None:
@@ -608,13 +730,16 @@ def main() -> None:
         clock=lambda: admission_now[0],
     )
 
+    assert_worker_bootstrap_egress_correlation()
     with (
         run_fixture_server() as server,
         run_policy_proxy(server.server_port) as proxy,
         sync_playwright() as playwright,
     ):
+        assert_proxy_observation_contract(proxy)
         browser = playwright.chromium.launch(
             headless=True,
+            args=["--proxy-bypass-list=<-loopback>"],
         )
         try:
             require(
@@ -622,6 +747,17 @@ def main() -> None:
                 f"Chromium version {browser.version} != pinned proof version {EXPECTED_CHROMIUM_VERSION}",
             )
             limit_guard_url = f"http://clean.test:{server.server_port}/clean/"
+            try:
+                probe_page(
+                    browser,
+                    limit_guard_url,
+                    egress_observation_snapshot=lambda: [],
+                    egress_correlation_key=lambda value: value,
+                )
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("detached egress observations were accepted")
             for invalid_limits in (
                 {"max_inspected_elements": 0},
                 {"max_inspected_elements": True},
@@ -672,6 +808,14 @@ def main() -> None:
                     cache_disabled=fixture.cache_disabled,
                     trusted_loopback_fixture=fixture.trusted_loopback,
                     policy_block_log=proxy.blocked if fixture.use_policy_proxy else None,
+                    egress_observation_snapshot=(
+                        proxy.snapshot_observations
+                        if fixture.use_policy_proxy
+                        else None
+                    ),
+                    egress_correlation_key=(
+                        proxy.correlation_key if fixture.use_policy_proxy else None
+                    ),
                     max_requests=fixture.max_requests,
                     max_response_bytes=fixture.max_response_bytes,
                     max_total_received_bytes=fixture.max_total_received_bytes,
@@ -1247,20 +1391,30 @@ def main() -> None:
                         if urlsplit(item["displayUrl"]).path == "/sw.js"
                     ]
                     require(len(bootstrap_rows) == 1, "worker bootstrap request was not represented once")
+                    bootstrap_observations = [
+                        item
+                        for item in proxy.snapshot_observations()
+                        if item["fetchDestination"] == "serviceworker"
+                        and urlsplit(str(item["url"])).path == "/sw.js"
+                    ]
                     require(
                         bootstrap_rows[0]["requestOwner"] == "service-worker"
-                        and bootstrap_rows[0]["transferSource"] == "unknown"
-                        and bootstrap_rows[0]["transferredBytes"] is None,
-                        "worker bootstrap did not preserve its unknown-byte boundary",
+                        and bootstrap_rows[0]["transferSource"] == "network"
+                        and len(bootstrap_observations) == 1
+                        and bootstrap_observations[0]["outcome"] == "relayed"
+                        and bootstrap_rows[0]["transferredBytes"]
+                        == bootstrap_observations[0]["browserWireBytes"]
+                        == 10_164,
+                        "worker bootstrap lacks uniquely correlated egress wire bytes",
                     )
                     require(
-                        record["capture"]["requestsWithoutByteData"] == 1,
+                        record["capture"]["requestsWithoutByteData"] == 0,
                         "worker bootstrap missing-byte count drifted",
                     )
                     require(
                         record["capture"]["transferAccountingRule"]
-                        == "cdp-page-worker-target-loading-finished-v1",
-                        "worker target capture did not select its accounting rule",
+                        == "cdp-plus-egress-service-worker-bootstrap-v1",
+                        "worker target/egress capture did not select its accounting rule",
                     )
                     require(
                         all(item["path"] != "/sw/worker-data" for item in server.ledger),
@@ -1279,24 +1433,17 @@ def main() -> None:
                         "same-URL page and worker requests did not reach the origin twice",
                     )
                     require(
-                        record["failureCode"] == "measurement-unavailable",
-                        "worker target gap did not mark byte completeness unavailable",
+                        record["status"] == "complete"
+                        and record["failureCode"] is None,
+                        "fully measured worker capture did not become complete",
                     )
                     worker_limitations = {
                         item["code"]: item for item in record["limitations"]
                     }
                     require(
-                        "service-worker-bootstrap-bytes-unavailable" in worker_limitations,
-                        "worker bootstrap byte gap was not disclosed",
-                    )
-                    require(
-                        set(
-                            worker_limitations["service-worker-bootstrap-bytes-unavailable"][
-                                "invalidatesMetrics"
-                            ]
-                        )
-                        == {"request_count", "total_transferred_bytes"},
-                        "worker target gap does not invalidate the affected metrics",
+                        "service-worker-bootstrap-bytes-unavailable"
+                        not in worker_limitations,
+                        "uniquely measured worker bootstrap retained a stale limitation",
                     )
                     worker_fingerprint = deterministic_fingerprint(record)
                 elif name == "service-worker-marker-replay":
@@ -1936,6 +2083,8 @@ def main() -> None:
                 repeat_url,
                 proxy_server=proxy.url,
                 policy_block_log=proxy.blocked,
+                egress_observation_snapshot=proxy.snapshot_observations,
+                egress_correlation_key=proxy.correlation_key,
             ).record
             require(
                 clean_fingerprint == deterministic_fingerprint(repeated),
@@ -1951,6 +2100,8 @@ def main() -> None:
                     hero_url,
                     proxy_server=proxy.url,
                     policy_block_log=proxy.blocked,
+                    egress_observation_snapshot=proxy.snapshot_observations,
+                    egress_correlation_key=proxy.correlation_key,
                 ).record
                 repeated_hero_fingerprint = tuple(
                     json.dumps(item, sort_keys=True, separators=(",", ":"))
@@ -1969,6 +2120,8 @@ def main() -> None:
                 redirect_url,
                 proxy_server=proxy.url,
                 policy_block_log=proxy.blocked,
+                egress_observation_snapshot=proxy.snapshot_observations,
+                egress_correlation_key=proxy.correlation_key,
             ).record
             require(
                 redirect_fingerprint == deterministic_fingerprint(repeated_redirect),
@@ -1984,6 +2137,8 @@ def main() -> None:
                 proxy_server=proxy.url,
                 cache_disabled=False,
                 policy_block_log=proxy.blocked,
+                egress_observation_snapshot=proxy.snapshot_observations,
+                egress_correlation_key=proxy.correlation_key,
             ).record
             require(
                 cache_fingerprint == deterministic_fingerprint(repeated_cache),
@@ -1992,10 +2147,16 @@ def main() -> None:
             worker = FIXTURES["service-worker"]
             worker_url = f"http://{worker.host}:{server.server_port}{worker.route}"
             server.clear_ledger()
+            proxy.clear_state()
+            proxy.configure_limits(allow_trusted_loopback=True)
             repeated_worker = probe_page(
                 browser,
                 worker_url,
+                proxy_server=proxy.url,
                 trusted_loopback_fixture=True,
+                policy_block_log=proxy.blocked,
+                egress_observation_snapshot=proxy.snapshot_observations,
+                egress_correlation_key=proxy.correlation_key,
             ).record
             require(
                 worker_fingerprint == deterministic_fingerprint(repeated_worker),
@@ -2012,6 +2173,8 @@ def main() -> None:
                 interstitial_url,
                 proxy_server=proxy.url,
                 policy_block_log=proxy.blocked,
+                egress_observation_snapshot=proxy.snapshot_observations,
+                egress_correlation_key=proxy.correlation_key,
             ).record
             repeated_interstitial_fingerprint = (
                 repeated_interstitial["status"],
@@ -2040,6 +2203,8 @@ def main() -> None:
                     error_url,
                     proxy_server=proxy.url,
                     policy_block_log=proxy.blocked,
+                    egress_observation_snapshot=proxy.snapshot_observations,
+                    egress_correlation_key=proxy.correlation_key,
                 ).record
                 repeated_error_fingerprint = (
                     repeated_error["status"],
@@ -2060,6 +2225,8 @@ def main() -> None:
                 storage_url,
                 proxy_server=proxy.url,
                 policy_block_log=proxy.blocked,
+                egress_observation_snapshot=proxy.snapshot_observations,
+                egress_correlation_key=proxy.correlation_key,
             )
             require(
                 storage_fingerprint == deterministic_fingerprint(repeated_storage.record),
@@ -2083,6 +2250,8 @@ def main() -> None:
                 policy_url,
                 proxy_server=proxy.url,
                 policy_block_log=proxy.blocked,
+                egress_observation_snapshot=proxy.snapshot_observations,
+                egress_correlation_key=proxy.correlation_key,
             ).record
             repeated_policy_fingerprint = (
                 repeated_policy["status"],
@@ -2113,6 +2282,8 @@ def main() -> None:
                 auxiliary_url,
                 proxy_server=proxy.url,
                 policy_block_log=proxy.blocked,
+                egress_observation_snapshot=proxy.snapshot_observations,
+                egress_correlation_key=proxy.correlation_key,
                 max_auxiliary_events=auxiliary.max_auxiliary_events,
             )
             require(
@@ -2130,6 +2301,8 @@ def main() -> None:
                 wrapper_url,
                 proxy_server=proxy.url,
                 policy_block_log=proxy.blocked,
+                egress_observation_snapshot=proxy.snapshot_observations,
+                egress_correlation_key=proxy.correlation_key,
             ).record
             require(
                 wrapper_fingerprint == deterministic_fingerprint(repeated_wrapper),
@@ -2147,6 +2320,8 @@ def main() -> None:
                 overflow_url,
                 proxy_server=proxy.url,
                 policy_block_log=proxy.blocked,
+                egress_observation_snapshot=proxy.snapshot_observations,
+                egress_correlation_key=proxy.correlation_key,
             ).record
             require(
                 overflow_fingerprint == deterministic_fingerprint(repeated_overflow),
@@ -2185,6 +2360,8 @@ def main() -> None:
                     limit_url,
                     proxy_server=proxy.url,
                     policy_block_log=proxy.blocked,
+                    egress_observation_snapshot=proxy.snapshot_observations,
+                    egress_correlation_key=proxy.correlation_key,
                     trusted_loopback_fixture=limit_fixture.trusted_loopback,
                     max_requests=limit_fixture.max_requests,
                     max_response_bytes=limit_fixture.max_response_bytes,
