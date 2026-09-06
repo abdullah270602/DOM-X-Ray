@@ -1,6 +1,6 @@
 # Gate 0 Evidence Ledger
 
-Last updated: 2026-09-06
+Last updated: 2026-09-07
 
 Gate status: **in progress**
 
@@ -17,6 +17,7 @@ This ledger prevents documentation volume from being mistaken for completion. A 
 | Mapping monotonicity, deterministic fixture transforms, object cap, unknown states, and five-second duration | `python scripts/validate_mapping.py` | Pass: 3 fixtures + 6 negative controls |
 | Deterministic hero selection and claim suppression | `scanner/insights.py`, `python scripts/verify_insights.py`, live browser assertions | Pass: complete comparator, four enabled evidence candidates, neutral fallback, exact-attribution and 90% known-value boundaries, limitation suppression, hostile-copy independence, 3 positive browser outcomes, and 28 no-standout/interstitial outcomes |
 | Fixed browser/capture protocol | `docs/CAPTURE_PROTOCOL.md`, `scanner/browser_probe.py` | Partial implementation proven on local deterministic pages |
+| Public-destination URL/DNS policy seam | `scanner/destination_policy.py`, `python scripts/verify_destination_policy.py` | Pass as a deployment-neutral policy primitive: 51 public/forbidden addresses, 29 malformed or unsafe URLs, 7 resolver failure modes, independent initial/redirect/subresource resolution, same-family and mixed-family answer rejection, bounded answer collection, content-free errors, validated address sets available for future connector pinning, and same-host public-to-private rebinding rejection before connector contact. The seam is not wired into the fixture browser/proxy because neither can provide address-pinned public HTTPS; production parser/resolver selection, connector integration, HTTPS forwarding, and network-namespace enforcement remain open. |
 | Scanner threat model and release-blocking controls | `docs/THREAT_MODEL.md` | Pass as model; automated controls unproven |
 | Privacy-minimized product telemetry and primary metric formulas | `docs/TELEMETRY.md` | Pass as contract; instrumentation unproven |
 | Geometry captured within 1 CSS pixel from deterministic pages | `fixtures/browser/`, `python scripts/verify_browser_fixtures.py` | Pass: 57 hand-marked rectangles in the 31-fixture live-browser suite |
@@ -33,7 +34,7 @@ This ledger prevents documentation volume from being mistaken for completion. A 
 | Interstitial behavior | HTTP 200 login wall, terminal 404/503/509 pages, forged-marker origin 509, synthetic main-document 509 limits, 200 + subresource-404 negative fixture, and 13 classifier guards | Pass for structural login and direct HTTP error classes: preserves measured orientation geometry, emits no insight for interstitials, makes no form submission, retains no form values, ignores subresource-only errors, distinguishes genuine and forged-marker target 509s from instrument-generated limit responses, and reproduces the same status/limitation; consent and challenge remain intentionally open because current structural signals are ambiguous |
 | Cross-scan storage isolation | Repeated fresh-context fixture with local/session/cookie sentinels | Pass: the later scan sees none of the earlier scan's local storage, session storage, or cookie state and reproduces the same evidence fingerprint |
 | Popup and download containment | Normal and one-event-limit auxiliary fixtures; content-bearing canaries; repeated fingerprints | Pass for the deterministic browser harness: one popup is synchronously closed, handlers cover every created page, and downloads initiated by both the main page and popup are synchronously cancelled. No auxiliary page remains at capture, and popup URL/window-name plus download URL/filename canaries do not enter normalized or fixture-ledger evidence. A lowered combined cap saturates typed counts, remains content-free, produces an explicit partial `resource-limit` record, and repeats deterministically. Production browser/container isolation remains a separate gate. |
-| Private-network, DNS-rebinding, redirect-pivot, method, limit, and secret rejection | Automated scanner security suite | Partial: 10 request-policy cases, 5 fixture-boundary cases, 5 browser-enforced redirect rejections, 4 live unsafe-method/literal-private-subresource blocks, deterministic DOM/candidate/request/byte caps, and 10 unsafe-GET canaries pass; private URLs stay out of normalized evidence, sensitive outbound headers are stripped at egress, request-cap targets are not contacted, and oversized responses are not relayed; production DNS/egress, rebinding, production quota integration, production-container deadline enforcement, and remaining cases are missing |
+| Private-network, DNS-rebinding, redirect-pivot, method, limit, and secret rejection | Automated scanner security suite | Partial: the resolver-injected policy covers 51 public/forbidden addresses, 29 malformed or unsafe URLs, 7 DNS failure modes, mixed answers, and public-to-private rebinding before connector contact; 20 request-policy cases, 5 fixture-boundary cases, 5 browser-enforced redirect rejections, 4 live unsafe-method/literal-private-subresource blocks, deterministic DOM/candidate/request/byte caps, and 10 unsafe-GET canaries also pass. Private URLs stay out of normalized evidence, sensitive outbound headers are stripped at egress, request-cap targets are not contacted, and oversized responses are not relayed. The live fixture scanner still has no hostname-resolution boundary; production resolver/egress integration, address-pinned HTTPS, production quota integration, production-container deadline enforcement, and remaining cases are missing. |
 | Residual anonymous-GET risk, honest scanner identity, robots/owner opt-out, scan dedupe, and per-origin cooling | `scanner/admission_policy.py`, unsafe-GET browser fixture, fixture ledgers | Partial: one state-changing GET reaches origin once under an explicit fixture user-agent; exact-result reuse and same-origin cooling make no second contact under an injectable clock. Production durations, durable/distributed enforcement, published identity, robots policy, and owner opt-out remain open decisions |
 | Retention, deletion, consent, moderation, and takedown policy | Approved product/legal decision and implementation test | Open decision |
 
@@ -46,6 +47,7 @@ python scripts/verify_insights.py
 python scripts/verify_browser_fixtures.py
 python scripts/verify_worker_deadline.py
 python scripts/verify_capture_worker.py
+python scripts/verify_destination_policy.py
 ```
 
 Expected output:
@@ -90,7 +92,7 @@ Validated deterministic node, aggregation, redirect, attribution, source, inters
 Validated deterministic hero selection on 3 positive and 28 no-standout/interstitial browser fixtures.
 Validated bounded DOM inspection and geometry-candidate collection.
 Validated enforced request, per-response byte, and total-byte capture boundaries.
-Validated 10 request-policy cases and 5 fixture-boundary cases.
+Validated 20 request-policy cases and 5 fixture-boundary cases.
 Validated 4 transfer-source priority cases.
 Validated bounded popup/download observation and immediate containment.
 Validated 13 interstitial-classifier safety guards.
@@ -102,8 +104,9 @@ Validated one unsafe GET, sensitive-header stripping, and ten secret canaries.
 Validated 1 redirect-chain negative control.
 Validated a 15-second-ceiling worker supervisor, bounded nonce-scoped transport eligibility, repeatable post-capture timeout, and Chromium descendant cleanup.
 Validated complete, resource-limited, service-worker, and page-timeout scan records through the supervised capture-worker transport; strict config parsing, deterministic clean evidence, and a real post-capture worker timeout also hold.
+Validated 51 public/forbidden addresses, 29 malformed or unsafe URLs, 7 DNS failure modes, and public-to-private rebinding rejection before contact.
 ```
 
 ## Next proof-producing slice
 
-Carry the now-proven request, per-response-byte, and total-byte semantics into the production public-DNS/egress boundary after the application stack is approved; the loopback proxy is not that deployment boundary. Adopt the proven supervisor/capture envelope in the production API/queue worker and make the deployment kill the whole disposable container without relabeling the local OS proof as production containment. Keep consent and challenge handling open until a provider-independent, non-text structural proof can distinguish them from ordinary application modals and iframes; do not ship a guessed classifier. Keep investigating a protocol-supported service-worker bootstrap byte signal, but never replace the current unknown with a second fetch or a body-size guess. The in-memory admission primitive is not durable rate enforcement. The schema distinguishes inspectable evidence-only nodes from scene-instantiated nodes for mandatory overflow; the eventual viewer must honor `sceneIncluded` rather than rendering every record entry.
+After the application stack is approved, adopt the destination-policy seam in the production API/queue worker, select and pin the shared WHATWG/UTS #46 parser and resolver, and make the HTTPS connector use only each grant's validated addresses behind an independently enforced public-egress boundary. Carry the proven request/byte semantics into that same boundary; neither the pure resolver test nor the loopback proxy is deployment containment. Adopt the proven supervisor/capture envelope and make the deployment kill the whole disposable container without relabeling the local OS proof as production containment. Keep consent and challenge handling open until a provider-independent, non-text structural proof can distinguish them from ordinary application modals and iframes; do not ship a guessed classifier. Keep investigating a protocol-supported service-worker bootstrap byte signal, but never replace the current unknown with a second fetch or a body-size guess. The in-memory admission primitive is not durable rate enforcement. The schema distinguishes inspectable evidence-only nodes from scene-instantiated nodes for mandatory overflow; the eventual viewer must honor `sceneIncluded` rather than rendering every record entry.

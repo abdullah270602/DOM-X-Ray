@@ -125,7 +125,17 @@ def assert_request_policy() -> None:
         ("DELETE", "https://public.example/item", "method"),
         ("GET", "http://127.0.0.1/secret", "private-literal-host"),
         ("GET", "http://[::1]/secret", "private-literal-host"),
+        ("GET", "http://[::127.0.0.1]/secret", "private-literal-host"),
+        ("GET", "http://[::ffff:93.184.216.34]/secret", "private-literal-host"),
+        ("GET", "http://224.0.0.1/secret", "private-literal-host"),
+        ("GET", "http://[ff02::1]/secret", "private-literal-host"),
+        ("GET", "http://2130706433/secret", "private-literal-host"),
+        ("GET", "http://127.1/secret", "private-literal-host"),
+        ("GET", "http://0177.0.0.1/secret", "private-literal-host"),
+        ("GET", "http://0x7f000001/secret", "private-literal-host"),
         ("GET", "http://localhost/secret", "private-literal-host"),
+        ("GET", "http://service.localhost/secret", "private-literal-host"),
+        ("GET", "https://93.184.216.34/page", None),
         ("GET", "https://user:secret@public.example/page", "credentials"),
         ("GET", "file:///etc/passwd", "scheme"),
     ]
@@ -2210,7 +2220,7 @@ def main() -> None:
     )
     print("Validated bounded DOM inspection and geometry-candidate collection.")
     print("Validated enforced request, per-response byte, and total-byte capture boundaries.")
-    print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
+    print("Validated 20 request-policy cases and 5 fixture-boundary cases.")
     print("Validated 4 transfer-source priority cases.")
     print("Validated bounded popup/download observation and immediate containment.")
     print("Validated 13 interstitial-classifier safety guards.")

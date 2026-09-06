@@ -1,8 +1,8 @@
 """Controlled Chromium probe used only for deterministic Gate 0 fixtures.
 
 This module proves browser instrumentation choices without selecting the public
-application stack. It is intentionally local-only: production egress isolation,
-DNS rebinding defense, queueing, and public-suffix handling remain release gates.
+application stack. It is intentionally local-only: production resolver/egress
+integration, queueing, and public-suffix handling remain release gates.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from urllib.parse import urlsplit, urlunsplit
 from playwright.sync_api import Browser, Error as PlaywrightError, Route
 
 from scanner.aggregation import aggregate_nodes
+from scanner.destination_policy import is_forbidden_literal_host
 from scanner.insights import select_hero_insight
 
 
@@ -261,19 +262,6 @@ def _resource_type(cdp_type: str | None) -> str:
     } else "other"
 
 
-def _is_forbidden_literal_host(hostname: str | None) -> bool:
-    if not hostname:
-        return True
-    host = hostname.rstrip(".").lower()
-    if host in {"localhost", "metadata.google.internal"}:
-        return True
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return not address.is_global
-
-
 def request_block_reason(method: str, url: str) -> str | None:
     """Return the first request-policy rejection represented by this proof."""
 
@@ -284,7 +272,7 @@ def request_block_reason(method: str, url: str) -> str | None:
         return "scheme"
     if parsed.username is not None or parsed.password is not None:
         return "credentials"
-    if _is_forbidden_literal_host(parsed.hostname):
+    if is_forbidden_literal_host(parsed.hostname):
         return "private-literal-host"
     return None
 
