@@ -23,8 +23,10 @@ from scanner.aggregation import (
 )
 from scanner.admission_policy import ScanAdmissionGate
 from scanner.browser_probe import (
+    AuxiliaryEventCounter,
     HTTP_ERROR_INTERSTITIAL_CLASSIFIER_VERSION,
     INTERSTITIAL_CLASSIFIER_VERSION,
+    MAX_AUXILIARY_EVENTS,
     MAX_GEOMETRY_CANDIDATES,
     MAX_INSPECTED_ELEMENTS,
     MAX_REQUESTS,
@@ -214,6 +216,35 @@ def assert_transfer_source_priority() -> None:
             transferred_bytes=transferred_bytes,
         )
         require(actual == expected, f"transfer source priority produced {actual} instead of {expected}")
+
+
+def assert_auxiliary_event_counter_guards() -> None:
+    for invalid_limit in (0, True, MAX_AUXILIARY_EVENTS + 1):
+        try:
+            AuxiliaryEventCounter(invalid_limit)  # type: ignore[arg-type]
+        except ValueError:
+            continue
+        raise AssertionError(
+            f"auxiliary event counter accepted invalid limit {invalid_limit!r}"
+        )
+
+    counter = AuxiliaryEventCounter(2)
+    counter.observe("popup")
+    counter.observe("download")
+    counter.observe("popup")
+    require(
+        counter.popup_attempt_count == 1
+        and counter.download_attempt_count == 1
+        and counter.observed_count == 2
+        and counter.truncated,
+        "auxiliary event counter did not saturate at its combined boundary",
+    )
+    try:
+        counter.observe("unknown")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("auxiliary event counter accepted an unknown event type")
 
 
 def assert_interstitial_classifier_guards() -> None:
@@ -503,6 +534,10 @@ def deterministic_fingerprint(record: dict) -> tuple:
         record["capture"]["candidateNodeCount"],
         record["capture"]["aggregatedNodeCount"],
         record["capture"]["renderedRegionCount"],
+        record["capture"]["popupAttemptCount"],
+        record["capture"]["downloadAttemptCount"],
+        record["capture"]["auxiliaryEventLimit"],
+        record["capture"]["auxiliaryEventCountTruncated"],
         record["capture"].get("redirectCount"),
         tuple(
             (
@@ -538,6 +573,7 @@ def main() -> None:
     assert_request_policy()
     assert_policy_block_correlation_guards()
     assert_transfer_source_priority()
+    assert_auxiliary_event_counter_guards()
     assert_interstitial_classifier_guards()
     assert_aggregation_guards()
     assert_admission_policy_guards()
@@ -552,6 +588,7 @@ def main() -> None:
     storage_fingerprint = None
     positive_hero_fingerprints = {}
     wrapper_fingerprint = None
+    auxiliary_fingerprint = None
     overflow_fingerprint = None
     capture_limit_fingerprints = {}
     admission_now = [1_000.0]
@@ -591,6 +628,9 @@ def main() -> None:
                 {"max_total_received_bytes": 0},
                 {"max_total_received_bytes": True},
                 {"max_total_received_bytes": MAX_TOTAL_RECEIVED_BYTES + 1},
+                {"max_auxiliary_events": 0},
+                {"max_auxiliary_events": True},
+                {"max_auxiliary_events": MAX_AUXILIARY_EVENTS + 1},
             ):
                 try:
                     probe_page(browser, limit_guard_url, **invalid_limits)
@@ -627,6 +667,7 @@ def main() -> None:
                     max_total_received_bytes=fixture.max_total_received_bytes,
                     max_inspected_elements=fixture.max_inspected_elements,
                     max_geometry_candidates=fixture.max_geometry_candidates,
+                    max_auxiliary_events=fixture.max_auxiliary_events,
                 )
                 record = result.record
                 validate_semantics(
@@ -705,6 +746,24 @@ def main() -> None:
                 require(
                     record["capture"]["cachePolicy"] == ("cold" if fixture.cache_disabled else "mixed"),
                     f"{name} cache policy is mislabeled",
+                )
+                require(
+                    record["capture"]["popupAttemptCount"]
+                    == fixture.expected_popup_attempt_count
+                    and record["capture"]["downloadAttemptCount"]
+                    == fixture.expected_download_attempt_count,
+                    f"{name} popup/download event counts drifted",
+                )
+                require(
+                    record["capture"]["auxiliaryEventLimit"]
+                    == fixture.max_auxiliary_events
+                    and record["capture"]["auxiliaryEventCountTruncated"]
+                    == ("auxiliary-events" in fixture.expected_limits),
+                    f"{name} auxiliary event boundary was not disclosed exactly",
+                )
+                require(
+                    result.remaining_auxiliary_page_count == 0,
+                    f"{name} left an auxiliary page open at capture",
                 )
                 assert_rects(record, fixture.expected_rects, result.fixture_node_ids)
                 for marker in fixture.expected_excluded_markers:
@@ -795,6 +854,22 @@ def main() -> None:
                         },
                         "request cap did not disclose every invalidated interpretation",
                     )
+                if "auxiliary-events" in fixture.expected_limits:
+                    auxiliary_limitation = limitation_by_code.get(
+                        "auxiliary-event-limit"
+                    )
+                    require(
+                        auxiliary_limitation is not None
+                        and auxiliary_limitation["scope"] == "scan"
+                        and auxiliary_limitation["targetId"] is None
+                        and set(auxiliary_limitation["invalidatesMetrics"])
+                        == {
+                            "download_attempt_count",
+                            "page_behavior",
+                            "popup_attempt_count",
+                        },
+                        "auxiliary event cap lacks its exact scan limitation",
+                    )
                 if name in {"response-byte-limit", "response-navigation-limit"}:
                     response_limitations = [
                         item
@@ -868,6 +943,7 @@ def main() -> None:
                     "response-navigation-limit",
                     "total-navigation-limit",
                     "service-worker-marker-replay",
+                    "auxiliary-event-limit",
                 }:
                     capture_limit_fingerprints[name] = deterministic_fingerprint(record)
 
@@ -1662,6 +1738,43 @@ def main() -> None:
                         server.ledger == ledger_before_admission_checks,
                         "admission reuse/cooling checks contacted the unsafe origin",
                     )
+                elif name in {"auxiliary-events", "auxiliary-event-limit"}:
+                    auxiliary_canaries = (
+                        "popup-url-secret-canary-4850192763",
+                        "popup-name-secret-canary-1946082753",
+                        "download-url-secret-canary-5739201846",
+                        "download-filename-secret-canary-8204613957",
+                        "popup-download-url-secret-canary-7351048269",
+                        "popup-download-filename-secret-canary-3028574169",
+                    )
+                    serialized_auxiliary_evidence = json.dumps(
+                        {
+                            "record": record,
+                            "proxyBlocked": result.blocked_requests,
+                            "proxyLedger": proxy.ledger,
+                            "serverLedger": server.ledger,
+                        },
+                        sort_keys=True,
+                    )
+                    require(
+                        all(
+                            canary not in serialized_auxiliary_evidence
+                            for canary in auxiliary_canaries
+                        ),
+                        "popup URL, window name, download URL, or filename leaked into evidence",
+                    )
+                    require(
+                        [(item["method"], item["path"]) for item in server.ledger]
+                        == [("GET", fixture.route)],
+                        "auxiliary event fixture contacted an unexpected origin path",
+                    )
+                    if name == "auxiliary-events":
+                        require(
+                            not record["capture"]["auxiliaryEventCountTruncated"]
+                            and not record["limitations"],
+                            "bounded popup/download observations made a complete scan partial",
+                        )
+                        auxiliary_fingerprint = deterministic_fingerprint(record)
                 elif name == "wrapper-collapse":
                     main_id = result.fixture_node_ids["collapse-main"]
                     article_id = result.fixture_node_ids["collapse-article"]
@@ -1979,6 +2092,25 @@ def main() -> None:
                 policy_fingerprint == repeated_policy_fingerprint,
                 "policy block resources, limitations, or geometry changed on repeat",
             )
+            auxiliary = FIXTURES["auxiliary-events"]
+            auxiliary_url = (
+                f"http://{auxiliary.host}:{server.server_port}{auxiliary.route}"
+            )
+            server.clear_ledger()
+            proxy.clear_state()
+            repeated_auxiliary = probe_page(
+                browser,
+                auxiliary_url,
+                proxy_server=proxy.url,
+                policy_block_log=proxy.blocked,
+                max_auxiliary_events=auxiliary.max_auxiliary_events,
+            )
+            require(
+                auxiliary_fingerprint
+                == deterministic_fingerprint(repeated_auxiliary.record)
+                and repeated_auxiliary.remaining_auxiliary_page_count == 0,
+                "popup/download counts, truncation, or containment changed on repeat",
+            )
             wrapper = FIXTURES["wrapper-collapse"]
             wrapper_url = f"http://{wrapper.host}:{server.server_port}{wrapper.route}"
             server.clear_ledger()
@@ -2020,6 +2152,7 @@ def main() -> None:
                 "response-navigation-limit",
                 "total-navigation-limit",
                 "service-worker-marker-replay",
+                "auxiliary-event-limit",
             ):
                 limit_fixture = FIXTURES[limit_name]
                 limit_url = (
@@ -2048,6 +2181,7 @@ def main() -> None:
                     max_total_received_bytes=limit_fixture.max_total_received_bytes,
                     max_inspected_elements=limit_fixture.max_inspected_elements,
                     max_geometry_candidates=limit_fixture.max_geometry_candidates,
+                    max_auxiliary_events=limit_fixture.max_auxiliary_events,
                 ).record
                 require(
                     capture_limit_fingerprints[limit_name]
@@ -2078,6 +2212,7 @@ def main() -> None:
     print("Validated enforced request, per-response byte, and total-byte capture boundaries.")
     print("Validated 10 request-policy cases and 5 fixture-boundary cases.")
     print("Validated 4 transfer-source priority cases.")
+    print("Validated bounded popup/download observation and immediate containment.")
     print("Validated 13 interstitial-classifier safety guards.")
     print("Validated 4 aggregation safety guards.")
     print("Validated scan reuse and per-origin cooling with an injectable policy clock.")

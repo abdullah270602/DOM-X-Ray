@@ -33,7 +33,7 @@ Playwright non-persistent browser contexts do not write browsing data to disk. T
 ## Bounded timeline
 
 1. Parse and normalize the requested URL, reject embedded credentials, resolve DNS, and apply the network policy before Chromium sees it.
-2. Create a fresh context and page. Deny permissions, downloads, additional pages, and access to local or private networks.
+2. Create a fresh context and page. Deny permissions and access to local or private networks; observe and immediately cancel downloads and close additional pages without retaining their content-bearing fields.
 3. Install the layout-shift observer before navigation and enable the Chrome DevTools Protocol Network domain.
 4. Navigate toward `DOMContentLoaded` with a 10-second navigation ceiling.
 5. After `DOMContentLoaded`, start a 750 ms quiet timer no earlier than 500 ms after that event. Check the timer every 50 ms and reset it on any qualifying request completion/failure, qualifying DOM mutation, or layout-shift entry defined below. The timer cannot expire while a qualifying request remains active.
@@ -62,14 +62,16 @@ These are initial safety values for the 10-site risk spike, not timeless product
 - 20,000 top-level document elements counted or inspected.
 - 5,000 geometry candidates before aggregation.
 - 650 rendered scene objects, including external domain hubs.
-- One top-level page; popups are closed and recorded.
+- 100 combined popup/download observations; every popup is closed and every download is cancelled. Later events remain denied, but per-type counts saturate and make the scan explicitly partial.
 - 15 seconds total scanner wall time.
 
 When a cap is reached, the scanner stops the affected collection, records the exact limit, marks the scan partial when interpretation is materially incomplete, and suppresses any invalidated hero candidate.
 
 The local Gate 0 egress proxy now enforces the three network budgets rather than calculating them only after capture. The request boundary is inclusive: the request that reaches the configured observed-request count becomes a local 509 limit response and is not forwarded to the origin. The per-response and whole-capture byte boundaries count upstream HTTP wire bytes. The proxy reads at most the active boundary plus one detection byte, closes the upstream response, and does not relay the oversized response to Chromium. The small local 509 response remains visible as a resource record but is excluded from page-byte and resource-mass claims by an explicit limitation. Every block receives an independent random 128-bit identifier, correlating proxy enforcement with the exact CDP response when sanitized method/URL pairs repeat. The first matching CDP occurrence consumes that identifier; later page or service-worker replays remain ordinary page-controlled responses. The proxy strips the same header name from all origin responses, and identifiers are never persisted in the public scan record. This instrument-scoped provenance prevents synthetic main-document 509s, origin forgery, and browser-level marker replay from being misclassified; an origin's own 509 remains an `http-error-status-v1` interstitial.
 
-Browser records disclose `requestLimit`, `perResponseByteLimit`, and `totalByteLimit`. Tests may lower them, but the probe and proxy reject zero, booleans, and values above the production ceilings. A fired request boundary adds `limitsReached: ["requests"]`; either byte boundary adds `limitsReached: ["bytes"]`; both produce an honest partial `resource-limit` result and invalidate request count, whole-load bytes, affected mass, and page-behavior interpretation. The deterministic proxy proves enforcement semantics and exact admitted-byte accounting, but it remains local proof infrastructure—not the production public-DNS or egress boundary.
+Browser records disclose `requestLimit`, `perResponseByteLimit`, `totalByteLimit`, and `auxiliaryEventLimit`. Tests may lower them, but the probe rejects zero, booleans, and values above the production ceilings. A fired request boundary adds `limitsReached: ["requests"]`; either byte boundary adds `limitsReached: ["bytes"]`; and overflow of the combined popup/download counter adds `limitsReached: ["auxiliary-events"]`. Each produces an honest partial `resource-limit` result with the dependent interpretations identified. The deterministic proxy proves request/byte enforcement semantics and exact admitted-byte accounting, but it remains local proof infrastructure—not the production public-DNS or egress boundary.
+
+`popupAttemptCount` and `downloadAttemptCount` contain only saturated event counts. The scanner installs a download handler on every created page, closes each popup and cancels each download synchronously, fails the capture if either containment action fails, and requires that no auxiliary page remain at the capture point. It never reads or retains popup URLs, window names, suggested filenames, download bodies, or response headers. The adversarial fixture seeds the popup URL/window name and both main-page and popup-page download URL/filename pairs with six canaries; none reaches the scan record, proxy ledger, or server ledger. The normal event fingerprint and the one-event truncation fingerprint both repeat under pinned Chromium.
 
 For the DOM boundary, the scanner reads the top-level document's element count once, then evaluates at most the first 20,000 elements in deterministic document order. If more exist, `rawDomNodeCount` remains the exact observed collection length, `inspectedNodeCount` records the bounded prefix, `limitsReached` includes `dom-nodes`, and a scan limitation invalidates complete geometry, candidate-count, maximum-depth, login-gate, scene-completeness, and visual-region interpretations. The probe never silently calls that prefix the whole page.
 
@@ -119,7 +121,7 @@ The Gate 0 fixture proves exact worker-owned fetch bytes against the origin wire
 
 ### Method and residual side-effect boundary
 
-V1 allows page-initiated `GET`, `HEAD`, and required `OPTIONS` requests. It aborts `POST`, `PUT`, `PATCH`, `DELETE`, downloads, external-protocol launches, and other methods. Any blocked method produces a limitation because this can change the page's behavior.
+V1 allows page-initiated `GET`, `HEAD`, and required `OPTIONS` requests. It aborts `POST`, `PUT`, `PATCH`, `DELETE`, external-protocol launches, and other methods. Download events are cancelled without accepting or retaining the file. Any blocked method produces a limitation because this can change the page's behavior.
 
 Any observed policy block makes the capture partial and invalidates whole-load byte interpretation plus the page-behavior claim. A blocked unsafe method to an otherwise allowed public URL may remain as a resource-scoped record of the proxy's completed 403 response, but its policy-response bytes are not usable as that resource's mass. A private, credentialed, disallowed-scheme, or otherwise forbidden target is never normalized into `resources`; it receives a scan-scoped limitation that also invalidates request count. The fixture-only proxy block log is required whenever that proxy is used so these events cannot disappear between enforcement and normalization.
 

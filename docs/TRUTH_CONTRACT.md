@@ -39,8 +39,8 @@ Every scan records enough context to bound its claims:
 - Navigation, capture, and stabilization timing.
 - Complete, partial, interstitial, blocked, or failed status plus machine-readable limitation codes.
 - Whether each resource value came from network transfer, cache, service worker, or an unknown path.
-- Limits reached for time, request count, bytes, DOM nodes, or rendered regions.
-- Fresh-context and cache policy, capture point, observation-window duration, timezone, scanner region when known, inspected/rendered/aggregated node counts, and requests missing byte data.
+- Limits reached for time, request count, bytes, DOM nodes, rendered regions, or popup/download observation.
+- Fresh-context and cache policy, capture point, observation-window duration, timezone, scanner region when known, inspected/rendered/aggregated node counts, requests missing byte data, and content-free popup/download attempt counts.
 
 The product describes “this captured load,” never the permanent nature of a site. Repeated loads can differ by geography, personalization, experiments, cache, consent, and time.
 
@@ -121,12 +121,12 @@ Comparatives such as “largest” or “heaviest” must name their comparison 
 
 - Public HTTP(S) pages only; never accept credentials, cookies, request headers, file URLs, browser-extension URLs, or private-network targets from a visitor.
 - Validate the initial URL, DNS resolution, every redirect, and the final destination against the network policy.
-- Use a fresh, nonprivileged browser context; do not sign in, submit forms, grant permissions, start downloads, or persist page storage into another scan.
+- Use a fresh, nonprivileged browser context; do not sign in, submit forms, grant permissions, start downloads, or persist page storage into another scan. Immediately close page-initiated popups and cancel page-initiated downloads; retain only bounded counts, never popup URLs, window names, filenames, or bodies.
 - Persist no page HTML, body text, form values, cookies, storage, authorization headers, `Set-Cookie` headers, or response bodies. Store only normalized evidence, a capture image, and sanitized metadata required by the result.
 - Strip URL fragments and redact query values from user-visible provenance by default. Preserve only the minimum internal data required to reproduce a safe result.
 - Sanitize selectors so high-entropy IDs or attribute values cannot leak through evidence panels or logs.
 - Screenshots and page text can contain personal or copyrighted public content. Retention, deletion, abuse-reporting, and sharing policies are open product decisions and must be settled before a public launch.
-- Enforce bounded navigation time, total time, requests, bytes, redirects, DOM nodes, and browser processes. Rate-limit public submissions and isolate scanner egress.
+- Enforce bounded navigation time, total time, requests, bytes, redirects, DOM nodes, auxiliary events, and browser processes. Rate-limit public submissions and isolate scanner egress.
 
 ## Required provenance interaction
 

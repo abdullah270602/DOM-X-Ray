@@ -46,6 +46,7 @@ def fixture_config(server_port: int, fixture_name: str) -> dict[str, object]:
         "maxRequests": fixture.max_requests,
         "maxResponseBytes": fixture.max_response_bytes,
         "maxTotalReceivedBytes": fixture.max_total_received_bytes,
+        "maxAuxiliaryEvents": fixture.max_auxiliary_events,
     }
 
 

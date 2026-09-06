@@ -127,6 +127,36 @@ def validate_semantics(
     )
 
     capture = record["capture"]
+    popup_attempt_count = capture["popupAttemptCount"]
+    download_attempt_count = capture["downloadAttemptCount"]
+    auxiliary_event_limit = capture["auxiliaryEventLimit"]
+    auxiliary_event_truncated = capture["auxiliaryEventCountTruncated"]
+    require(
+        popup_attempt_count + download_attempt_count <= auxiliary_event_limit,
+        f"{label} auxiliary event counts exceed their boundary",
+    )
+    auxiliary_limit_recorded = "auxiliary-events" in capture["limitsReached"]
+    auxiliary_limitation = limitations.get("auxiliary-event-limit")
+    require(
+        auxiliary_event_truncated == auxiliary_limit_recorded,
+        f"{label} auxiliary event truncation and limit state disagree",
+    )
+    require(
+        auxiliary_event_truncated == (auxiliary_limitation is not None),
+        f"{label} auxiliary event truncation and limitation disagree",
+    )
+    if auxiliary_limitation is not None:
+        require(
+            auxiliary_limitation["scope"] == "scan"
+            and auxiliary_limitation["targetId"] is None
+            and set(auxiliary_limitation["invalidatesMetrics"])
+            == {
+                "download_attempt_count",
+                "page_behavior",
+                "popup_attempt_count",
+            },
+            f"{label} auxiliary event limit has the wrong scope or invalidations",
+        )
     if "redirects" in capture:
         redirects = capture["redirects"]
         require(capture["redirectCount"] == len(redirects), f"{label} redirect count mismatch")
@@ -413,8 +443,24 @@ def main() -> None:
     expect_failure("candidate count drift", clean, lambda item: item["capture"].update({"candidateNodeCount": 10}), validator)
     expect_failure("inspected count exceeds raw DOM", clean, lambda item: item["page"].update({"rawDomNodeCount": 10}), validator)
     expect_failure("parent cycle", clean, lambda item: item["nodes"][0].update({"parentId": "n-logo"}), validator)
+    expect_failure(
+        "auxiliary event total exceeds limit",
+        clean,
+        lambda item: item["capture"].update(
+            {"popupAttemptCount": 60, "downloadAttemptCount": 50}
+        ),
+        validator,
+    )
+    expect_failure(
+        "auxiliary event truncation mismatch",
+        clean,
+        lambda item: item["capture"].update(
+            {"auxiliaryEventCountTruncated": True}
+        ),
+        validator,
+    )
 
-    print(f"Validated {len(records)} fixtures and 13 negative controls against Gate 0.")
+    print(f"Validated {len(records)} fixtures and 15 negative controls against Gate 0.")
 
 
 if __name__ == "__main__":

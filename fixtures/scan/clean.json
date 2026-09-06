@@ -28,6 +28,10 @@
     "requestCount": 4,
     "requestsWithoutByteData": 0,
     "transferAccountingRule": "cdp-encoded-data-length-v1",
+    "popupAttemptCount": 0,
+    "downloadAttemptCount": 0,
+    "auxiliaryEventLimit": 100,
+    "auxiliaryEventCountTruncated": false,
     "limitsReached": []
   },
   "page": {

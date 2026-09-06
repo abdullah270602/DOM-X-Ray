@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 from fixtures.browser.policy_proxy import run_policy_proxy
 from scanner.browser_probe import (
+    MAX_AUXILIARY_EVENTS,
     MAX_REQUESTS,
     MAX_RESPONSE_BYTES,
     MAX_TOTAL_RECEIVED_BYTES,
@@ -35,6 +36,7 @@ ALLOWED_CONFIG_KEYS = frozenset(
         "maxRequests",
         "maxResponseBytes",
         "maxTotalReceivedBytes",
+        "maxAuxiliaryEvents",
         "postCaptureDelaySeconds",
         "postCaptureMarkerPath",
     }
@@ -123,6 +125,12 @@ def main() -> None:
         MAX_TOTAL_RECEIVED_BYTES,
         MAX_TOTAL_RECEIVED_BYTES,
     )
+    max_auxiliary_events = _integer(
+        config,
+        "maxAuxiliaryEvents",
+        MAX_AUXILIARY_EVENTS,
+        MAX_AUXILIARY_EVENTS,
+    )
     hard_stop_seconds = _number(
         config,
         "hardStopSeconds",
@@ -178,6 +186,7 @@ def main() -> None:
                         max_requests=max_requests,
                         max_response_bytes=max_response_bytes,
                         max_total_received_bytes=max_total_received_bytes,
+                        max_auxiliary_events=max_auxiliary_events,
                     )
             else:
                 probe = probe_page(
@@ -189,6 +198,7 @@ def main() -> None:
                     max_requests=max_requests,
                     max_response_bytes=max_response_bytes,
                     max_total_received_bytes=max_total_received_bytes,
+                    max_auxiliary_events=max_auxiliary_events,
                 )
             if marker_value is not None:
                 Path(marker_value).write_text("capture-complete", encoding="utf-8")

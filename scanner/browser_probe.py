@@ -37,6 +37,7 @@ REDIRECT_LIMIT = 10
 MAX_REQUESTS = 500
 MAX_RESPONSE_BYTES = 20_000_000
 MAX_TOTAL_RECEIVED_BYTES = 50_000_000
+MAX_AUXILIARY_EVENTS = 100
 NETWORK_LIMIT_REASONS = frozenset(
     {"request-limit", "response-byte-limit", "total-byte-limit"}
 )
@@ -123,6 +124,44 @@ class ProbeResult:
     blocked_requests: list[dict[str, Any]]
     layout_shift_supported: bool
     fixture_node_ids: dict[str, str]
+    remaining_auxiliary_page_count: int
+
+
+@dataclass
+class AuxiliaryEventCounter:
+    """Saturating, content-free popup/download observation state."""
+
+    limit: int
+    popup_attempt_count: int = 0
+    download_attempt_count: int = 0
+    truncated: bool = False
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.limit, bool)
+            or not isinstance(self.limit, int)
+            or self.limit <= 0
+            or self.limit > MAX_AUXILIARY_EVENTS
+        ):
+            raise ValueError(
+                "auxiliary event limit must be a positive integer no greater than "
+                f"{MAX_AUXILIARY_EVENTS}"
+            )
+
+    @property
+    def observed_count(self) -> int:
+        return self.popup_attempt_count + self.download_attempt_count
+
+    def observe(self, event_type: str) -> None:
+        if event_type not in {"popup", "download"}:
+            raise ValueError(f"unsupported auxiliary event type: {event_type}")
+        if self.observed_count >= self.limit:
+            self.truncated = True
+            return
+        if event_type == "popup":
+            self.popup_attempt_count += 1
+        else:
+            self.download_attempt_count += 1
 
 
 @dataclass
@@ -395,6 +434,7 @@ def probe_page(
     max_total_received_bytes: int = MAX_TOTAL_RECEIVED_BYTES,
     max_inspected_elements: int = MAX_INSPECTED_ELEMENTS,
     max_geometry_candidates: int = MAX_GEOMETRY_CANDIDATES,
+    max_auxiliary_events: int = MAX_AUXILIARY_EVENTS,
 ) -> ProbeResult:
     for name, value, ceiling in (
         ("max_requests", max_requests, MAX_REQUESTS),
@@ -406,6 +446,7 @@ def probe_page(
         ),
         ("max_inspected_elements", max_inspected_elements, MAX_INSPECTED_ELEMENTS),
         ("max_geometry_candidates", max_geometry_candidates, MAX_GEOMETRY_CANDIDATES),
+        ("max_auxiliary_events", max_auxiliary_events, MAX_AUXILIARY_EVENTS),
     ):
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError(f"{name} must be a positive integer")
@@ -434,6 +475,25 @@ def probe_page(
     last_network_activity = [time.monotonic()]
     navigation_started = time.monotonic()
     started_at = datetime.now(timezone.utc)
+    auxiliary_events = AuxiliaryEventCounter(max_auxiliary_events)
+    auxiliary_handler_failure: list[str | None] = [None]
+
+    def observe_auxiliary_page(auxiliary_page: Any) -> None:
+        auxiliary_events.observe("popup")
+        last_network_activity[0] = time.monotonic()
+        auxiliary_page.on("download", observe_download)
+        try:
+            auxiliary_page.close()
+        except Exception:
+            auxiliary_handler_failure[0] = "popup-close-failed"
+
+    def observe_download(download: Any) -> None:
+        auxiliary_events.observe("download")
+        last_network_activity[0] = time.monotonic()
+        try:
+            download.cancel()
+        except Exception:
+            auxiliary_handler_failure[0] = "download-cancel-failed"
 
     context = browser.new_context(
         viewport=VIEWPORT,
@@ -459,7 +519,8 @@ def probe_page(
             )
         context.add_init_script(INIT_SCRIPT)
         page = context.new_page()
-        page.on("popup", lambda popup: popup.close())
+        page.on("download", observe_download)
+        context.on("page", observe_auxiliary_page)
         cdp = context.new_cdp_session(page)
         main_frame_id = cdp.send("Page.getFrameTree")["frameTree"]["frame"]["id"]
     except Exception:
@@ -694,6 +755,8 @@ def probe_page(
         settled = False
 
         while time.monotonic() - navigation_started < hard_stop_seconds:
+            if auxiliary_handler_failure[0] is not None:
+                raise RuntimeError(auxiliary_handler_failure[0])
             state = page.evaluate(
                 "({ serial: window.__domXRayProbe.activitySerial, ready: document.readyState })"
             )
@@ -711,6 +774,13 @@ def probe_page(
                 break
             page.wait_for_timeout(50)
 
+        if auxiliary_handler_failure[0] is not None:
+            raise RuntimeError(auxiliary_handler_failure[0])
+        remaining_auxiliary_page_count = sum(
+            other is not page and not other.is_closed() for other in context.pages
+        )
+        if remaining_auxiliary_page_count:
+            raise RuntimeError("popup-close-invariant-failed")
         capture_monotonic = time.monotonic()
         page_state = page.evaluate(
             r"""
@@ -1251,6 +1321,24 @@ def probe_page(
                     "invalidatesMetrics": ["scene_completeness", "visual_region_count"],
                 }
             )
+        if auxiliary_events.truncated:
+            limitations.append(
+                {
+                    "code": "auxiliary-event-limit",
+                    "scope": "scan",
+                    "targetId": None,
+                    "message": (
+                        "Popup and download observation reached the capture boundary of "
+                        f"{max_auxiliary_events} events; later events were still denied but "
+                        "were not counted by type."
+                    ),
+                    "invalidatesMetrics": [
+                        "download_attempt_count",
+                        "page_behavior",
+                        "popup_attempt_count",
+                    ],
+                }
+            )
         worker_bootstrap_unmeasured = any(
             item["workerBootstrap"] for item in ordered_network
         )
@@ -1466,6 +1554,7 @@ def probe_page(
             or page_state["domNodeLimitReached"]
             or page_state["geometryCandidateLimitReached"]
             or aggregation.fallback_rule is not None
+            or auxiliary_events.truncated
         )
         if interstitial_kind is not None:
             record_status = "interstitial"
@@ -1484,6 +1573,7 @@ def probe_page(
                     page_state["domNodeLimitReached"]
                     or page_state["geometryCandidateLimitReached"]
                     or aggregation.fallback_rule is not None
+                    or auxiliary_events.truncated
                 )
                 else "measurement-unavailable"
             )
@@ -1501,6 +1591,8 @@ def probe_page(
             limits_reached.append("candidates")
         if aggregation.fallback_rule is not None:
             limits_reached.append("regions")
+        if auxiliary_events.truncated:
+            limits_reached.append("auxiliary-events")
 
         record = {
             "schemaVersion": "0.1.0",
@@ -1542,6 +1634,10 @@ def probe_page(
                 "redirectCount": len(redirect_rows),
                 "redirectLimit": REDIRECT_LIMIT,
                 "redirects": redirect_rows,
+                "popupAttemptCount": auxiliary_events.popup_attempt_count,
+                "downloadAttemptCount": auxiliary_events.download_attempt_count,
+                "auxiliaryEventLimit": max_auxiliary_events,
+                "auxiliaryEventCountTruncated": auxiliary_events.truncated,
                 "limitsReached": limits_reached,
             },
             "page": {
@@ -1569,6 +1665,7 @@ def probe_page(
                 for item in page_state["nodes"]
                 if item["fixtureMarker"] is not None
             },
+            remaining_auxiliary_page_count=remaining_auxiliary_page_count,
         )
     finally:
         try:

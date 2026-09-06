@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Auxiliary event boundary fixture</title>
+  <style>
+    html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+    body { background: #e8e4dc; color: #242821; font: 24px/1.4 sans-serif; }
+    main { box-sizing: border-box; margin: 180px 240px; width: 960px; height: 540px; padding: 72px; border: 2px solid #242821; }
+  </style>
+</head>
+<body>
+  <main data-xray-id="auxiliary-main">
+    <h1>Auxiliary page boundary</h1>
+    <p>This fixture attempts one popup and downloads from both page contexts without user input.</p>
+  </main>
+  <script>
+    addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        const popup = window.open(
+          'about:blank#popup-url-secret-canary-4850192763',
+          'popup-name-secret-canary-1946082753'
+        );
+        setTimeout(() => {
+          const link = document.createElement('a');
+          link.hidden = true;
+          link.href = 'data:application/octet-stream,download-url-secret-canary-5739201846';
+          link.download = 'download-filename-secret-canary-8204613957.bin';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        }, 60);
+        if (popup) {
+          try {
+            const popupLink = popup.document.createElement('a');
+            popupLink.href = 'data:application/octet-stream,popup-download-url-secret-canary-7351048269';
+            popupLink.download = 'popup-download-filename-secret-canary-3028574169.bin';
+            popup.document.body.appendChild(popupLink);
+            popupLink.click();
+          } catch (_) {
+            // Closing the popup before this executes is an equally valid containment outcome.
+          }
+        }
+      }, 0);
+    });
+  </script>
+</body>
+</html>

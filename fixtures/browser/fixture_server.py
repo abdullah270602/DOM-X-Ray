@@ -16,6 +16,7 @@ from threading import Lock, Thread
 from typing import Iterator
 
 from scanner.browser_probe import (
+    MAX_AUXILIARY_EVENTS,
     MAX_REQUESTS,
     MAX_RESPONSE_BYTES,
     MAX_TOTAL_RECEIVED_BYTES,
@@ -58,6 +59,9 @@ class FixtureSpec:
     max_total_received_bytes: int = MAX_TOTAL_RECEIVED_BYTES
     max_inspected_elements: int = 20_000
     max_geometry_candidates: int = 5_000
+    expected_popup_attempt_count: int = 0
+    expected_download_attempt_count: int = 0
+    max_auxiliary_events: int = MAX_AUXILIARY_EVENTS
 
 
 FIXTURES = {
@@ -328,6 +332,30 @@ FIXTURES = {
         expected_request_count=2,
         expected_rects={"unsafe-main": (240, 180, 960, 540)},
     ),
+    "auxiliary-events": FixtureSpec(
+        name="auxiliary-events",
+        host="auxiliary.test",
+        route="/auxiliary-events/",
+        expected_payload_bytes=26_000,
+        expected_request_count=1,
+        expected_rects={"auxiliary-main": (240, 180, 960, 540)},
+        expected_popup_attempt_count=1,
+        expected_download_attempt_count=2,
+    ),
+    "auxiliary-event-limit": FixtureSpec(
+        name="auxiliary-event-limit",
+        host="aux-limit.test",
+        route="/auxiliary-event-limit/",
+        expected_payload_bytes=26_000,
+        expected_request_count=1,
+        expected_rects={"auxiliary-main": (240, 180, 960, 540)},
+        expected_popup_attempt_count=1,
+        expected_download_attempt_count=0,
+        expected_status="partial",
+        expected_failure_code="resource-limit",
+        expected_limits=("auxiliary-events",),
+        max_auxiliary_events=1,
+    ),
     "wrapper-collapse": FixtureSpec(
         name="wrapper-collapse",
         host="collapse.test",
@@ -500,6 +528,16 @@ PAGE_SPECS = {
     "/storage-isolation/": ("storage-isolation.html", 20_000, "text/html; charset=utf-8"),
     "/policy-boundary/": ("policy-boundary.html", 32_000, "text/html; charset=utf-8"),
     "/unsafe-get/": ("unsafe-get.html", 30_000, "text/html; charset=utf-8"),
+    "/auxiliary-events/": (
+        "auxiliary-events.html",
+        26_000,
+        "text/html; charset=utf-8",
+    ),
+    "/auxiliary-event-limit/": (
+        "auxiliary-events.html",
+        26_000,
+        "text/html; charset=utf-8",
+    ),
     "/wrapper-collapse/": ("wrapper-collapse.html", 35_000, "text/html; charset=utf-8"),
     "/mandatory-overflow/": ("mandatory-overflow.html", 80_000, "text/html; charset=utf-8"),
     "/request-limit/": ("request-limit.html", 10_000, "text/html; charset=utf-8"),

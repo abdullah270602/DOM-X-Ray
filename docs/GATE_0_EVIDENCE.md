@@ -12,14 +12,14 @@ This ledger prevents documentation volume from being mistaken for completion. A 
 | Goal gates, metrics, and pivot rules | `ROADMAP.md` | Pass |
 | Allowed measurements, claims, attribution, and missing-data behavior | `docs/TRUTH_CONTRACT.md` | Pass as contract; implementation unproven |
 | Versioned scan record encodes the three target archetypes | `docs/SCAN_RECORD.schema.json`, `fixtures/scan/*.json` | Pass |
-| Cross-record provenance, five distinct node-count meanings, parent acyclicity, party/domain consistency, hero rules, and negative mutations | `python scripts/validate_fixtures.py` | Pass: 3 fixtures + 13 negative controls |
+| Cross-record provenance, five distinct node-count meanings, parent acyclicity, party/domain consistency, auxiliary-event bounds, hero rules, and negative mutations | `python scripts/validate_fixtures.py` | Pass: 3 fixtures + 15 negative controls |
 | Versioned semantic-to-scene formulas and reveal timing | `docs/MAPPING_REGISTRY.md`, `docs/MAPPING_REGISTRY.v0.1.json` | Pass as prototype contract |
 | Mapping monotonicity, deterministic fixture transforms, object cap, unknown states, and five-second duration | `python scripts/validate_mapping.py` | Pass: 3 fixtures + 6 negative controls |
-| Deterministic hero selection and claim suppression | `scanner/insights.py`, `python scripts/verify_insights.py`, live browser assertions | Pass: complete comparator, four enabled evidence candidates, neutral fallback, exact-attribution and 90% known-value boundaries, limitation suppression, hostile-copy independence, 3 positive browser outcomes, and 26 no-standout/interstitial outcomes |
+| Deterministic hero selection and claim suppression | `scanner/insights.py`, `python scripts/verify_insights.py`, live browser assertions | Pass: complete comparator, four enabled evidence candidates, neutral fallback, exact-attribution and 90% known-value boundaries, limitation suppression, hostile-copy independence, 3 positive browser outcomes, and 28 no-standout/interstitial outcomes |
 | Fixed browser/capture protocol | `docs/CAPTURE_PROTOCOL.md`, `scanner/browser_probe.py` | Partial implementation proven on local deterministic pages |
 | Scanner threat model and release-blocking controls | `docs/THREAT_MODEL.md` | Pass as model; automated controls unproven |
 | Privacy-minimized product telemetry and primary metric formulas | `docs/TELEMETRY.md` | Pass as contract; instrumentation unproven |
-| Geometry captured within 1 CSS pixel from deterministic pages | `fixtures/browser/`, `python scripts/verify_browser_fixtures.py` | Pass: 55 hand-marked rectangles in the 29-fixture live-browser suite |
+| Geometry captured within 1 CSS pixel from deterministic pages | `fixtures/browser/`, `python scripts/verify_browser_fixtures.py` | Pass: 57 hand-marked rectangles in the 31-fixture live-browser suite |
 | Received-byte totals captured within 2% from deterministic resources | Fixture server wire ledger + CDP extraction in `python scripts/verify_browser_fixtures.py` | Pass for resources with canonical byte evidence: exact wire-byte equality and declared payload within 2%; the worker bootstrap remains explicit unknown data |
 | Browser base candidate selection and exact element/resource attribution | `scanner/browser_probe.py`, deterministic inclusion/exclusion, redaction, duplicate-link, and page-level assertions | Pass for Gate 0 fixtures: all elements inspected on uncapped pages, a separately proven bounded prefix on the capped page, 5 base exclusion controls, 1 partial-viewport control, and 12 exact element links; stylesheets/fonts/scripts/fetches remain page-level, including a worker fetch sharing a URL with an exactly linked page image |
 | Browser-driven `perceptual-region-v1` aggregation | `scanner/aggregation.py`, three live browser aggregation fixtures, and `python scripts/verify_browser_fixtures.py` | Pass: 723 candidates → 650 regions with 73 unique members and deterministic cutoff; two evidence-free wrappers collapse with correct parent rewiring; 654 mandatory candidates → 650 scene objects plus 4 complete evidence-only records, preserving an omitted exact image link under an explicit partial/resource-limit state |
@@ -32,6 +32,7 @@ This ledger prevents documentation volume from being mistaken for completion. A 
 | Whole-worker deadline and transport eligibility | `scanner/worker_supervisor.py`, Chromium-owning post-capture hang fixture, `fixtures/worker/capture_worker_fixture.py`, `python scripts/verify_worker_deadline.py`, `python scripts/verify_capture_worker.py` | Partial but materially advanced: a 15-second outer ceiling includes a reserved termination tail; only a fresh regular ≤4 MB nonce-scoped JSON envelope after zero exit proceeds to schema validation; Windows workers are contained before resume; two timed-out process fixtures commit no result and leave no recorded Chromium descendants. The real Gate 0 probe now runs inside a fixture worker with exact typed configuration. Eligible complete, byte-limited, service-worker, and never-settling records pass schema plus semantic validation at the caller, a clean record repeats deterministically, malformed config is rejected, and a real post-capture hang publishes no result. The local capture boundary passes; production API/queue and disposable-container integration remain open. |
 | Interstitial behavior | HTTP 200 login wall, terminal 404/503/509 pages, forged-marker origin 509, synthetic main-document 509 limits, 200 + subresource-404 negative fixture, and 13 classifier guards | Pass for structural login and direct HTTP error classes: preserves measured orientation geometry, emits no insight for interstitials, makes no form submission, retains no form values, ignores subresource-only errors, distinguishes genuine and forged-marker target 509s from instrument-generated limit responses, and reproduces the same status/limitation; consent and challenge remain intentionally open because current structural signals are ambiguous |
 | Cross-scan storage isolation | Repeated fresh-context fixture with local/session/cookie sentinels | Pass: the later scan sees none of the earlier scan's local storage, session storage, or cookie state and reproduces the same evidence fingerprint |
+| Popup and download containment | Normal and one-event-limit auxiliary fixtures; content-bearing canaries; repeated fingerprints | Pass for the deterministic browser harness: one popup is synchronously closed, handlers cover every created page, and downloads initiated by both the main page and popup are synchronously cancelled. No auxiliary page remains at capture, and popup URL/window-name plus download URL/filename canaries do not enter normalized or fixture-ledger evidence. A lowered combined cap saturates typed counts, remains content-free, produces an explicit partial `resource-limit` record, and repeats deterministically. Production browser/container isolation remains a separate gate. |
 | Private-network, DNS-rebinding, redirect-pivot, method, limit, and secret rejection | Automated scanner security suite | Partial: 10 request-policy cases, 5 fixture-boundary cases, 5 browser-enforced redirect rejections, 4 live unsafe-method/literal-private-subresource blocks, deterministic DOM/candidate/request/byte caps, and 10 unsafe-GET canaries pass; private URLs stay out of normalized evidence, sensitive outbound headers are stripped at egress, request-cap targets are not contacted, and oversized responses are not relayed; production DNS/egress, rebinding, production quota integration, production-container deadline enforcement, and remaining cases are missing |
 | Residual anonymous-GET risk, honest scanner identity, robots/owner opt-out, scan dedupe, and per-origin cooling | `scanner/admission_policy.py`, unsafe-GET browser fixture, fixture ledgers | Partial: one state-changing GET reaches origin once under an explicit fixture user-agent; exact-result reuse and same-origin cooling make no second contact under an injectable clock. Production durations, durable/distributed enforcement, published identity, robots policy, and owner opt-out remain open decisions |
 | Retention, deletion, consent, moderation, and takedown policy | Approved product/legal decision and implementation test | Open decision |
@@ -50,10 +51,10 @@ python scripts/verify_capture_worker.py
 Expected output:
 
 ```text
-Validated 3 fixtures and 13 negative controls against Gate 0.
+Validated 3 fixtures and 15 negative controls against Gate 0.
 Validated mapping-v0.1.0 against 3 fixtures and 6 negative controls; reveal duration is 5.0 seconds.
 Validated deterministic hero selection across 3 scan fixtures and 7 boundary cases.
-Validated controlled Chromium 140.0.7339.16 against 29 deterministic browser fixtures.
+Validated controlled Chromium 140.0.7339.16 against 31 deterministic browser fixtures.
   clean: 11 candidates -> 11 regions (0 aggregated), 2 exact element links, 5 requests, 180770 known CDP/wire bytes, 0 missing-byte requests
   image-heavy: 11 candidates -> 11 regions (0 aggregated), 3 exact element links, 7 requests, 5201071 known CDP/wire bytes, 0 missing-byte requests
   third-party: 9 candidates -> 9 regions (0 aggregated), 1 exact element links, 8 requests, 1161260 known CDP/wire bytes, 0 missing-byte requests
@@ -73,6 +74,8 @@ Validated controlled Chromium 140.0.7339.16 against 29 deterministic browser fix
   storage-isolation: 5 candidates -> 5 regions (0 aggregated), 0 exact element links, 1 requests, 20213 known CDP/wire bytes, 0 missing-byte requests
   policy-boundary: 4 candidates -> 4 regions (0 aggregated), 0 exact element links, 3 requests, 32552 known CDP/wire bytes, 0 missing-byte requests
   unsafe-get: 5 candidates -> 5 regions (0 aggregated), 0 exact element links, 2 requests, 34504 known CDP/wire bytes, 0 missing-byte requests
+  auxiliary-events: 5 candidates -> 5 regions (0 aggregated), 0 exact element links, 1 requests, 26158 known CDP/wire bytes, 0 missing-byte requests
+  auxiliary-event-limit: 5 candidates -> 5 regions (0 aggregated), 0 exact element links, 1 requests, 26158 known CDP/wire bytes, 0 missing-byte requests
   wrapper-collapse: 7 candidates -> 5 regions (2 aggregated), 1 exact element links, 2 requests, 50305 known CDP/wire bytes, 0 missing-byte requests
   dom-limit: 35 candidates -> 35 regions (0 aggregated), 0 exact element links, 2 requests, 100315 known CDP/wire bytes, 0 missing-byte requests
   candidate-limit: 12 candidates -> 12 regions (0 aggregated), 0 exact element links, 2 requests, 100315 known CDP/wire bytes, 0 missing-byte requests
@@ -84,11 +87,12 @@ Validated controlled Chromium 140.0.7339.16 against 29 deterministic browser fix
   total-navigation-limit: 3 candidates -> 3 regions (0 aggregated), 0 exact element links, 1 requests, 223 known CDP/wire bytes, 0 missing-byte requests
   mandatory-overflow: 654 candidates -> 650 regions (4 aggregated), 1 exact element links, 2 requests, 90305 known CDP/wire bytes, 0 missing-byte requests
 Validated deterministic node, aggregation, redirect, attribution, source, interstitial, and policy fingerprints across repeated captures.
-Validated deterministic hero selection on 3 positive and 26 no-standout/interstitial browser fixtures.
+Validated deterministic hero selection on 3 positive and 28 no-standout/interstitial browser fixtures.
 Validated bounded DOM inspection and geometry-candidate collection.
 Validated enforced request, per-response byte, and total-byte capture boundaries.
 Validated 10 request-policy cases and 5 fixture-boundary cases.
 Validated 4 transfer-source priority cases.
+Validated bounded popup/download observation and immediate containment.
 Validated 13 interstitial-classifier safety guards.
 Validated 4 aggregation safety guards.
 Validated scan reuse and per-origin cooling with an injectable policy clock.

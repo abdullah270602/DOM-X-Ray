@@ -186,6 +186,10 @@
         "requestCount",
         "requestsWithoutByteData",
         "transferAccountingRule",
+        "popupAttemptCount",
+        "downloadAttemptCount",
+        "auxiliaryEventLimit",
+        "auxiliaryEventCountTruncated",
         "limitsReached"
       ],
       "properties": {
@@ -255,10 +259,32 @@
           "type": "array",
           "items": { "$ref": "#/$defs/redirectHop" }
         },
+        "popupAttemptCount": {
+          "description": "Popup events observed and immediately closed, saturated at auxiliaryEventLimit.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "downloadAttemptCount": {
+          "description": "Download events observed and denied, saturated at auxiliaryEventLimit.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "auxiliaryEventLimit": {
+          "description": "Combined popup/download event observation boundary.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "auxiliaryEventCountTruncated": {
+          "description": "Whether later denied popup/download events exceeded typed counting coverage.",
+          "type": "boolean"
+        },
         "limitsReached": {
           "type": "array",
           "items": {
-            "enum": ["time", "requests", "bytes", "redirects", "dom-nodes", "candidates", "regions", "browser-processes"]
+            "enum": ["time", "requests", "bytes", "redirects", "dom-nodes", "candidates", "regions", "browser-processes", "auxiliary-events"]
           },
           "uniqueItems": true
         }
