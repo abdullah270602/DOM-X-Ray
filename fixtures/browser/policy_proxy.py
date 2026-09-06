@@ -8,8 +8,8 @@ header. It is proof infrastructure, not the production public-network boundary.
 
 from __future__ import annotations
 
-import socket
 import secrets
+import socket
 from contextlib import contextmanager
 from socketserver import StreamRequestHandler, ThreadingTCPServer
 from threading import Lock, Thread
@@ -77,8 +77,7 @@ class FixturePolicyProxy(ThreadingTCPServer):
         self.observed_allowed_requests = 0
         self.relayed_upstream_bytes = 0
         self.relayed_browser_bytes = 0
-        self.next_block_ordinal = 0
-        self.block_secret = secrets.token_hex(16)
+        self.allow_trusted_loopback = False
 
     @property
     def url(self) -> str:
@@ -92,8 +91,7 @@ class FixturePolicyProxy(ThreadingTCPServer):
             self.observed_allowed_requests = 0
             self.relayed_upstream_bytes = 0
             self.relayed_browser_bytes = 0
-            self.next_block_ordinal = 0
-            self.block_secret = secrets.token_hex(16)
+            self.allow_trusted_loopback = False
 
     def configure_limits(
         self,
@@ -101,6 +99,7 @@ class FixturePolicyProxy(ThreadingTCPServer):
         max_requests: int = MAX_REQUESTS,
         max_response_bytes: int = MAX_RESPONSE_BYTES,
         max_total_received_bytes: int = MAX_TOTAL_RECEIVED_BYTES,
+        allow_trusted_loopback: bool = False,
     ) -> None:
         for name, value, ceiling in (
             ("max_requests", max_requests, MAX_REQUESTS),
@@ -124,11 +123,27 @@ class FixturePolicyProxy(ThreadingTCPServer):
             self.observed_allowed_requests = 0
             self.relayed_upstream_bytes = 0
             self.relayed_browser_bytes = 0
+            self.allow_trusted_loopback = allow_trusted_loopback
 
     def request_limit_reached(self) -> bool:
         with self.state_lock:
             self.observed_allowed_requests += 1
             return self.observed_allowed_requests >= self.max_requests
+
+    def is_trusted_loopback_url(self, url: str) -> bool:
+        parsed = urlsplit(url)
+        return (
+            self.allow_trusted_loopback
+            and parsed.scheme == "http"
+            and parsed.hostname == "localhost"
+            and parsed.port == self.upstream_port
+        )
+
+    def block_reason_for(self, method: str, url: str) -> str | None:
+        reason = request_block_reason(method, url)
+        if reason == "private-literal-host" and self.is_trusted_loopback_url(url):
+            return None
+        return reason
 
     def record_block(
         self,
@@ -141,8 +156,14 @@ class FixturePolicyProxy(ThreadingTCPServer):
         source_url: str | None = None,
     ) -> bytes:
         with self.state_lock:
-            self.next_block_ordinal += 1
-            block_id = f"{self.block_secret}-b-{self.next_block_ordinal:06d}"
+            existing_ids = {
+                str(item["blockId"])
+                for item in self.blocked
+                if item.get("blockId") is not None
+            }
+            block_id = secrets.token_hex(16)
+            while block_id in existing_ids:
+                block_id = secrets.token_hex(16)
             response = _block_response(block_id, reason)
             self.blocked.append(
                 {
@@ -188,9 +209,15 @@ class FixturePolicyProxy(ThreadingTCPServer):
         method: str,
         is_document: bool,
     ) -> tuple[str | None, bytes | None]:
-        reason = request_block_reason(method, target_url)
+        reason = self.block_reason_for(method, target_url)
         parsed = urlsplit(target_url)
-        if reason is None and (not parsed.hostname or not parsed.hostname.endswith(".test")):
+        if reason is None and not (
+            parsed.hostname
+            and (
+                parsed.hostname.endswith(".test")
+                or self.is_trusted_loopback_url(target_url)
+            )
+        ):
             reason = "fixture-host"
 
         with self.state_lock:
@@ -265,8 +292,14 @@ class FixturePolicyHandler(StreamRequestHandler):
             incoming_sensitive_headers,
         )
 
-        reason = request_block_reason(method, url)
-        if reason is None and (not parsed.hostname or not parsed.hostname.endswith(".test")):
+        reason = self.server.block_reason_for(method, url)
+        if reason is None and not (
+            parsed.hostname
+            and (
+                parsed.hostname.endswith(".test")
+                or self.server.is_trusted_loopback_url(url)
+            )
+        ):
             reason = "fixture-host"
         if reason is not None or parsed.scheme != "http" or parsed.port != self.server.upstream_port:
             block_response = self.server.record_block(

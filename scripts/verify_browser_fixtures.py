@@ -33,6 +33,7 @@ from scanner.browser_probe import (
     SCANNER_USER_AGENT,
     classify_interstitial_v1,
     classify_transfer_source,
+    correlate_policy_blocks,
     probe_navigation_policy,
     probe_page,
     request_block_reason,
@@ -155,9 +156,47 @@ def assert_request_policy() -> None:
         allow_trusted_loopback=True,
     )
     require(
-        [name for name, fixture in FIXTURES.items() if fixture.trusted_loopback]
-        == ["service-worker"],
+        {
+            name
+            for name, fixture in FIXTURES.items()
+            if fixture.trusted_loopback
+        }
+        == {"service-worker", "service-worker-marker-replay"},
         "trusted-loopback fixture scope expanded beyond the service-worker proof",
+    )
+
+
+def assert_policy_block_correlation_guards() -> None:
+    ordered_network = [
+        {
+            "ownerKey": "page",
+            "requestId": "original",
+            "hopIndex": 0,
+            "policyBlockId": "a" * 32,
+        },
+        {
+            "ownerKey": "page",
+            "requestId": "replay-main-document",
+            "hopIndex": 0,
+            "policyBlockId": "a" * 32,
+        },
+        {
+            "ownerKey": "page",
+            "requestId": "unknown-marker",
+            "hopIndex": 0,
+            "policyBlockId": "b" * 32,
+        },
+    ]
+    blocked_requests = [
+        {
+            "blockId": "a" * 32,
+            "reason": "response-byte-limit",
+        }
+    ]
+    correlated = correlate_policy_blocks(ordered_network, blocked_requests)
+    require(
+        set(correlated) == {("page", "original", 0)},
+        "a replayed or unknown browser-visible block marker became trusted evidence",
     )
 
 
@@ -497,6 +536,7 @@ def main() -> None:
     Draft202012Validator.check_schema(SCHEMA)
     validator = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
     assert_request_policy()
+    assert_policy_block_correlation_guards()
     assert_transfer_source_priority()
     assert_interstitial_classifier_guards()
     assert_aggregation_guards()
@@ -560,12 +600,15 @@ def main() -> None:
             for name, fixture in FIXTURES.items():
                 server.clear_ledger()
                 proxy.clear_state()
+                url = f"http://{fixture.host}:{server.server_port}{fixture.route}"
                 proxy.configure_limits(
                     max_requests=fixture.max_requests,
                     max_response_bytes=fixture.max_response_bytes,
                     max_total_received_bytes=fixture.max_total_received_bytes,
+                    allow_trusted_loopback=(
+                        fixture.use_policy_proxy and fixture.trusted_loopback
+                    ),
                 )
-                url = f"http://{fixture.host}:{server.server_port}{fixture.route}"
                 if name == "unsafe-get":
                     require(
                         admission_gate.reserve(url).action == "scan",
@@ -824,6 +867,7 @@ def main() -> None:
                     "request-navigation-limit",
                     "response-navigation-limit",
                     "total-navigation-limit",
+                    "service-worker-marker-replay",
                 }:
                     capture_limit_fingerprints[name] = deterministic_fingerprint(record)
 
@@ -1169,6 +1213,72 @@ def main() -> None:
                         "worker target gap does not invalidate the affected metrics",
                     )
                     worker_fingerprint = deterministic_fingerprint(record)
+                elif name == "service-worker-marker-replay":
+                    oversized_rows = [
+                        item
+                        for item in record["resources"]
+                        if urlsplit(item["displayUrl"]).path
+                        == "/assets/limit-sized.bin"
+                    ]
+                    replay_rows = [
+                        item
+                        for item in record["resources"]
+                        if urlsplit(item["displayUrl"]).path
+                        == "/marker-replay-known.bin"
+                    ]
+                    require(
+                        len(oversized_rows) == 2
+                        and all(item["responseStatus"] == 509 for item in oversized_rows),
+                        "marker replay fixture did not preserve both real proxy blocks",
+                    )
+                    require(
+                        len(replay_rows) == 1
+                        and replay_rows[0]["responseStatus"] == 509
+                        and replay_rows[0]["transferSource"] == "service-worker",
+                        "service-worker marker replay was not captured as page-controlled evidence",
+                    )
+                    response_limitations = [
+                        item
+                        for item in record["limitations"]
+                        if item["code"].startswith("response-byte-limit-")
+                    ]
+                    require(
+                        {item["targetId"] for item in response_limitations}
+                        == {item["id"] for item in oversized_rows}
+                        and replay_rows[0]["id"]
+                        not in {item["targetId"] for item in response_limitations},
+                        "a replayed marker retargeted instrument-generated limit evidence",
+                    )
+                    block_ids = [
+                        str(item["blockId"])
+                        for item in result.blocked_requests
+                    ]
+                    require(
+                        len(block_ids) == 2
+                        and len(set(block_ids)) == 2
+                        and all(
+                            len(block_id) == 32
+                            and all(character in "0123456789abcdef" for character in block_id)
+                            for block_id in block_ids
+                        ),
+                        "proxy blocks did not receive independent random identifiers",
+                    )
+                    require(
+                        all(block_id not in serialized_record for block_id in block_ids),
+                        "an instrument block identifier entered normalized evidence",
+                    )
+                    require(
+                        sum(
+                            item["path"] == "/assets/limit-sized.bin"
+                            for item in server.ledger
+                        )
+                        == 2
+                        and all(
+                            item["path"] != "/marker-replay-known.bin"
+                            for item in server.ledger
+                        ),
+                        "service-worker replay and origin-block paths crossed the wrong boundary",
+                    )
                 elif name == "never-settling":
                     limitations = {item["code"]: item for item in record["limitations"]}
                     require(
@@ -1664,8 +1774,16 @@ def main() -> None:
                     for item in observed_ledger
                     if 100 <= int(item["status"]) <= 599
                 ) + blocked_wire
+                unobserved_relayed_wire = sum(
+                    int(item["wireBytes"])
+                    for item in server.ledger
+                    if str(item["path"]) in unobserved_paths
+                    and bool(item.get("writeCompleted", True))
+                )
                 admitted_wire = (
-                    proxy.relayed_browser_bytes + blocked_wire
+                    proxy.relayed_browser_bytes
+                    - unobserved_relayed_wire
+                    + blocked_wire
                     if fixture.expected_cdp_payload_bytes is not None
                     else served_wire
                 )
@@ -1901,6 +2019,7 @@ def main() -> None:
                 "request-navigation-limit",
                 "response-navigation-limit",
                 "total-navigation-limit",
+                "service-worker-marker-replay",
             ):
                 limit_fixture = FIXTURES[limit_name]
                 limit_url = (
@@ -1913,12 +2032,17 @@ def main() -> None:
                     max_requests=limit_fixture.max_requests,
                     max_response_bytes=limit_fixture.max_response_bytes,
                     max_total_received_bytes=limit_fixture.max_total_received_bytes,
+                    allow_trusted_loopback=(
+                        limit_fixture.use_policy_proxy
+                        and limit_fixture.trusted_loopback
+                    ),
                 )
                 repeated_limit = probe_page(
                     browser,
                     limit_url,
                     proxy_server=proxy.url,
                     policy_block_log=proxy.blocked,
+                    trusted_loopback_fixture=limit_fixture.trusted_loopback,
                     max_requests=limit_fixture.max_requests,
                     max_response_bytes=limit_fixture.max_response_bytes,
                     max_total_received_bytes=limit_fixture.max_total_received_bytes,

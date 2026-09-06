@@ -13,7 +13,8 @@ These pages are Gate 0 instrumentation evidence, not the public application stac
 - a per-response boundary that reads only the configured wire-byte allowance plus one detection byte and never relays the oversized upstream response;
 - a whole-capture boundary that counts exact previously relayed upstream bytes, reads only the remaining allowance plus one detection byte, and preserves the local limit response only as claim-invalidating evidence;
 - all three boundaries firing on the main document without a synthetic 509 being mistaken for a target error page, plus genuine and forged-marker target 509s that remain error-document interstitials;
-- two requests whose query-stripped display URLs are identical, with a random per-capture internal block ID attaching the response limit to the exact second occurrence while remaining absent from normalized evidence;
+- two requests whose query-stripped display URLs are identical, with an independently random internal block ID attaching the response limit to the exact second occurrence while remaining absent from normalized evidence;
+- a hostile same-origin service worker reading a real block marker and replaying it on a later 509; first-occurrence consumption keeps two subsequent real proxy blocks correctly targeted and leaves the replay page-controlled;
 - the fixed 1440 × 900, DPR 1, `en-US`, UTC profile, cold cache by default plus one explicit mixed-cache source fixture;
 - the post-DOMContentLoaded quiet window, including the image-heavy fixture's mutation reset;
 - four external requests collapsing into three registrable-domain fixture hubs;

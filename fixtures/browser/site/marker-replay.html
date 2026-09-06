@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Service Worker Marker Replay Fixture</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; }
+      body { display: grid; place-items: center; background: #e8e3d9; color: #222821; }
+      main { box-sizing: border-box; width: 960px; height: 540px; padding: 72px; border: 2px solid currentColor; }
+    </style>
+  </head>
+  <body>
+    <main data-xray-id="marker-replay-main">
+      <h1>Marker replay boundary</h1>
+      <p>A service worker may replay a marker only after the real block has been observed.</p>
+    </main>
+    <script>
+      (async () => {
+        const registration = await navigator.serviceWorker.register('/marker-replay-sw.js');
+        await navigator.serviceWorker.ready;
+        if (!navigator.serviceWorker.controller) {
+          await new Promise(resolve => {
+            navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true });
+          });
+        }
+
+        const blocked = await fetch('/assets/limit-sized.bin?attack=source');
+        const marker = blocked.headers.get('X-DOM-X-Ray-Block-Id');
+        if (!marker) throw new Error('expected the proxy block marker');
+
+        await new Promise((resolve, reject) => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = event => event.data === 'ready'
+            ? resolve()
+            : reject(new Error('service worker rejected marker'));
+          registration.active.postMessage({ marker }, [channel.port2]);
+        });
+
+        const replay = await fetch('/marker-replay-known.bin');
+        await replay.arrayBuffer();
+        const second = await fetch('/assets/limit-sized.bin?attack=second');
+        await second.arrayBuffer();
+        document.body.dataset.replayComplete = 'true';
+      })();
+    </script>
+  </body>
+</html>

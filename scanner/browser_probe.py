@@ -183,6 +183,38 @@ def _match_url(url: str) -> str:
     )
 
 
+def correlate_policy_blocks(
+    ordered_network: list[dict[str, Any]],
+    blocked_requests: list[dict[str, Any]],
+) -> dict[tuple[str, str, int], dict[str, Any]]:
+    """Correlate each instrument block with only its first CDP occurrence.
+
+    A page or service worker can read and replay a response marker after the
+    original response arrives. Every proxy block therefore has an independent
+    random ID, and later replays remain ordinary page-controlled responses.
+    """
+
+    blocked_by_id = {
+        str(item["blockId"]): item
+        for item in blocked_requests
+        if item.get("blockId") is not None
+    }
+    claimed_ids: set[str] = set()
+    trusted_by_hop: dict[tuple[str, str, int], dict[str, Any]] = {}
+    for item in ordered_network:
+        block_id = item.get("policyBlockId")
+        if block_id is None:
+            continue
+        normalized_id = str(block_id)
+        if normalized_id in claimed_ids or normalized_id not in blocked_by_id:
+            continue
+        claimed_ids.add(normalized_id)
+        trusted_by_hop[
+            (str(item["ownerKey"]), str(item["requestId"]), int(item["hopIndex"]))
+        ] = blocked_by_id[normalized_id]
+    return trusted_by_hop
+
+
 def _resource_type(cdp_type: str | None) -> str:
     normalized = (cdp_type or "Other").lower()
     return normalized if normalized in {
@@ -976,11 +1008,10 @@ def probe_page(
             (str(item["method"]).upper(), str(item["url"])): str(item["reason"])
             for item in blocked_requests
         }
-        blocked_by_id = {
-            str(item["blockId"]): item
-            for item in blocked_requests
-            if item.get("blockId") is not None
-        }
+        trusted_block_by_hop = correlate_policy_blocks(
+            ordered_network,
+            blocked_requests,
+        )
         resource_rows = []
         resource_id_by_block_id: dict[str, str] = {}
         for item in ordered_network:
@@ -988,10 +1019,15 @@ def probe_page(
             if parsed.scheme not in {"http", "https"}:
                 continue
             block_key = (item["method"].upper(), _redacted_url(item["url"]))
+            hop_key = (item["ownerKey"], item["requestId"], item["hopIndex"])
+            trusted_block = trusted_block_by_hop.get(hop_key)
+            fallback_reason = blocked_reason_by_key.get(block_key)
+            if fallback_reason in NETWORK_LIMIT_REASONS:
+                fallback_reason = None
             block_reason = (
-                str(blocked_by_id[item["policyBlockId"]]["reason"])
-                if item.get("policyBlockId") in blocked_by_id
-                else blocked_reason_by_key.get(block_key)
+                str(trusted_block["reason"])
+                if trusted_block is not None
+                else fallback_reason
             )
             if block_reason in {
                 "credentials",
@@ -1047,8 +1083,11 @@ def probe_page(
                     "attributedNodeIds": attributed_node_ids,
                 }
             )
-            if item.get("policyBlockId") is not None:
-                resource_id_by_block_id[str(item["policyBlockId"])] = resource_id
+            if trusted_block is not None and trusted_block.get("blockId") is not None:
+                resource_id_by_block_id.setdefault(
+                    str(trusted_block["blockId"]),
+                    resource_id,
+                )
 
         redirect_rows = [
             {
@@ -1131,8 +1170,12 @@ def probe_page(
             )
             if terminal_main_document.get("status") is not None:
                 final_document_status = int(terminal_main_document["status"])
-            terminal_block = blocked_by_id.get(
-                str(terminal_main_document.get("policyBlockId"))
+            terminal_block = trusted_block_by_hop.get(
+                (
+                    terminal_main_document["ownerKey"],
+                    terminal_main_document["requestId"],
+                    terminal_main_document["hopIndex"],
+                )
             )
             if (
                 terminal_block is not None
