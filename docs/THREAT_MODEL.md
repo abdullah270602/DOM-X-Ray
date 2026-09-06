@@ -75,7 +75,7 @@ The same local proxy now proves inclusive request admission, per-response wire-b
 
 - One disposable non-root browser context per scan; prefer one disposable worker/container per small bounded batch.
 - A process supervisor starts its monotonic clock before worker spawn, accepts only a fresh nonce-scoped bounded JSON result, and reserves cleanup time inside the 15-second outer ceiling.
-- Local proof uses a POSIX process group or a Windows worker created suspended and assigned to a kill-on-close Job Object before resume. It verifies pinned Chromium descendants disappear after a repeated post-capture timeout. Production must bind this primitive to the actual capture entry point and kill the whole disposable container; page timeouts and root-process termination are insufficient.
+- Local proof uses a POSIX process group or a Windows worker created suspended and assigned to a kill-on-close Job Object before resume. It verifies pinned Chromium descendants disappear after a repeated post-capture timeout. A separate fixture worker binds the real Gate 0 probe, browser, and local egress proxy to that supervisor; exact typed configuration, caller-side schema/semantic validation, and a real capture-path timeout are verified. Production must adopt the same boundary in its API/queue capture entry and kill the whole disposable container; page timeouts and root-process termination are insufficient.
 - Browser sandbox remains enabled. Containerization is not treated as a replacement for it.
 - No cloud credentials, source-control credentials, developer tokens, SSH agents, or host browser profile in the worker.
 - Read-only runtime filesystem plus a bounded temporary directory.
