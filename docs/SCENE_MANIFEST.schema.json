@@ -1,0 +1,727 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dom-x-ray.invalid/schema/scene-manifest-v0.1.0.json",
+  "title": "DOM X-Ray Scene Manifest",
+  "description": "Renderer-neutral, deterministic scene instructions derived from one immutable scan record and mapping registry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifestVersion",
+    "scanId",
+    "mappingVersion",
+    "status",
+    "failureCode",
+    "frame",
+    "budget",
+    "objects",
+    "connections",
+    "nonSceneNodes",
+    "hero",
+    "reveal",
+    "reducedMotion",
+    "limitations"
+  ],
+  "properties": {
+    "manifestVersion": { "const": "scene-manifest-v0.1.0" },
+    "scanId": { "$ref": "#/$defs/id" },
+    "mappingVersion": { "$ref": "#/$defs/id" },
+    "status": { "enum": ["complete", "partial", "interstitial", "blocked", "failed"] },
+    "failureCode": {
+      "anyOf": [
+        {
+          "enum": [
+            "invalid-target",
+            "blocked-by-policy",
+            "timeout",
+            "resource-limit",
+            "measurement-unavailable",
+            "capture-error",
+            "unsupported-page",
+            "interstitial"
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "frame": { "$ref": "#/$defs/frame" },
+    "budget": { "$ref": "#/$defs/budget" },
+    "objects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sceneObject" },
+      "maxItems": 651
+    },
+    "connections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/connection" }
+    },
+    "nonSceneNodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonSceneNode" }
+    },
+    "hero": {
+      "anyOf": [
+        { "$ref": "#/$defs/hero" },
+        { "type": "null" }
+      ]
+    },
+    "reveal": { "$ref": "#/$defs/reveal" },
+    "reducedMotion": { "$ref": "#/$defs/reducedMotion" },
+    "limitations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/limitation" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "complete" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": { "failureCode": { "type": "null" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "partial" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "failureCode": { "type": "string" },
+          "limitations": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "enum": ["blocked", "failed"] } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "failureCode": { "type": "string" },
+          "hero": { "type": "null" },
+          "limitations": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "interstitial" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "failureCode": { "const": "interstitial" },
+          "hero": { "type": "null" },
+          "limitations": { "minItems": 1 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "jsonPointer": {
+      "type": "string",
+      "pattern": "^#/"
+    },
+    "nullableNonNegativeInteger": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "nullableNormalizedNumber": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "nullableNonNegativeNumber": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "vector3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinateSpace",
+        "viewport",
+        "planeWorld",
+        "scaleCssPxToWorld",
+        "origin",
+        "axes"
+      ],
+      "properties": {
+        "coordinateSpace": { "const": "captured-viewport-css-px" },
+        "viewport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "integer", "minimum": 1 },
+            "height": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "planeWorld": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "number", "exclusiveMinimum": 0 },
+            "height": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "scaleCssPxToWorld": { "type": "number", "exclusiveMinimum": 0 },
+        "origin": { "const": "viewport-center" },
+        "axes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "const": "right" },
+            "y": { "const": "up" },
+            "z": { "const": "structure-separation" }
+          }
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "limit",
+        "countedKinds",
+        "regionCount",
+        "hubCount",
+        "countedObjectCount",
+        "pageBusCounted"
+      ],
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1, "maximum": 650 },
+        "countedKinds": {
+          "const": ["region", "aggregate", "third-party-hub"]
+        },
+        "regionCount": { "type": "integer", "minimum": 0, "maximum": 650 },
+        "hubCount": { "type": "integer", "minimum": 0, "maximum": 650 },
+        "countedObjectCount": { "type": "integer", "minimum": 0, "maximum": 650 },
+        "pageBusCounted": { "const": false }
+      }
+    },
+    "sceneObject": {
+      "oneOf": [
+        { "$ref": "#/$defs/regionObject" },
+        { "$ref": "#/$defs/pageBusObject" },
+        { "$ref": "#/$defs/hubObject" }
+      ]
+    },
+    "regionObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "parentId",
+        "positionWorld",
+        "sizeWorld",
+        "structure",
+        "weight",
+        "evidence",
+        "documentOrder"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^region:.+" },
+        "kind": { "enum": ["region", "aggregate"] },
+        "parentId": {
+          "type": ["string", "null"],
+          "pattern": "^region:.+"
+        },
+        "positionWorld": { "$ref": "#/$defs/vector3" },
+        "sizeWorld": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "number", "exclusiveMinimum": 0 },
+            "height": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "structure": { "$ref": "#/$defs/structure" },
+        "weight": { "$ref": "#/$defs/weight" },
+        "evidence": { "$ref": "#/$defs/regionEvidence" },
+        "documentOrder": { "type": "integer", "minimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "const": "aggregate" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "aggregationRule": { "type": "string", "minLength": 1 },
+                  "memberNodeIds": { "minItems": 1 }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "region" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": { "aggregationRule": { "type": "null" } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domDepth",
+        "separationWorld",
+        "stackingSeamWorld",
+        "stackingRule"
+      ],
+      "properties": {
+        "domDepth": { "type": "integer", "minimum": 0 },
+        "separationWorld": { "type": "number", "minimum": 0 },
+        "stackingSeamWorld": { "type": "number", "minimum": 0 },
+        "stackingRule": { "type": ["string", "null"] }
+      }
+    },
+    "weight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "knownTransferredBytes",
+        "mass",
+        "plateThicknessWorld",
+        "plateStyle",
+        "knownResourceIds",
+        "unknownResourceIds",
+        "unknownMarkers",
+        "blockedResourceIds",
+        "blockedMarkerStyle",
+        "massSuppressedResourceIds",
+        "unknownMarkerStyle",
+        "limitationCodes"
+      ],
+      "properties": {
+        "knownTransferredBytes": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "mass": { "$ref": "#/$defs/nullableNormalizedNumber" },
+        "plateThicknessWorld": { "$ref": "#/$defs/nullableNonNegativeNumber" },
+        "plateStyle": {
+          "enum": [
+            "none",
+            "solid",
+            "cached-hollow",
+            "service-worker-hollow",
+            "mixed-zero-sources-hollow",
+            "measured-zero-hollow"
+          ]
+        },
+        "knownResourceIds": { "$ref": "#/$defs/uniqueIds" },
+        "unknownResourceIds": { "$ref": "#/$defs/uniqueIds" },
+        "unknownMarkers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["resourceId", "visualState"],
+            "properties": {
+              "resourceId": { "$ref": "#/$defs/id" },
+              "visualState": { "$ref": "#/$defs/visualState" }
+            }
+          }
+        },
+        "blockedResourceIds": { "$ref": "#/$defs/uniqueIds" },
+        "blockedMarkerStyle": { "enum": ["none", "broken-outline"] },
+        "massSuppressedResourceIds": { "$ref": "#/$defs/uniqueIds" },
+        "unknownMarkerStyle": { "enum": ["none", "hatched-hollow"] },
+        "limitationCodes": { "$ref": "#/$defs/uniqueIds" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "knownTransferredBytes": { "type": "null" } },
+            "required": ["knownTransferredBytes"]
+          },
+          "then": {
+            "properties": {
+              "mass": { "type": "null" },
+              "plateThicknessWorld": { "type": "null" },
+              "plateStyle": { "const": "none" }
+            }
+          },
+          "else": {
+            "properties": {
+              "mass": { "type": "number", "minimum": 0, "maximum": 1 },
+              "plateThicknessWorld": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
+      ]
+    },
+    "regionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recordRefs",
+        "memberNodeIds",
+        "linkedResourceIds",
+        "aggregationRule"
+      ],
+      "properties": {
+        "recordRefs": { "$ref": "#/$defs/jsonPointers" },
+        "memberNodeIds": { "$ref": "#/$defs/uniqueIds" },
+        "linkedResourceIds": { "$ref": "#/$defs/uniqueIds" },
+        "aggregationRule": { "type": ["string", "null"] }
+      }
+    },
+    "pageBusObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "parentId", "positionWorld", "resourceIds", "evidence"],
+      "properties": {
+        "id": { "const": "bus:page" },
+        "kind": { "const": "page-bus" },
+        "parentId": { "type": "null" },
+        "positionWorld": { "$ref": "#/$defs/vector3" },
+        "resourceIds": { "$ref": "#/$defs/uniqueIds" },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["recordRefs", "placementRule"],
+          "properties": {
+            "recordRefs": { "$ref": "#/$defs/jsonPointers" },
+            "placementRule": { "$ref": "#/$defs/id" }
+          }
+        }
+      }
+    },
+    "hubObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "parentId",
+        "domain",
+        "positionWorld",
+        "radiusWorld",
+        "resourceIds",
+        "evidence"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^hub:.+" },
+        "kind": { "const": "third-party-hub" },
+        "parentId": { "type": "null" },
+        "domain": { "$ref": "#/$defs/id" },
+        "positionWorld": { "$ref": "#/$defs/vector3" },
+        "radiusWorld": { "type": "number", "exclusiveMinimum": 0 },
+        "resourceIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["recordRefs", "groupingRule", "placementRule", "angleDegrees"],
+          "properties": {
+            "recordRefs": { "$ref": "#/$defs/jsonPointers" },
+            "groupingRule": { "$ref": "#/$defs/id" },
+            "placementRule": { "$ref": "#/$defs/id" },
+            "angleDegrees": { "type": "number", "minimum": -90, "maximum": 90 }
+          }
+        }
+      }
+    },
+    "connection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "resourceId",
+        "sourceObjectId",
+        "targetObjectIds",
+        "fallbackObjectId",
+        "evidenceOnlyTargetNodeIds",
+        "attributionScope",
+        "endpointRule",
+        "transferSource",
+        "outcome",
+        "visualState",
+        "measurement",
+        "evidence"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^connection:.+" },
+        "kind": { "const": "resource-path" },
+        "resourceId": { "$ref": "#/$defs/id" },
+        "sourceObjectId": { "type": "string", "pattern": "^(bus:page|hub:.+)$" },
+        "targetObjectIds": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^(bus:page|region:.+)$" },
+          "uniqueItems": true
+        },
+        "fallbackObjectId": {
+          "anyOf": [
+            { "const": "bus:page" },
+            { "type": "null" }
+          ]
+        },
+        "evidenceOnlyTargetNodeIds": { "$ref": "#/$defs/uniqueIds" },
+        "attributionScope": {
+          "enum": ["exact-element", "exact-resource-link", "probable-link", "page-level", "unknown"]
+        },
+        "endpointRule": {
+          "enum": [
+            "exact-visible-region-with-evidence-only-bus-fallback-v1",
+            "page-bus-for-non-exact-attribution-v1"
+          ]
+        },
+        "transferSource": { "enum": ["network", "cache", "service-worker", "unknown"] },
+        "outcome": {
+          "enum": ["blocked", "not-recorded", "no-completed-response", "http-response"]
+        },
+        "visualState": { "$ref": "#/$defs/visualState" },
+        "measurement": { "$ref": "#/$defs/connectionMeasurement" },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["recordRefs", "limitationRefs"],
+          "properties": {
+            "recordRefs": { "$ref": "#/$defs/jsonPointers" },
+            "limitationRefs": { "$ref": "#/$defs/jsonPointers" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "attributionScope": { "enum": ["exact-element", "exact-resource-link"] }
+            },
+            "required": ["attributionScope"]
+          },
+          "then": {
+            "properties": {
+              "endpointRule": {
+                "const": "exact-visible-region-with-evidence-only-bus-fallback-v1"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "endpointRule": { "const": "page-bus-for-non-exact-attribution-v1" },
+              "targetObjectIds": { "const": ["bus:page"] },
+              "fallbackObjectId": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "outcome": { "const": "blocked" } },
+            "required": ["outcome"]
+          },
+          "then": {
+            "properties": {
+              "visualState": { "const": "broken-outline" },
+              "measurement": {
+                "properties": {
+                  "mass": { "type": "null" },
+                  "cableThicknessWorld": { "type": "null" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "visualState": { "const": "limitation-hatched" } },
+            "required": ["visualState"]
+          },
+          "then": {
+            "properties": {
+              "measurement": {
+                "properties": {
+                  "mass": { "type": "null" },
+                  "cableThicknessWorld": { "type": "null" },
+                  "massSuppressedByLimitation": { "const": true }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "connectionMeasurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transferredBytes",
+        "mass",
+        "cableThicknessWorld",
+        "massSuppressedByLimitation"
+      ],
+      "properties": {
+        "transferredBytes": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "mass": { "$ref": "#/$defs/nullableNormalizedNumber" },
+        "cableThicknessWorld": { "$ref": "#/$defs/nullableNonNegativeNumber" },
+        "massSuppressedByLimitation": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "mass": { "type": "number" } },
+            "required": ["mass"]
+          },
+          "then": {
+            "properties": {
+              "transferredBytes": { "type": "integer", "minimum": 0 },
+              "cableThicknessWorld": { "type": "number", "exclusiveMinimum": 0 },
+              "massSuppressedByLimitation": { "const": false }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "massSuppressedByLimitation": { "const": true } },
+            "required": ["massSuppressedByLimitation"]
+          },
+          "then": {
+            "properties": {
+              "mass": { "type": "null" },
+              "cableThicknessWorld": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "visualState": {
+      "enum": [
+        "solid",
+        "cached-hollow",
+        "service-worker-hollow",
+        "measured-zero-hollow",
+        "hatched-hollow",
+        "broken-outline",
+        "limitation-hatched"
+      ]
+    },
+    "nonSceneNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "reason", "recordRef"],
+      "properties": {
+        "nodeId": { "$ref": "#/$defs/id" },
+        "reason": { "const": "object-budget-evidence-only" },
+        "recordRef": { "$ref": "#/$defs/jsonPointer" }
+      }
+    },
+    "hero": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "insightId",
+        "kind",
+        "statement",
+        "shareEligible",
+        "recordRef",
+        "sourceRefs",
+        "limitationCodes"
+      ],
+      "properties": {
+        "insightId": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["structure", "weight", "third-party", "layout-shift"] },
+        "statement": { "type": "string", "minLength": 1 },
+        "shareEligible": { "const": true },
+        "recordRef": { "$ref": "#/$defs/jsonPointer" },
+        "sourceRefs": { "$ref": "#/$defs/jsonPointers" },
+        "limitationCodes": { "$ref": "#/$defs/uniqueIds" }
+      }
+    },
+    "revealStage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "startSeconds", "endSeconds", "meaning"],
+      "properties": {
+        "id": { "enum": ["flat", "structure", "weight", "party", "hero"] },
+        "startSeconds": { "type": "number", "minimum": 0, "maximum": 5 },
+        "endSeconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 5 },
+        "meaning": { "type": "string", "minLength": 1 }
+      }
+    },
+    "reveal": {
+      "type": "array",
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/revealStage" }, { "properties": { "id": { "const": "flat" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/revealStage" }, { "properties": { "id": { "const": "structure" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/revealStage" }, { "properties": { "id": { "const": "weight" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/revealStage" }, { "properties": { "id": { "const": "party" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/revealStage" }, { "properties": { "id": { "const": "hero" } } }] }
+      ],
+      "items": false,
+      "minItems": 5
+    },
+    "reducedMotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "cameraMotion", "continuousGeometryMotion", "preserves"],
+      "properties": {
+        "mode": { "const": "five-user-advanced-steps" },
+        "cameraMotion": { "const": false },
+        "continuousGeometryMotion": { "const": false },
+        "preserves": {
+          "const": ["stage-order", "hero-fact", "raw-evidence", "limitations"]
+        }
+      }
+    },
+    "limitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "scope", "targetId", "invalidatesMetrics", "recordRef"],
+      "properties": {
+        "code": { "$ref": "#/$defs/id" },
+        "scope": { "enum": ["scan", "page", "node", "resource", "layout-shift", "insight"] },
+        "targetId": { "type": ["string", "null"] },
+        "invalidatesMetrics": { "$ref": "#/$defs/uniqueIds" },
+        "recordRef": { "$ref": "#/$defs/jsonPointer" }
+      }
+    },
+    "uniqueIds": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/id" },
+      "uniqueItems": true
+    },
+    "jsonPointers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/jsonPointer" },
+      "uniqueItems": true
+    }
+  }
+}

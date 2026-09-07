@@ -47,7 +47,7 @@ Pivot rule: if the concept requires invented causality to feel dramatic, remove 
 
 **Question:** Does truthful data produce a legible and desirable physical world?
 
-Current status: **composition approved; renderer-neutral mapping implementation started**. The approved **Instrument Panorama** reference and `docs/VIEWER_CONTRACT.md` define the first-viewport spatial contract. `scene-manifest-v0.1.0` now deterministically materializes clipped world geometry, exact page-bus/domain-hub topology, resource mass and state, evidence references, hero binding, object budgeting, and reveal data for all three fixtures without choosing a UI framework. The application stack and deployment target remain explicit pre-scaffold decisions, so the interactive viewer itself has not been scaffolded.
+Current status: **composition approved; renderer-neutral mapping implementation started**. The approved **Instrument Panorama** reference and `docs/VIEWER_CONTRACT.md` define the first-viewport spatial contract. `scene-manifest-v0.1.0` now deterministically materializes clipped world geometry, exact page-bus/domain-hub topology, resource mass and state, evidence references, hero binding, object budgeting, and reveal data without choosing a UI framework. A formal Draft 2020-12 schema, three committed golden viewer inputs, semantic evidence checks, and all thirty-one live browser fixtures prove the scanner-to-scene handoff. The application stack and deployment target remain explicit pre-scaffold decisions, so the interactive viewer itself has not been scaffolded.
 
 Build exactly three local, deterministic scan fixtures:
 

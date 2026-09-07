@@ -4,7 +4,7 @@ Status: executable renderer-neutral contract `scene-manifest-v0.1.0`
 
 The scene manifest is the only derived input a visual renderer needs. It converts an immutable scan record plus its matching mapping registry into explicit world geometry, topology, visual evidence states, reveal stages, and source references. It is not a replacement for the scan record: the record remains the source of truth and the evidence drawer resolves the manifest's JSON Pointers against it.
 
-`scanner.scene_manifest.build_scene_manifest(record)` is the reference implementation. Clean, image-heavy, third-party-heavy, overflow, endpoint, and transfer-state controls must all pass through that same function. A WebGL renderer, a no-WebGL fallback, an export renderer, and a regression screenshot route may present the manifest differently, but none may choose different endpoints, regroup domains, recalculate mass, coerce unknown bytes to zero, or create scene objects for evidence-only nodes.
+`scanner.scene_manifest.build_scene_manifest(record)` is the reference implementation. [SCENE_MANIFEST.schema.json](SCENE_MANIFEST.schema.json) is the Draft 2020-12 structural contract. Clean, image-heavy, third-party-heavy, overflow, endpoint, and transfer-state controls must all pass through that same function. A WebGL renderer, a no-WebGL fallback, an export renderer, and a regression screenshot route may present the manifest differently, but none may choose different endpoints, regroup domains, recalculate mass, coerce unknown bytes to zero, or create scene objects for evidence-only nodes.
 
 ## Top-level shape
 
@@ -21,6 +21,17 @@ The scene manifest is the only derived input a visual renderer needs. It convert
 | `limitations` | Compact limitation references; human-readable messages remain in the scan record |
 
 Stable storage and regression fingerprints use `stable_manifest_json`, which sorts object keys and removes insignificant whitespace. List order is semantic and deterministic.
+
+## Golden viewer inputs
+
+The generated clean, image-heavy, and third-party-heavy manifests live in `fixtures/scene-manifest/`. They are committed so a future browser renderer can begin from language-neutral JSON without running Python. They are never edited by hand:
+
+```sh
+python scripts/export_scene_fixtures.py
+python scripts/export_scene_fixtures.py --check
+```
+
+`verify_scene_manifest.py` checks the schema itself, validates generated and committed manifests, resolves every JSON Pointer against its source scan record, byte-compares regenerated output with the goldens, and retains semantic checks for arithmetic, graph identity, ordering, and evidence fidelity. The pinned-browser suite also requires every one of its live scan records to produce a schema-conformant manifest.
 
 ## Object identities and budget
 

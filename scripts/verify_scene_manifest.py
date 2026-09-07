@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from jsonschema import Draft202012Validator, FormatChecker
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -22,7 +24,11 @@ from scanner.scene_manifest import (  # noqa: E402
 
 
 FIXTURE_DIR = ROOT / "fixtures" / "scan"
+GOLDEN_DIR = ROOT / "fixtures" / "scene-manifest"
 FIXTURE_NAMES = ("clean.json", "image-heavy.json", "third-party-heavy.json")
+SCHEMA = json.loads(
+    (ROOT / "docs" / "SCENE_MANIFEST.schema.json").read_text(encoding="utf-8")
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -36,6 +42,53 @@ def load_fixture(name: str) -> dict[str, Any]:
 
 def by_id(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {row["id"]: row for row in rows}
+
+
+def pretty_manifest_json(manifest: dict[str, Any]) -> str:
+    return json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
+
+
+def resolve_record_pointer(record: dict[str, Any], pointer: str) -> Any:
+    require(pointer.startswith("#/"), f"not a local record pointer: {pointer}")
+    current: Any = record
+    for encoded_token in pointer[2:].split("/"):
+        token = encoded_token.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, list):
+            require(token.isdigit(), f"non-numeric array token in record pointer: {pointer}")
+            index = int(token)
+            require(0 <= index < len(current), f"record pointer array index is absent: {pointer}")
+            current = current[index]
+        else:
+            require(isinstance(current, dict), f"record pointer traverses a scalar: {pointer}")
+            require(token in current, f"record pointer key is absent: {pointer}")
+            current = current[token]
+    return current
+
+
+def verify_record_references(record: dict[str, Any], manifest: dict[str, Any]) -> None:
+    pointers: list[str] = []
+    for scene_object in manifest["objects"]:
+        pointers.extend(scene_object["evidence"]["recordRefs"])
+    for connection in manifest["connections"]:
+        pointers.extend(connection["evidence"]["recordRefs"])
+        pointers.extend(connection["evidence"]["limitationRefs"])
+    for node in manifest["nonSceneNodes"]:
+        pointers.append(node["recordRef"])
+    if manifest["hero"] is not None:
+        pointers.append(manifest["hero"]["recordRef"])
+        pointers.extend(manifest["hero"]["sourceRefs"])
+    pointers.extend(limitation["recordRef"] for limitation in manifest["limitations"])
+    for pointer in pointers:
+        resolve_record_pointer(record, pointer)
+
+    for index, connection in enumerate(manifest["connections"]):
+        expected_resource_id = record["resources"][index]["id"]
+        require(
+            connection["id"] == f"connection:{expected_resource_id}"
+            and connection["resourceId"] == expected_resource_id
+            and connection["evidence"]["recordRefs"][0] == f"#/resources/{index}",
+            f"connection/resource identity or source order drifted at index {index}",
+        )
 
 
 def resource_copy(
@@ -296,7 +349,22 @@ def expect_manifest_failure(
     raise AssertionError(f"negative control was not rejected: {name}")
 
 
+def expect_schema_failure(
+    name: str,
+    manifest: dict[str, Any],
+    validator: Draft202012Validator,
+    mutate: Callable[[dict[str, Any]], None],
+) -> None:
+    candidate = copy.deepcopy(manifest)
+    mutate(candidate)
+    if list(validator.iter_errors(candidate)):
+        return
+    raise AssertionError(f"scene-manifest schema negative control was not rejected: {name}")
+
+
 def main() -> None:
+    Draft202012Validator.check_schema(SCHEMA)
+    validator = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
     fixtures = [load_fixture(name) for name in FIXTURE_NAMES]
     manifests = [build_scene_manifest(record) for record in fixtures]
     summaries = [
@@ -319,7 +387,26 @@ def main() -> None:
         "fixture scene summaries drifted",
     )
 
-    for record, manifest in zip(fixtures, manifests):
+    for name, record, manifest in zip(FIXTURE_NAMES, fixtures, manifests):
+        errors = sorted(validator.iter_errors(manifest), key=lambda error: list(error.path))
+        require(
+            not errors,
+            f"{record['scanId']} scene manifest failed JSON Schema: "
+            + "; ".join(error.message for error in errors),
+        )
+        golden_path = GOLDEN_DIR / name
+        require(golden_path.is_file(), f"missing committed scene-manifest fixture: {name}")
+        golden_text = golden_path.read_text(encoding="utf-8")
+        require(
+            golden_text == pretty_manifest_json(manifest),
+            f"committed scene-manifest fixture is stale: {name}",
+        )
+        golden = json.loads(golden_text)
+        require(
+            not list(validator.iter_errors(golden)),
+            f"committed scene-manifest fixture failed JSON Schema: {name}",
+        )
+        verify_record_references(record, manifest)
         region_ids = {
             item["id"].removeprefix("region:")
             for item in manifest["objects"]
@@ -336,6 +423,41 @@ def main() -> None:
             f"{record['scanId']} serialization is not deterministic",
         )
         require(manifest["budget"]["pageBusCounted"] is False, "page bus budget became implicit")
+
+    targeted_shift_record = copy.deepcopy(fixtures[1])
+    targeted_shift_record["limitations"].append(
+        {
+            "code": "synthetic-layout-shift-limitation",
+            "scope": "layout-shift",
+            "targetId": "ls-hero",
+            "message": "Synthetic targeted layout-shift limitation.",
+            "invalidatesMetrics": ["layout_shift_score"],
+        }
+    )
+    targeted_shift_manifest = build_scene_manifest(targeted_shift_record)
+    require(
+        not list(validator.iter_errors(targeted_shift_manifest)),
+        "valid layout-shift limitation failed scene schema",
+    )
+
+    untargeted_page_record = copy.deepcopy(fixtures[0])
+    untargeted_page_record["limitations"].append(
+        {
+            "code": "synthetic-page-limitation",
+            "scope": "page",
+            "message": "Synthetic untargeted page limitation.",
+            "invalidatesMetrics": [],
+        }
+    )
+    untargeted_page_manifest = build_scene_manifest(untargeted_page_record)
+    require(
+        untargeted_page_manifest["limitations"][-1]["targetId"] is None,
+        "omitted limitation targetId was not normalized to null",
+    )
+    require(
+        not list(validator.iter_errors(untargeted_page_manifest)),
+        "valid untargeted page limitation failed scene schema",
+    )
 
     clean_objects = by_id(manifests[0]["objects"])
     logo = clean_objects["region:n-logo"]
@@ -369,6 +491,33 @@ def main() -> None:
     expect_manifest_failure("scene budget", clean, DEFAULT_MAPPING_REGISTRY, lambda _record, mapping: mapping["scene"].update({"maxSceneObjects": 3}))
     expect_manifest_failure("zero-duration reveal", clean, DEFAULT_MAPPING_REGISTRY, lambda _record, mapping: mapping["reveal"][2].update({"endSeconds": 1.7}))
 
+    expect_schema_failure(
+        "unexpected top-level property",
+        manifests[0],
+        validator,
+        lambda manifest: manifest.update({"rendererGuess": True}),
+    )
+    expect_schema_failure(
+        "missing region geometry",
+        manifests[0],
+        validator,
+        lambda manifest: manifest["objects"][0].pop("positionWorld"),
+    )
+    expect_schema_failure(
+        "blocked connection retains solid mass",
+        manifests[0],
+        validator,
+        lambda manifest: manifest["connections"][0].update({"outcome": "blocked"}),
+    )
+    expect_schema_failure(
+        "non-exact connection bypasses page bus",
+        manifests[0],
+        validator,
+        lambda manifest: manifest["connections"][0].update(
+            {"targetObjectIds": ["region:n-body"]}
+        ),
+    )
+
     fingerprints = {
         manifest["scanId"]: hashlib.sha256(stable_manifest_json(manifest).encode("utf-8")).hexdigest()[:16]
         for manifest in manifests
@@ -383,8 +532,9 @@ def main() -> None:
         "fixture manifest fingerprints drifted",
     )
     print(
-        "Verified scene-manifest-v0.1.0 across 3 fixtures, one transfer/endpoint matrix, "
-        f"and 7 negative controls; fingerprints: {fingerprints}."
+        "Verified scene-manifest-v0.1.0 schema and 3 committed fixtures, one "
+        "transfer/endpoint matrix, 7 semantic negative controls, and 4 schema "
+        f"negative controls; fingerprints: {fingerprints}."
     )
 
 

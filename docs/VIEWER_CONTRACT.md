@@ -42,7 +42,7 @@ The implementation may adjust exact coordinates to satisfy real text and respons
 
 ## Data-binding contract
 
-- Every visual path consumes `scene-manifest-v0.1.0`, derived from the immutable scan record by the reference mapper. WebGL, reduced-motion, no-WebGL, export, and regression routes may not independently recalculate geometry, topology, mass, or endpoints.
+- Every visual path consumes `scene-manifest-v0.1.0`, conforming to `SCENE_MANIFEST.schema.json` and derived from the immutable scan record by the reference mapper. WebGL, reduced-motion, no-WebGL, export, and regression routes may not independently recalculate geometry, topology, mass, or endpoints.
 - The hero statement is rendered from the single `record.insights` entry whose `hero` value is `true`. Fixture phrases and percentages in the comp are never hard-coded.
 - If no eligible hero exists, show the neutral no-standout capture summary. Do not manufacture a superlative and do not make that fallback share-eligible by default.
 - Instantiate 3D region objects only for nodes with `sceneIncluded !== false`. Evidence-only nodes remain reachable through aggregate membership and the non-3D evidence path.

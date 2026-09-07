@@ -42,10 +42,14 @@ from scanner.browser_probe import (
     request_block_reason,
     validate_fixture_target,
 )
+from scanner.scene_manifest import build_scene_manifest
 from scripts.validate_fixtures import ContractError, validate_semantics
 
 
 SCHEMA = json.loads((ROOT / "docs" / "SCAN_RECORD.schema.json").read_text(encoding="utf-8"))
+SCENE_SCHEMA = json.loads(
+    (ROOT / "docs" / "SCENE_MANIFEST.schema.json").read_text(encoding="utf-8")
+)
 GEOMETRY_TOLERANCE_PX = 1.0
 TRANSFER_TOLERANCE = 0.02
 EXPECTED_CHROMIUM_VERSION = "140.0.7339.16"
@@ -702,6 +706,11 @@ def deterministic_fingerprint(record: dict) -> tuple:
 def main() -> None:
     Draft202012Validator.check_schema(SCHEMA)
     validator = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
+    Draft202012Validator.check_schema(SCENE_SCHEMA)
+    scene_validator = Draft202012Validator(
+        SCENE_SCHEMA,
+        format_checker=FormatChecker(),
+    )
     assert_request_policy()
     assert_policy_block_correlation_guards()
     assert_transfer_source_priority()
@@ -829,6 +838,16 @@ def main() -> None:
                     f"browser fixture {name}",
                     validator,
                     allow_trusted_loopback=fixture.trusted_loopback,
+                )
+                scene_manifest = build_scene_manifest(record)
+                scene_errors = sorted(
+                    scene_validator.iter_errors(scene_manifest),
+                    key=lambda error: list(error.path),
+                )
+                require(
+                    not scene_errors,
+                    f"{name} generated an invalid scene manifest: "
+                    + "; ".join(error.message for error in scene_errors),
                 )
                 require(
                     record["status"] == fixture.expected_status,
@@ -2407,6 +2426,7 @@ def main() -> None:
     print("Validated 4 live unsafe-method/private-subresource blocks.")
     print("Validated one unsafe GET, sensitive-header stripping, and ten secret canaries.")
     print("Validated 1 redirect-chain negative control.")
+    print(f"Validated schema-conformant scene manifests for all {len(FIXTURES)} browser fixtures.")
 
 
 if __name__ == "__main__":

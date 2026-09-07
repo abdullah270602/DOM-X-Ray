@@ -541,17 +541,20 @@ def _hero(record: dict[str, Any]) -> dict[str, Any] | None:
     if not rows:
         return None
     index, insight = rows[0]
+    source_refs = list(
+        dict.fromkeys(
+            ref
+            for evidence in insight["evidence"]
+            for ref in evidence["sourceRefs"]
+        )
+    )
     return {
         "insightId": insight["id"],
         "kind": insight["kind"],
         "statement": insight["statement"],
         "shareEligible": True,
         "recordRef": f"#/insights/{index}",
-        "sourceRefs": [
-            ref
-            for evidence in insight["evidence"]
-            for ref in evidence["sourceRefs"]
-        ],
+        "sourceRefs": source_refs,
         "limitationCodes": list(insight["limitationCodes"]),
     }
 
@@ -561,7 +564,7 @@ def _manifest_limitations(record: dict[str, Any]) -> list[dict[str, Any]]:
         {
             "code": limitation["code"],
             "scope": limitation["scope"],
-            "targetId": limitation["targetId"],
+            "targetId": limitation.get("targetId"),
             "invalidatesMetrics": list(limitation["invalidatesMetrics"]),
             "recordRef": f"#/limitations/{index}",
         }
@@ -669,9 +672,7 @@ def build_scene_manifest(
         "nonSceneNodes": [
             {
                 "nodeId": node["id"],
-                "reason": (
-                    "object-budget-evidence-only"
-                ),
+                "reason": "object-budget-evidence-only",
                 "recordRef": f"#/nodes/{index}",
             }
             for index, node in enumerate(record["nodes"])

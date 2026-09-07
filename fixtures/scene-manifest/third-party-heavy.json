@@ -1,0 +1,674 @@
+{
+  "manifestVersion": "scene-manifest-v0.1.0",
+  "scanId": "fixture-third-party-heavy",
+  "mappingVersion": "mapping-v0.1.0",
+  "status": "partial",
+  "failureCode": "measurement-unavailable",
+  "frame": {
+    "coordinateSpace": "captured-viewport-css-px",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "planeWorld": {
+      "width": 12.0,
+      "height": 7.5
+    },
+    "scaleCssPxToWorld": 0.008333,
+    "origin": "viewport-center",
+    "axes": {
+      "x": "right",
+      "y": "up",
+      "z": "structure-separation"
+    }
+  },
+  "budget": {
+    "limit": 650,
+    "countedKinds": [
+      "region",
+      "aggregate",
+      "third-party-hub"
+    ],
+    "regionCount": 5,
+    "hubCount": 3,
+    "countedObjectCount": 8,
+    "pageBusCounted": false
+  },
+  "objects": [
+    {
+      "id": "region:n-body",
+      "kind": "region",
+      "parentId": null,
+      "positionWorld": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.5
+      },
+      "sizeWorld": {
+        "width": 12.0,
+        "height": 7.5
+      },
+      "structure": {
+        "domDepth": 1,
+        "separationWorld": 0.42,
+        "stackingSeamWorld": 0.08,
+        "stackingRule": "document-root"
+      },
+      "weight": {
+        "knownTransferredBytes": null,
+        "mass": null,
+        "plateThicknessWorld": null,
+        "plateStyle": "none",
+        "knownResourceIds": [],
+        "unknownResourceIds": [],
+        "unknownMarkers": [],
+        "blockedResourceIds": [],
+        "blockedMarkerStyle": "none",
+        "massSuppressedResourceIds": [],
+        "unknownMarkerStyle": "none",
+        "limitationCodes": []
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/nodes/0",
+          "#/mappingVersion"
+        ],
+        "memberNodeIds": [],
+        "linkedResourceIds": [],
+        "aggregationRule": null
+      },
+      "documentOrder": 0
+    },
+    {
+      "id": "region:n-header",
+      "kind": "region",
+      "parentId": "region:n-body",
+      "positionWorld": {
+        "x": 0.0,
+        "y": 3.016667,
+        "z": 0.745684
+      },
+      "sizeWorld": {
+        "width": 10.4,
+        "height": 0.666667
+      },
+      "structure": {
+        "domDepth": 2,
+        "separationWorld": 0.665684,
+        "stackingSeamWorld": 0.08,
+        "stackingRule": "positioned-z-index"
+      },
+      "weight": {
+        "knownTransferredBytes": null,
+        "mass": null,
+        "plateThicknessWorld": null,
+        "plateStyle": "none",
+        "knownResourceIds": [],
+        "unknownResourceIds": [],
+        "unknownMarkers": [],
+        "blockedResourceIds": [],
+        "blockedMarkerStyle": "none",
+        "massSuppressedResourceIds": [],
+        "unknownMarkerStyle": "none",
+        "limitationCodes": []
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/nodes/1",
+          "#/mappingVersion"
+        ],
+        "memberNodeIds": [],
+        "linkedResourceIds": [],
+        "aggregationRule": null
+      },
+      "documentOrder": 1
+    },
+    {
+      "id": "region:n-article",
+      "kind": "region",
+      "parentId": "region:n-body",
+      "positionWorld": {
+        "x": -0.666667,
+        "y": -0.766667,
+        "z": 0.665684
+      },
+      "sizeWorld": {
+        "width": 6.8,
+        "height": 5.966667
+      },
+      "structure": {
+        "domDepth": 2,
+        "separationWorld": 0.665684,
+        "stackingSeamWorld": 0.0,
+        "stackingRule": null
+      },
+      "weight": {
+        "knownTransferredBytes": 310000,
+        "mass": 0.687222,
+        "plateThicknessWorld": 0.364867,
+        "plateStyle": "solid",
+        "knownResourceIds": [
+          "r-lead"
+        ],
+        "unknownResourceIds": [],
+        "unknownMarkers": [],
+        "blockedResourceIds": [],
+        "blockedMarkerStyle": "none",
+        "massSuppressedResourceIds": [],
+        "unknownMarkerStyle": "none",
+        "limitationCodes": []
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/nodes/2",
+          "#/mappingVersion"
+        ],
+        "memberNodeIds": [],
+        "linkedResourceIds": [
+          "r-lead"
+        ],
+        "aggregationRule": null
+      },
+      "documentOrder": 2
+    },
+    {
+      "id": "region:n-author",
+      "kind": "region",
+      "parentId": "region:n-article",
+      "positionWorld": {
+        "x": -0.666667,
+        "y": 1.583333,
+        "z": 0.84
+      },
+      "sizeWorld": {
+        "width": 6.8,
+        "height": 0.466667
+      },
+      "structure": {
+        "domDepth": 3,
+        "separationWorld": 0.84,
+        "stackingSeamWorld": 0.0,
+        "stackingRule": null
+      },
+      "weight": {
+        "knownTransferredBytes": null,
+        "mass": null,
+        "plateThicknessWorld": null,
+        "plateStyle": "none",
+        "knownResourceIds": [],
+        "unknownResourceIds": [],
+        "unknownMarkers": [],
+        "blockedResourceIds": [],
+        "blockedMarkerStyle": "none",
+        "massSuppressedResourceIds": [],
+        "unknownMarkerStyle": "none",
+        "limitationCodes": []
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/nodes/3",
+          "#/mappingVersion"
+        ],
+        "memberNodeIds": [],
+        "linkedResourceIds": [],
+        "aggregationRule": null
+      },
+      "documentOrder": 3
+    },
+    {
+      "id": "region:n-share",
+      "kind": "region",
+      "parentId": "region:n-article",
+      "positionWorld": {
+        "x": 3.4,
+        "y": 0.15,
+        "z": 0.92
+      },
+      "sizeWorld": {
+        "width": 0.8,
+        "height": 2.0
+      },
+      "structure": {
+        "domDepth": 3,
+        "separationWorld": 0.84,
+        "stackingSeamWorld": 0.08,
+        "stackingRule": "positioned-z-index"
+      },
+      "weight": {
+        "knownTransferredBytes": null,
+        "mass": null,
+        "plateThicknessWorld": null,
+        "plateStyle": "none",
+        "knownResourceIds": [],
+        "unknownResourceIds": [],
+        "unknownMarkers": [],
+        "blockedResourceIds": [],
+        "blockedMarkerStyle": "none",
+        "massSuppressedResourceIds": [],
+        "unknownMarkerStyle": "none",
+        "limitationCodes": []
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/nodes/4",
+          "#/mappingVersion"
+        ],
+        "memberNodeIds": [],
+        "linkedResourceIds": [],
+        "aggregationRule": null
+      },
+      "documentOrder": 4
+    },
+    {
+      "id": "bus:page",
+      "kind": "page-bus",
+      "parentId": null,
+      "positionWorld": {
+        "x": 5.75,
+        "y": 0.0,
+        "z": 0.12
+      },
+      "resourceIds": [
+        "r-document",
+        "r-style",
+        "r-app",
+        "r-lead",
+        "r-metrics",
+        "r-font",
+        "r-comments-script",
+        "r-comments-api"
+      ],
+      "evidence": {
+        "recordRefs": [
+          "#/page/registrableDomain",
+          "#/resources"
+        ],
+        "placementRule": "right-page-edge-center-v1"
+      }
+    },
+    {
+      "id": "hub:cdn.example",
+      "kind": "third-party-hub",
+      "parentId": null,
+      "domain": "cdn.example",
+      "positionWorld": {
+        "x": 6.953879,
+        "y": -2.809549,
+        "z": 0.12
+      },
+      "radiusWorld": 0.34,
+      "resourceIds": [
+        "r-font"
+      ],
+      "evidence": {
+        "recordRefs": [
+          "#/resources/5/registrableDomain",
+          "#/resources/5/party"
+        ],
+        "groupingRule": "registrable-domain-v1",
+        "placementRule": "right-edge-arc-even-v1",
+        "angleDegrees": -22.0
+      }
+    },
+    {
+      "id": "hub:service.example",
+      "kind": "third-party-hub",
+      "parentId": null,
+      "domain": "service.example",
+      "positionWorld": {
+        "x": 7.5,
+        "y": 0.0,
+        "z": 0.12
+      },
+      "radiusWorld": 0.34,
+      "resourceIds": [
+        "r-comments-script",
+        "r-comments-api"
+      ],
+      "evidence": {
+        "recordRefs": [
+          "#/resources/6/registrableDomain",
+          "#/resources/6/party",
+          "#/resources/7/registrableDomain",
+          "#/resources/7/party"
+        ],
+        "groupingRule": "registrable-domain-v1",
+        "placementRule": "right-edge-arc-even-v1",
+        "angleDegrees": 0.0
+      }
+    },
+    {
+      "id": "hub:vendor.example",
+      "kind": "third-party-hub",
+      "parentId": null,
+      "domain": "vendor.example",
+      "positionWorld": {
+        "x": 6.953879,
+        "y": 2.809549,
+        "z": 0.12
+      },
+      "radiusWorld": 0.34,
+      "resourceIds": [
+        "r-metrics"
+      ],
+      "evidence": {
+        "recordRefs": [
+          "#/resources/4/registrableDomain",
+          "#/resources/4/party"
+        ],
+        "groupingRule": "registrable-domain-v1",
+        "placementRule": "right-edge-arc-even-v1",
+        "angleDegrees": 22.0
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "connection:r-document",
+      "kind": "resource-path",
+      "resourceId": "r-document",
+      "sourceObjectId": "bus:page",
+      "targetObjectIds": [
+        "bus:page"
+      ],
+      "fallbackObjectId": null,
+      "evidenceOnlyTargetNodeIds": [],
+      "attributionScope": "page-level",
+      "endpointRule": "page-bus-for-non-exact-attribution-v1",
+      "transferSource": "network",
+      "outcome": "not-recorded",
+      "visualState": "solid",
+      "measurement": {
+        "transferredBytes": 52000,
+        "mass": 0.47453,
+        "cableThicknessWorld": 0.047962,
+        "massSuppressedByLimitation": false
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/resources/0",
+          "#/mappingVersion"
+        ],
+        "limitationRefs": []
+      }
+    },
+    {
+      "id": "connection:r-style",
+      "kind": "resource-path",
+      "resourceId": "r-style",
+      "sourceObjectId": "bus:page",
+      "targetObjectIds": [
+        "bus:page"
+      ],
+      "fallbackObjectId": null,
+      "evidenceOnlyTargetNodeIds": [],
+      "attributionScope": "page-level",
+      "endpointRule": "page-bus-for-non-exact-attribution-v1",
+      "transferSource": "network",
+      "outcome": "not-recorded",
+      "visualState": "solid",
+      "measurement": {
+        "transferredBytes": 36000,
+        "mass": 0.431348,
+        "cableThicknessWorld": 0.044508,
+        "massSuppressedByLimitation": false
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/resources/1",
+          "#/mappingVersion"
+        ],
+        "limitationRefs": []
+      }
+    },
+    {
+      "id": "connection:r-app",
+      "kind": "resource-path",
+      "resourceId": "r-app",
+      "sourceObjectId": "bus:page",
+      "targetObjectIds": [
+        "bus:page"
+      ],
+      "fallbackObjectId": null,
+      "evidenceOnlyTargetNodeIds": [],
+      "attributionScope": "page-level",
+      "endpointRule": "page-bus-for-non-exact-attribution-v1",
+      "transferSource": "network",
+      "outcome": "not-recorded",
+      "visualState": "solid",
+      "measurement": {
+        "transferredBytes": 220000,
+        "mass": 0.646154,
+        "cableThicknessWorld": 0.061692,
+        "massSuppressedByLimitation": false
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/resources/2",
+          "#/mappingVersion"
+        ],
+        "limitationRefs": []
+      }
+    },
+    {
+      "id": "connection:r-lead",
+      "kind": "resource-path",
+      "resourceId": "r-lead",
+      "sourceObjectId": "bus:page",
+      "targetObjectIds": [
+        "region:n-article"
+      ],
+      "fallbackObjectId": null,
+      "evidenceOnlyTargetNodeIds": [],
+      "attributionScope": "exact-resource-link",
+      "endpointRule": "exact-visible-region-with-evidence-only-bus-fallback-v1",
+      "transferSource": "network",
+      "outcome": "not-recorded",
+      "visualState": "solid",
+      "measurement": {
+        "transferredBytes": 310000,
+        "mass": 0.687222,
+        "cableThicknessWorld": 0.064978,
+        "massSuppressedByLimitation": false
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/resources/3",
+          "#/mappingVersion"
+        ],
+        "limitationRefs": []
+      }
+    },
+    {
+      "id": "connection:r-metrics",
+      "kind": "resource-path",
+      "resourceId": "r-metrics",
+      "sourceObjectId": "hub:vendor.example",
+      "targetObjectIds": [
+        "bus:page"
+      ],
+      "fallbackObjectId": null,
+      "evidenceOnlyTargetNodeIds": [],
+      "attributionScope": "page-level",
+      "endpointRule": "page-bus-for-non-exact-attribution-v1",
+      "transferSource": "unknown",
+      "outcome": "not-recorded",
+      "visualState": "hatched-hollow",
+      "measurement": {
+        "transferredBytes": null,
+        "mass": null,
+        "cableThicknessWorld": null,
+        "massSuppressedByLimitation": false
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/resources/4",
+          "#/mappingVersion"
+        ],
+        "limitationRefs": [
+          "#/limitations/0"
+        ]
+      }
+    },
+    {
+      "id": "connection:r-font",
+      "kind": "resource-path",
+      "resourceId": "r-font",
+      "sourceObjectId": "hub:cdn.example",
+      "targetObjectIds": [
+        "bus:page"
+      ],
+      "fallbackObjectId": null,
+      "evidenceOnlyTargetNodeIds": [],
+      "attributionScope": "page-level",
+      "endpointRule": "page-bus-for-non-exact-attribution-v1",
+      "transferSource": "network",
+      "outcome": "not-recorded",
+      "visualState": "solid",
+      "measurement": {
+        "transferredBytes": 180000,
+        "mass": 0.622152,
+        "cableThicknessWorld": 0.059772,
+        "massSuppressedByLimitation": false
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/resources/5",
+          "#/mappingVersion"
+        ],
+        "limitationRefs": []
+      }
+    },
+    {
+      "id": "connection:r-comments-script",
+      "kind": "resource-path",
+      "resourceId": "r-comments-script",
+      "sourceObjectId": "hub:service.example",
+      "targetObjectIds": [
+        "bus:page"
+      ],
+      "fallbackObjectId": null,
+      "evidenceOnlyTargetNodeIds": [],
+      "attributionScope": "page-level",
+      "endpointRule": "page-bus-for-non-exact-attribution-v1",
+      "transferSource": "network",
+      "outcome": "not-recorded",
+      "visualState": "solid",
+      "measurement": {
+        "transferredBytes": 210000,
+        "mass": 0.640587,
+        "cableThicknessWorld": 0.061247,
+        "massSuppressedByLimitation": false
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/resources/6",
+          "#/mappingVersion"
+        ],
+        "limitationRefs": []
+      }
+    },
+    {
+      "id": "connection:r-comments-api",
+      "kind": "resource-path",
+      "resourceId": "r-comments-api",
+      "sourceObjectId": "hub:service.example",
+      "targetObjectIds": [
+        "bus:page"
+      ],
+      "fallbackObjectId": null,
+      "evidenceOnlyTargetNodeIds": [],
+      "attributionScope": "page-level",
+      "endpointRule": "page-bus-for-non-exact-attribution-v1",
+      "transferSource": "network",
+      "outcome": "not-recorded",
+      "visualState": "solid",
+      "measurement": {
+        "transferredBytes": 62000,
+        "mass": 0.495301,
+        "cableThicknessWorld": 0.049624,
+        "massSuppressedByLimitation": false
+      },
+      "evidence": {
+        "recordRefs": [
+          "#/resources/7",
+          "#/mappingVersion"
+        ],
+        "limitationRefs": []
+      }
+    }
+  ],
+  "nonSceneNodes": [],
+  "hero": {
+    "insightId": "i-third-party-requests",
+    "kind": "third-party",
+    "statement": "4 of 8 requests used domains different from newsroom.example in this captured load.",
+    "shareEligible": true,
+    "recordRef": "#/insights/0",
+    "sourceRefs": [
+      "#/resources/4/party",
+      "#/resources/5/party",
+      "#/resources/6/party",
+      "#/resources/7/party",
+      "#/capture/requestCount"
+    ],
+    "limitationCodes": [
+      "resource-bytes-unavailable"
+    ]
+  },
+  "reveal": [
+    {
+      "id": "flat",
+      "startSeconds": 0,
+      "endSeconds": 0.7,
+      "meaning": "captured-page orientation"
+    },
+    {
+      "id": "structure",
+      "startSeconds": 0.7,
+      "endSeconds": 1.7,
+      "meaning": "DOM structure separates"
+    },
+    {
+      "id": "weight",
+      "startSeconds": 1.7,
+      "endSeconds": 3.2,
+      "meaning": "known transferred bytes acquire mass"
+    },
+    {
+      "id": "party",
+      "startSeconds": 3.2,
+      "endSeconds": 4.2,
+      "meaning": "third-party domain hubs enter"
+    },
+    {
+      "id": "hero",
+      "startSeconds": 4.2,
+      "endSeconds": 5,
+      "meaning": "camera locks and hero evidence appears"
+    }
+  ],
+  "reducedMotion": {
+    "mode": "five-user-advanced-steps",
+    "cameraMotion": false,
+    "continuousGeometryMotion": false,
+    "preserves": [
+      "stage-order",
+      "hero-fact",
+      "raw-evidence",
+      "limitations"
+    ]
+  },
+  "limitations": [
+    {
+      "code": "resource-bytes-unavailable",
+      "scope": "resource",
+      "targetId": "r-metrics",
+      "invalidatesMetrics": [
+        "total_transferred_bytes",
+        "third_party_transferred_bytes"
+      ],
+      "recordRef": "#/limitations/0"
+    }
+  ]
+}
