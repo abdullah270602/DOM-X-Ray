@@ -1,0 +1,444 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dom-x-ray.invalid/schema/viewer-runtime-v0.1.0.json",
+  "title": "DOM X-Ray Viewer Runtime v0.1.0",
+  "description": "Renderer-neutral presentation, evidence-selection, and interaction contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "viewerRuntimeVersion",
+    "scanId",
+    "resultId",
+    "resultPath",
+    "mappingVersion",
+    "sourceHashes",
+    "accessPaths",
+    "presentation",
+    "playback",
+    "modes",
+    "selectables",
+    "initialStates"
+  ],
+  "properties": {
+    "viewerRuntimeVersion": { "const": "viewer-runtime-v0.1.0" },
+    "scanId": { "$ref": "#/$defs/safeText" },
+    "resultId": { "type": "string", "pattern": "^r_[a-f0-9]{32}$" },
+    "resultPath": { "type": "string", "pattern": "^/r/r_[a-f0-9]{32}$" },
+    "mappingVersion": { "const": "mapping-v0.1.0" },
+    "sourceHashes": { "$ref": "#/$defs/sourceHashes" },
+    "accessPaths": { "$ref": "#/$defs/accessPaths" },
+    "presentation": { "$ref": "#/$defs/presentation" },
+    "playback": { "$ref": "#/$defs/playback" },
+    "modes": { "$ref": "#/$defs/modes" },
+    "selectables": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/selectable" },
+      "minItems": 2,
+      "maxItems": 2000
+    },
+    "initialStates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["standard", "reducedMotion"],
+      "properties": {
+        "standard": {
+          "allOf": [
+            { "$ref": "#/$defs/viewerState" },
+            {
+              "properties": {
+                "motion": { "const": "standard" },
+                "phase": { "const": "revealing" },
+                "playback": { "const": "playing" },
+                "elapsedMs": { "const": 0 },
+                "stageIndex": { "const": 0 },
+                "stageId": { "const": "flat" },
+                "mode": { "const": "structure" },
+                "selectedId": { "type": "null" },
+                "isolatedId": { "type": "null" },
+                "revision": { "const": 0 }
+              }
+            }
+          ]
+        },
+        "reducedMotion": {
+          "allOf": [
+            { "$ref": "#/$defs/viewerState" },
+            {
+              "properties": {
+                "motion": { "const": "reduced" },
+                "phase": { "const": "stepping" },
+                "playback": { "const": "paused" },
+                "elapsedMs": { "const": 0 },
+                "stageIndex": { "const": 0 },
+                "stageId": { "const": "flat" },
+                "mode": { "const": "structure" },
+                "selectedId": { "type": "null" },
+                "isolatedId": { "type": "null" },
+                "revision": { "const": 0 }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "safeText": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\s\\S]*[\\u0000-\\u001F\\u007F<>])[\\s\\S]+$"
+    },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "pointer": { "type": "string", "pattern": "^#/" },
+    "pointers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/pointer" },
+      "uniqueItems": true
+    },
+    "sourceHashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scanRecordSha256",
+        "sceneManifestSha256",
+        "mappingRegistrySha256",
+        "resultBindingSha256",
+        "resultManifestSha256"
+      ],
+      "properties": {
+        "scanRecordSha256": { "$ref": "#/$defs/sha256" },
+        "sceneManifestSha256": { "$ref": "#/$defs/sha256" },
+        "mappingRegistrySha256": { "$ref": "#/$defs/sha256" },
+        "resultBindingSha256": { "$ref": "#/$defs/sha256" },
+        "resultManifestSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "accessPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "requiresSceneRendering", "usesSameEvidence"],
+      "properties": {
+        "id": { "enum": ["webgl", "reduced-motion", "text"] },
+        "requiresSceneRendering": { "type": "boolean" },
+        "usesSameEvidence": { "const": true }
+      }
+    },
+    "accessPaths": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/accessPath" },
+            {
+              "properties": {
+                "id": { "const": "webgl" },
+                "requiresSceneRendering": { "const": true }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/accessPath" },
+            {
+              "properties": {
+                "id": { "const": "reduced-motion" },
+                "requiresSceneRendering": { "const": false }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/accessPath" },
+            {
+              "properties": {
+                "id": { "const": "text" },
+                "requiresSceneRendering": { "const": false }
+              }
+            }
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "statement", "shareEligible", "resultRef", "recordRef"],
+      "properties": {
+        "kind": { "enum": ["hero", "neutral", "unavailable"] },
+        "statement": { "$ref": "#/$defs/safeText" },
+        "shareEligible": { "type": "boolean" },
+        "resultRef": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/pointer" }
+          ]
+        },
+        "recordRef": { "$ref": "#/$defs/pointer" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "hero" } }, "required": ["kind"] },
+          "then": {
+            "properties": {
+              "shareEligible": { "const": true },
+              "resultRef": { "const": "#/hero" }
+            }
+          },
+          "else": {
+            "properties": {
+              "shareEligible": { "const": false },
+              "resultRef": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pageLabel",
+        "status",
+        "failureCode",
+        "statusLabel",
+        "partialLabelRequired",
+        "shareState",
+        "finding",
+        "limitationResultRefs"
+      ],
+      "properties": {
+        "pageLabel": { "$ref": "#/$defs/safeText" },
+        "status": { "enum": ["complete", "partial", "interstitial", "blocked", "failed"] },
+        "failureCode": { "type": ["string", "null"], "minLength": 1 },
+        "statusLabel": {
+          "enum": [
+            "COMPLETE CAPTURE",
+            "PARTIAL CAPTURE",
+            "CAPTURED INTERSTITIAL",
+            "CAPTURE BLOCKED",
+            "CAPTURE FAILED"
+          ]
+        },
+        "partialLabelRequired": { "type": "boolean" },
+        "shareState": { "enum": ["artifact-eligible", "link-only", "unavailable"] },
+        "finding": { "$ref": "#/$defs/finding" },
+        "limitationResultRefs": { "$ref": "#/$defs/pointers" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "partial" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "partialLabelRequired": { "const": true },
+              "limitationResultRefs": { "minItems": 1 }
+            }
+          },
+          "else": { "properties": { "partialLabelRequired": { "const": false } } }
+        },
+        {
+          "if": { "properties": { "finding": { "properties": { "kind": { "const": "hero" } } } }, "required": ["finding"] },
+          "then": { "properties": { "shareState": { "const": "artifact-eligible" } } }
+        },
+        {
+          "if": { "properties": { "finding": { "properties": { "kind": { "const": "neutral" } } } }, "required": ["finding"] },
+          "then": { "properties": { "shareState": { "const": "link-only" } } }
+        },
+        {
+          "if": { "properties": { "finding": { "properties": { "kind": { "const": "unavailable" } } } }, "required": ["finding"] },
+          "then": { "properties": { "shareState": { "const": "unavailable" } } }
+        }
+      ]
+    },
+    "channels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page", "structure", "weight", "origins", "finding"],
+      "properties": {
+        "page": { "type": "number", "minimum": 0, "maximum": 1 },
+        "structure": { "type": "number", "minimum": 0, "maximum": 1 },
+        "weight": { "type": "number", "minimum": 0, "maximum": 1 },
+        "origins": { "type": "number", "minimum": 0, "maximum": 1 },
+        "finding": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "startMs", "endMs", "meaning", "targetChannels"],
+      "properties": {
+        "id": { "enum": ["flat", "structure", "weight", "party", "hero"] },
+        "startMs": { "type": "integer", "minimum": 0, "maximum": 5000 },
+        "endMs": { "type": "integer", "minimum": 1, "maximum": 5000 },
+        "meaning": { "$ref": "#/$defs/safeText" },
+        "targetChannels": { "$ref": "#/$defs/channels" }
+      }
+    },
+    "playback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["durationMs", "stages", "reducedMotion", "rendererOwned"],
+      "properties": {
+        "durationMs": { "const": 5000 },
+        "stages": {
+          "type": "array",
+          "prefixItems": [
+            { "allOf": [{ "$ref": "#/$defs/stage" }, { "properties": { "id": { "const": "flat" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/stage" }, { "properties": { "id": { "const": "structure" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/stage" }, { "properties": { "id": { "const": "weight" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/stage" }, { "properties": { "id": { "const": "party" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/stage" }, { "properties": { "id": { "const": "hero" } } }] }
+          ],
+          "items": false,
+          "minItems": 5,
+          "maxItems": 5
+        },
+        "reducedMotion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "stepOrder", "cameraMotion", "continuousGeometryMotion"],
+          "properties": {
+            "mode": { "const": "five-user-advanced-steps" },
+            "stepOrder": { "const": ["flat", "structure", "weight", "party", "hero"] },
+            "cameraMotion": { "const": false },
+            "continuousGeometryMotion": { "const": false }
+          }
+        },
+        "rendererOwned": {
+          "const": ["camera-pose", "easing", "lighting", "material-interpolation"]
+        }
+      }
+    },
+    "mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "emphasizes", "preserves"],
+      "properties": {
+        "id": { "enum": ["structure", "weight", "origins"] },
+        "label": { "enum": ["STRUCTURE", "WEIGHT", "ORIGINS"] },
+        "emphasizes": {
+          "type": "array",
+          "items": { "enum": ["structure", "weight", "origins"] },
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true
+        },
+        "preserves": { "const": ["object-membership", "geometry", "measurements", "endpoints"] }
+      }
+    },
+    "modes": {
+      "type": "array",
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/mode" }, { "properties": { "id": { "const": "structure" }, "label": { "const": "STRUCTURE" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/mode" }, { "properties": { "id": { "const": "weight" }, "label": { "const": "WEIGHT" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/mode" }, { "properties": { "id": { "const": "origins" }, "label": { "const": "ORIGINS" } } }] }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "selectable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "label",
+        "renderable",
+        "sceneRefs",
+        "recordRefs",
+        "mappingRefs",
+        "resultRefs",
+        "limitationRefs",
+        "emphasisChannels"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeText" },
+        "kind": {
+          "enum": [
+            "region",
+            "aggregate",
+            "page-bus",
+            "third-party-hub",
+            "resource-path",
+            "evidence-only-node",
+            "hero-finding",
+            "neutral-summary",
+            "capture-status"
+          ]
+        },
+        "label": {
+          "enum": [
+            "PAGE REGION",
+            "AGGREGATED REGION",
+            "PAGE RESOURCE BUS",
+            "EXTERNAL DOMAIN HUB",
+            "RESOURCE PATH",
+            "EVIDENCE-ONLY REGION",
+            "PRIMARY FINDING",
+            "CAPTURE SUMMARY",
+            "CAPTURE STATUS"
+          ]
+        },
+        "renderable": { "type": "boolean" },
+        "sceneRefs": { "$ref": "#/$defs/pointers" },
+        "recordRefs": { "$ref": "#/$defs/pointers" },
+        "mappingRefs": { "$ref": "#/$defs/pointers" },
+        "resultRefs": { "$ref": "#/$defs/pointers" },
+        "limitationRefs": { "$ref": "#/$defs/pointers" },
+        "emphasisChannels": {
+          "type": "array",
+          "items": { "enum": ["structure", "weight", "origins", "finding"] },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": ["evidence-only-node", "hero-finding", "neutral-summary", "capture-status"]
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "renderable": { "const": false } } },
+          "else": { "properties": { "renderable": { "const": true } } }
+        }
+      ]
+    },
+    "viewerState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "motion",
+        "phase",
+        "playback",
+        "elapsedMs",
+        "stageIndex",
+        "stageId",
+        "mode",
+        "selectedId",
+        "isolatedId",
+        "revision"
+      ],
+      "properties": {
+        "motion": { "enum": ["standard", "reduced"] },
+        "phase": { "enum": ["revealing", "stepping", "exploring"] },
+        "playback": { "enum": ["playing", "paused", "complete"] },
+        "elapsedMs": { "type": "integer", "minimum": 0, "maximum": 5000 },
+        "stageIndex": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "stageId": { "enum": ["flat", "structure", "weight", "party", "hero"] },
+        "mode": { "enum": ["structure", "weight", "origins"] },
+        "selectedId": { "type": ["string", "null"] },
+        "isolatedId": { "type": ["string", "null"] },
+        "revision": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

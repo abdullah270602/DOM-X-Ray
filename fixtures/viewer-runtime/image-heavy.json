@@ -1,0 +1,537 @@
+{
+  "viewerRuntimeVersion": "viewer-runtime-v0.1.0",
+  "scanId": "fixture-image-heavy",
+  "resultId": "r_572950dc9af4494cb2e382f30872b175",
+  "resultPath": "/r/r_572950dc9af4494cb2e382f30872b175",
+  "mappingVersion": "mapping-v0.1.0",
+  "sourceHashes": {
+    "scanRecordSha256": "350241859b05a36be63bcea92584838a5f048b698a1a48f2e6e948fb72cc19ce",
+    "sceneManifestSha256": "b79c3f7b136df4e441266afbdd205cbb7cf861474b391388bbfd98436815e6a3",
+    "mappingRegistrySha256": "0bef2b6c6e0fe01af279db865b9e29982507bdfcf5fd694b3c57495770c4a472",
+    "resultBindingSha256": "6b960cbff30976d4bd599dbd2a98d12a0b1d2c605a7e5f604fcf5845f4368db2",
+    "resultManifestSha256": "196f3f9b59512b53b6a41ecacbd014c2ec02ebd55a18885c7d7d5d54f308e16d"
+  },
+  "accessPaths": [
+    {
+      "id": "webgl",
+      "requiresSceneRendering": true,
+      "usesSameEvidence": true
+    },
+    {
+      "id": "reduced-motion",
+      "requiresSceneRendering": false,
+      "usesSameEvidence": true
+    },
+    {
+      "id": "text",
+      "requiresSceneRendering": false,
+      "usesSameEvidence": true
+    }
+  ],
+  "presentation": {
+    "pageLabel": "gallery.example",
+    "status": "complete",
+    "failureCode": null,
+    "statusLabel": "COMPLETE CAPTURE",
+    "partialLabelRequired": false,
+    "shareState": "artifact-eligible",
+    "finding": {
+      "kind": "hero",
+      "statement": "Images accounted for 87.5% of the 5.2 MB transferred in this captured load.",
+      "shareEligible": true,
+      "resultRef": "#/hero",
+      "recordRef": "#/insights/0"
+    },
+    "limitationResultRefs": []
+  },
+  "playback": {
+    "durationMs": 5000,
+    "stages": [
+      {
+        "id": "flat",
+        "startMs": 0,
+        "endMs": 700,
+        "meaning": "captured-page orientation",
+        "targetChannels": {
+          "page": 1.0,
+          "structure": 0.0,
+          "weight": 0.0,
+          "origins": 0.0,
+          "finding": 0.0
+        }
+      },
+      {
+        "id": "structure",
+        "startMs": 700,
+        "endMs": 1700,
+        "meaning": "DOM structure separates",
+        "targetChannels": {
+          "page": 1.0,
+          "structure": 1.0,
+          "weight": 0.0,
+          "origins": 0.0,
+          "finding": 0.0
+        }
+      },
+      {
+        "id": "weight",
+        "startMs": 1700,
+        "endMs": 3200,
+        "meaning": "known transferred bytes acquire mass",
+        "targetChannels": {
+          "page": 1.0,
+          "structure": 1.0,
+          "weight": 1.0,
+          "origins": 0.0,
+          "finding": 0.0
+        }
+      },
+      {
+        "id": "party",
+        "startMs": 3200,
+        "endMs": 4200,
+        "meaning": "third-party domain hubs enter",
+        "targetChannels": {
+          "page": 1.0,
+          "structure": 1.0,
+          "weight": 1.0,
+          "origins": 1.0,
+          "finding": 0.0
+        }
+      },
+      {
+        "id": "hero",
+        "startMs": 4200,
+        "endMs": 5000,
+        "meaning": "camera locks and hero evidence appears",
+        "targetChannels": {
+          "page": 1.0,
+          "structure": 1.0,
+          "weight": 1.0,
+          "origins": 1.0,
+          "finding": 1.0
+        }
+      }
+    ],
+    "reducedMotion": {
+      "mode": "five-user-advanced-steps",
+      "stepOrder": [
+        "flat",
+        "structure",
+        "weight",
+        "party",
+        "hero"
+      ],
+      "cameraMotion": false,
+      "continuousGeometryMotion": false
+    },
+    "rendererOwned": [
+      "camera-pose",
+      "easing",
+      "lighting",
+      "material-interpolation"
+    ]
+  },
+  "modes": [
+    {
+      "id": "structure",
+      "label": "STRUCTURE",
+      "emphasizes": [
+        "structure"
+      ],
+      "preserves": [
+        "object-membership",
+        "geometry",
+        "measurements",
+        "endpoints"
+      ]
+    },
+    {
+      "id": "weight",
+      "label": "WEIGHT",
+      "emphasizes": [
+        "weight"
+      ],
+      "preserves": [
+        "object-membership",
+        "geometry",
+        "measurements",
+        "endpoints"
+      ]
+    },
+    {
+      "id": "origins",
+      "label": "ORIGINS",
+      "emphasizes": [
+        "origins"
+      ],
+      "preserves": [
+        "object-membership",
+        "geometry",
+        "measurements",
+        "endpoints"
+      ]
+    }
+  ],
+  "selectables": [
+    {
+      "id": "region:n-body",
+      "kind": "region",
+      "label": "PAGE REGION",
+      "renderable": true,
+      "sceneRefs": [
+        "#/objects/0"
+      ],
+      "recordRefs": [
+        "#/nodes/0",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/scene/coordinateRule",
+        "#/structure/depthRule",
+        "#/structure/zRule"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "structure"
+      ]
+    },
+    {
+      "id": "region:n-header",
+      "kind": "region",
+      "label": "PAGE REGION",
+      "renderable": true,
+      "sceneRefs": [
+        "#/objects/1"
+      ],
+      "recordRefs": [
+        "#/nodes/1",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/scene/coordinateRule",
+        "#/structure/depthRule",
+        "#/structure/zRule"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "structure"
+      ]
+    },
+    {
+      "id": "region:n-hero",
+      "kind": "region",
+      "label": "PAGE REGION",
+      "renderable": true,
+      "sceneRefs": [
+        "#/objects/2"
+      ],
+      "recordRefs": [
+        "#/nodes/2",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/scene/coordinateRule",
+        "#/structure/depthRule",
+        "#/structure/zRule",
+        "#/weight"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "structure",
+        "weight"
+      ]
+    },
+    {
+      "id": "region:n-gallery",
+      "kind": "aggregate",
+      "label": "AGGREGATED REGION",
+      "renderable": true,
+      "sceneRefs": [
+        "#/objects/3"
+      ],
+      "recordRefs": [
+        "#/nodes/3",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/scene/coordinateRule",
+        "#/structure/depthRule",
+        "#/structure/zRule",
+        "#/structure/aggregationRule",
+        "#/weight"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "structure",
+        "weight"
+      ]
+    },
+    {
+      "id": "bus:page",
+      "kind": "page-bus",
+      "label": "PAGE RESOURCE BUS",
+      "renderable": true,
+      "sceneRefs": [
+        "#/objects/4"
+      ],
+      "recordRefs": [
+        "#/page/registrableDomain",
+        "#/resources"
+      ],
+      "mappingRefs": [
+        "#/party/pageBusPlacementRule"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "origins"
+      ]
+    },
+    {
+      "id": "connection:r-document",
+      "kind": "resource-path",
+      "label": "RESOURCE PATH",
+      "renderable": true,
+      "sceneRefs": [
+        "#/connections/0"
+      ],
+      "recordRefs": [
+        "#/resources/0",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/party/classificationRule",
+        "#/party/knownCableThicknessRule"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "weight",
+        "origins"
+      ]
+    },
+    {
+      "id": "connection:r-style",
+      "kind": "resource-path",
+      "label": "RESOURCE PATH",
+      "renderable": true,
+      "sceneRefs": [
+        "#/connections/1"
+      ],
+      "recordRefs": [
+        "#/resources/1",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/party/classificationRule",
+        "#/party/knownCableThicknessRule"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "weight",
+        "origins"
+      ]
+    },
+    {
+      "id": "connection:r-app",
+      "kind": "resource-path",
+      "label": "RESOURCE PATH",
+      "renderable": true,
+      "sceneRefs": [
+        "#/connections/2"
+      ],
+      "recordRefs": [
+        "#/resources/2",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/party/classificationRule",
+        "#/party/knownCableThicknessRule"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "weight",
+        "origins"
+      ]
+    },
+    {
+      "id": "connection:r-hero",
+      "kind": "resource-path",
+      "label": "RESOURCE PATH",
+      "renderable": true,
+      "sceneRefs": [
+        "#/connections/3"
+      ],
+      "recordRefs": [
+        "#/resources/3",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/party/classificationRule",
+        "#/party/knownCableThicknessRule"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "weight",
+        "origins"
+      ]
+    },
+    {
+      "id": "connection:r-gallery",
+      "kind": "resource-path",
+      "label": "RESOURCE PATH",
+      "renderable": true,
+      "sceneRefs": [
+        "#/connections/4"
+      ],
+      "recordRefs": [
+        "#/resources/4",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/party/classificationRule",
+        "#/party/knownCableThicknessRule"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "weight",
+        "origins"
+      ]
+    },
+    {
+      "id": "connection:r-thumbnail",
+      "kind": "resource-path",
+      "label": "RESOURCE PATH",
+      "renderable": true,
+      "sceneRefs": [
+        "#/connections/5"
+      ],
+      "recordRefs": [
+        "#/resources/5",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/party/classificationRule",
+        "#/party/knownCableThicknessRule"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "weight",
+        "origins"
+      ]
+    },
+    {
+      "id": "connection:r-font",
+      "kind": "resource-path",
+      "label": "RESOURCE PATH",
+      "renderable": true,
+      "sceneRefs": [
+        "#/connections/6"
+      ],
+      "recordRefs": [
+        "#/resources/6",
+        "#/mappingVersion"
+      ],
+      "mappingRefs": [
+        "#/party/classificationRule",
+        "#/party/knownCableThicknessRule"
+      ],
+      "resultRefs": [],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "weight",
+        "origins"
+      ]
+    },
+    {
+      "id": "finding:primary",
+      "kind": "hero-finding",
+      "label": "PRIMARY FINDING",
+      "renderable": false,
+      "sceneRefs": [
+        "#/hero"
+      ],
+      "recordRefs": [
+        "#/insights/0",
+        "#/resources/0/transferredBytes",
+        "#/resources/1/transferredBytes",
+        "#/resources/2/transferredBytes",
+        "#/resources/3/transferredBytes",
+        "#/resources/4/transferredBytes",
+        "#/resources/5/transferredBytes",
+        "#/resources/6/transferredBytes"
+      ],
+      "mappingRefs": [
+        "#/heroSelection"
+      ],
+      "resultRefs": [
+        "#/hero"
+      ],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "finding"
+      ]
+    },
+    {
+      "id": "status:capture",
+      "kind": "capture-status",
+      "label": "CAPTURE STATUS",
+      "renderable": false,
+      "sceneRefs": [
+        "#/status",
+        "#/failureCode",
+        "#/limitations"
+      ],
+      "recordRefs": [
+        "#/status",
+        "#/failureCode",
+        "#/limitations"
+      ],
+      "mappingRefs": [],
+      "resultRefs": [
+        "#/statusPresentation",
+        "#/limitations"
+      ],
+      "limitationRefs": [],
+      "emphasisChannels": [
+        "finding"
+      ]
+    }
+  ],
+  "initialStates": {
+    "standard": {
+      "motion": "standard",
+      "phase": "revealing",
+      "playback": "playing",
+      "elapsedMs": 0,
+      "stageIndex": 0,
+      "stageId": "flat",
+      "mode": "structure",
+      "selectedId": null,
+      "isolatedId": null,
+      "revision": 0
+    },
+    "reducedMotion": {
+      "motion": "reduced",
+      "phase": "stepping",
+      "playback": "paused",
+      "elapsedMs": 0,
+      "stageIndex": 0,
+      "stageId": "flat",
+      "mode": "structure",
+      "selectedId": null,
+      "isolatedId": null,
+      "revision": 0
+    }
+  }
+}
