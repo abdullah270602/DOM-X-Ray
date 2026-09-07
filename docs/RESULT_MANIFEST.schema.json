@@ -1,0 +1,514 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dom-x-ray.invalid/schema/result-manifest-v0.1.0.json",
+  "title": "DOM X-Ray Result Manifest v0.1.0",
+  "description": "Immutable bindings shared by a public result, poster, and video export.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "resultManifestVersion",
+    "resultId",
+    "resultPath",
+    "scanId",
+    "scanRecordSchemaVersion",
+    "mappingVersion",
+    "sceneManifestVersion",
+    "sourceHashes",
+    "pageIdentity",
+    "status",
+    "failureCode",
+    "statusPresentation",
+    "shareState",
+    "hero",
+    "content",
+    "exports",
+    "limitations"
+  ],
+  "properties": {
+    "resultManifestVersion": { "const": "result-manifest-v0.1.0" },
+    "resultId": { "$ref": "#/$defs/resultId" },
+    "resultPath": { "type": "string", "pattern": "^/r/r_[a-f0-9]{32}$" },
+    "scanId": { "$ref": "#/$defs/nonempty" },
+    "scanRecordSchemaVersion": { "const": "0.1.0" },
+    "mappingVersion": { "const": "mapping-v0.1.0" },
+    "sceneManifestVersion": { "const": "scene-manifest-v0.1.0" },
+    "sourceHashes": { "$ref": "#/$defs/sourceHashes" },
+    "pageIdentity": { "$ref": "#/$defs/pageIdentity" },
+    "status": { "enum": ["complete", "partial", "interstitial", "blocked", "failed"] },
+    "failureCode": { "type": ["string", "null"], "minLength": 1 },
+    "statusPresentation": { "$ref": "#/$defs/statusPresentation" },
+    "shareState": { "enum": ["artifact-eligible", "link-only", "unavailable"] },
+    "hero": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/hero" }
+      ]
+    },
+    "content": { "$ref": "#/$defs/content" },
+    "exports": { "$ref": "#/$defs/exports" },
+    "limitations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/limitation" }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "complete" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "failureCode": { "type": "null" },
+          "statusPresentation": {
+            "properties": {
+              "label": { "const": "COMPLETE CAPTURE" },
+              "partialLabelRequired": { "const": false }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "partial" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "failureCode": { "type": "string", "minLength": 1 },
+          "statusPresentation": {
+            "properties": {
+              "label": { "const": "PARTIAL CAPTURE" },
+              "partialLabelRequired": { "const": true }
+            }
+          },
+          "content": {
+            "properties": {
+              "requiredLayers": {
+                "allOf": [
+                  { "contains": { "const": "partial-status" } },
+                  { "contains": { "const": "limitation-disclosure" } }
+                ]
+              }
+            }
+          },
+          "limitations": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "enum": ["interstitial", "blocked", "failed"] } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "failureCode": { "type": "string", "minLength": 1 },
+          "shareState": { "const": "unavailable" },
+          "hero": { "type": "null" },
+          "limitations": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "interstitial" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "statusPresentation": {
+            "properties": {
+              "label": { "const": "CAPTURED INTERSTITIAL" },
+              "partialLabelRequired": { "const": false }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "blocked" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "statusPresentation": {
+            "properties": {
+              "label": { "const": "CAPTURE BLOCKED" },
+              "partialLabelRequired": { "const": false }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "failed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "statusPresentation": {
+            "properties": {
+              "label": { "const": "CAPTURE FAILED" },
+              "partialLabelRequired": { "const": false }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "hero": { "type": "null" } }, "required": ["hero"] },
+      "then": {
+        "properties": {
+          "shareState": { "enum": ["link-only", "unavailable"] },
+          "exports": {
+            "properties": {
+              "poster": { "$ref": "#/$defs/ineligiblePoster" },
+              "video": { "$ref": "#/$defs/ineligibleVideo" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "hero": { "type": "object" } }, "required": ["hero"] },
+      "then": {
+        "properties": {
+          "shareState": { "const": "artifact-eligible" },
+          "exports": {
+            "properties": {
+              "poster": { "$ref": "#/$defs/eligiblePoster" },
+              "video": { "$ref": "#/$defs/eligibleVideo" }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 },
+    "safeText": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\s\\S]*[\\u0000-\\u001F\\u007F<>])[\\s\\S]+$"
+    },
+    "resultId": { "type": "string", "pattern": "^r_[a-f0-9]{32}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "jsonPointer": { "type": "string", "pattern": "^#/" },
+    "uniqueStrings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonempty" },
+      "uniqueItems": true
+    },
+    "uniqueSafeTexts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/safeText" },
+      "uniqueItems": true
+    },
+    "sourceHashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scanRecordSha256",
+        "sceneManifestSha256",
+        "mappingRegistrySha256",
+        "heroSha256",
+        "resultBindingSha256"
+      ],
+      "properties": {
+        "scanRecordSha256": { "$ref": "#/$defs/sha256" },
+        "sceneManifestSha256": { "$ref": "#/$defs/sha256" },
+        "mappingRegistrySha256": { "$ref": "#/$defs/sha256" },
+        "heroSha256": { "$ref": "#/$defs/sha256" },
+        "resultBindingSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "pageIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "recordRef"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^(?![\\s\\S]*[\\u0000-\\u001F\\u007F<>])[^\\s/?#]+$"
+        },
+        "recordRef": { "const": "#/page/registrableDomain" }
+      }
+    },
+    "statusPresentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "partialLabelRequired"],
+      "properties": {
+        "label": {
+          "enum": [
+            "COMPLETE CAPTURE",
+            "PARTIAL CAPTURE",
+            "CAPTURED INTERSTITIAL",
+            "CAPTURE BLOCKED",
+            "CAPTURE FAILED"
+          ]
+        },
+        "partialLabelRequired": { "type": "boolean" }
+      }
+    },
+    "classifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "basis", "confidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeText" },
+        "version": { "$ref": "#/$defs/safeText" },
+        "basis": { "$ref": "#/$defs/safeText" },
+        "confidence": { "enum": ["low", "medium", "high"] }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "level",
+        "attributionScope",
+        "metric",
+        "value",
+        "unit",
+        "sourceRefs",
+        "rule"
+      ],
+      "properties": {
+        "role": { "enum": ["primary", "support"] },
+        "level": { "enum": ["observed", "derived", "classified"] },
+        "attributionScope": {
+          "enum": ["exact-element", "exact-resource-link", "probable-link", "page-level", "unknown"]
+        },
+        "metric": { "$ref": "#/$defs/safeText" },
+        "value": {
+          "oneOf": [
+            { "type": "number" },
+            { "type": "boolean" },
+            { "$ref": "#/$defs/safeText" }
+          ]
+        },
+        "unit": { "$ref": "#/$defs/safeText" },
+        "sourceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonPointer" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "rule": { "$ref": "#/$defs/safeText" },
+        "classifier": { "$ref": "#/$defs/classifier" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "level": { "const": "classified" } }, "required": ["level"] },
+          "then": { "required": ["classifier"] }
+        }
+      ]
+    },
+    "hero": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "insightId",
+        "kind",
+        "statement",
+        "shareEligible",
+        "recordRef",
+        "sourceRefs",
+        "limitationCodes",
+        "evidence",
+        "selectionRule"
+      ],
+      "properties": {
+        "insightId": { "$ref": "#/$defs/nonempty" },
+        "kind": { "enum": ["structure", "weight", "third-party", "layout-shift"] },
+        "statement": { "$ref": "#/$defs/safeText" },
+        "shareEligible": { "const": true },
+        "recordRef": { "$ref": "#/$defs/jsonPointer" },
+        "sourceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonPointer" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "limitationCodes": { "$ref": "#/$defs/uniqueSafeTexts" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" },
+          "minItems": 1,
+          "maxItems": 4,
+          "contains": {
+            "type": "object",
+            "required": ["role", "level", "value"],
+            "properties": {
+              "role": { "const": "primary" },
+              "level": { "enum": ["observed", "derived"] },
+              "value": { "type": "number" }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        "selectionRule": { "$ref": "#/$defs/safeText" }
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productName", "finalFrameCta", "requiredLayers"],
+      "properties": {
+        "productName": { "const": "DOM X-Ray" },
+        "finalFrameCta": { "const": "X-RAY ANOTHER SITE" },
+        "requiredLayers": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "page-identity",
+              "scene",
+              "hero-fact",
+              "neutral-summary",
+              "capture-status",
+              "partial-status",
+              "limitation-disclosure",
+              "product-identity",
+              "new-scan-cta"
+            ]
+          },
+          "minItems": 4,
+          "maxItems": 7,
+          "uniqueItems": true
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "byteLength"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byteLength": { "type": "integer", "minimum": 1, "maximum": 8000000 }
+      }
+    },
+    "exportBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "eligible",
+        "state",
+        "mediaType",
+        "width",
+        "height",
+        "durationMs",
+        "maxByteLength",
+        "sourceResultBindingSha256",
+        "sourceSceneSha256",
+        "sourceHeroSha256",
+        "artifact"
+      ],
+      "properties": {
+        "kind": { "enum": ["poster", "video"] },
+        "eligible": { "type": "boolean" },
+        "state": { "enum": ["ineligible", "not-generated", "ready"] },
+        "mediaType": { "enum": ["image/png", "video/mp4"] },
+        "width": { "const": 1080 },
+        "height": { "const": 1080 },
+        "durationMs": { "type": ["integer", "null"] },
+        "maxByteLength": { "const": 8000000 },
+        "sourceResultBindingSha256": { "$ref": "#/$defs/sha256" },
+        "sourceSceneSha256": { "$ref": "#/$defs/sha256" },
+        "sourceHeroSha256": { "$ref": "#/$defs/sha256" },
+        "artifact": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/artifact" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "ready" } }, "required": ["state"] },
+          "then": { "properties": { "artifact": { "$ref": "#/$defs/artifact" } } },
+          "else": { "properties": { "artifact": { "type": "null" } } }
+        }
+      ]
+    },
+    "poster": {
+      "allOf": [
+        { "$ref": "#/$defs/exportBase" },
+        {
+          "properties": {
+            "kind": { "const": "poster" },
+            "mediaType": { "const": "image/png" },
+            "durationMs": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "video": {
+      "allOf": [
+        { "$ref": "#/$defs/exportBase" },
+        {
+          "properties": {
+            "kind": { "const": "video" },
+            "mediaType": { "const": "video/mp4" },
+            "durationMs": { "const": 5000 }
+          }
+        }
+      ]
+    },
+    "ineligiblePoster": {
+      "allOf": [
+        { "$ref": "#/$defs/poster" },
+        { "properties": { "eligible": { "const": false }, "state": { "const": "ineligible" } } }
+      ]
+    },
+    "ineligibleVideo": {
+      "allOf": [
+        { "$ref": "#/$defs/video" },
+        { "properties": { "eligible": { "const": false }, "state": { "const": "ineligible" } } }
+      ]
+    },
+    "eligiblePoster": {
+      "allOf": [
+        { "$ref": "#/$defs/poster" },
+        {
+          "properties": {
+            "eligible": { "const": true },
+            "state": { "enum": ["not-generated", "ready"] }
+          }
+        }
+      ]
+    },
+    "eligibleVideo": {
+      "allOf": [
+        { "$ref": "#/$defs/video" },
+        {
+          "properties": {
+            "eligible": { "const": true },
+            "state": { "enum": ["not-generated", "ready"] }
+          }
+        }
+      ]
+    },
+    "exports": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["poster", "video"],
+      "properties": {
+        "poster": { "$ref": "#/$defs/poster" },
+        "video": { "$ref": "#/$defs/video" }
+      }
+    },
+    "limitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "scope", "targetId", "message", "invalidatesMetrics", "recordRef"],
+      "properties": {
+        "code": { "$ref": "#/$defs/safeText" },
+        "scope": { "enum": ["scan", "page", "node", "resource", "layout-shift", "insight"] },
+        "targetId": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/safeText" }
+          ]
+        },
+        "message": { "$ref": "#/$defs/safeText" },
+        "invalidatesMetrics": { "$ref": "#/$defs/uniqueSafeTexts" },
+        "recordRef": { "$ref": "#/$defs/jsonPointer" }
+      }
+    }
+  }
+}

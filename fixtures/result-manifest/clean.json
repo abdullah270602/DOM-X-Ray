@@ -1,0 +1,70 @@
+{
+  "resultManifestVersion": "result-manifest-v0.1.0",
+  "resultId": "r_1cfe0f4e9ea34cb2a1d518237e721d30",
+  "resultPath": "/r/r_1cfe0f4e9ea34cb2a1d518237e721d30",
+  "scanId": "fixture-clean",
+  "scanRecordSchemaVersion": "0.1.0",
+  "mappingVersion": "mapping-v0.1.0",
+  "sceneManifestVersion": "scene-manifest-v0.1.0",
+  "sourceHashes": {
+    "scanRecordSha256": "12d678f250785a62e69d22c28c19793a3b3951a830eb2d435f3dc98aaa89daa2",
+    "sceneManifestSha256": "264c19fe87d40acea8c904a0f28ad73b7c9593a904759ec21ef2ba21332ac373",
+    "mappingRegistrySha256": "0bef2b6c6e0fe01af279db865b9e29982507bdfcf5fd694b3c57495770c4a472",
+    "heroSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+    "resultBindingSha256": "7fc7bda5fe3cc54cdb7eaf6e327cd6e68392fcbe366531c21c746ab6ec49bbe8"
+  },
+  "pageIdentity": {
+    "label": "clean.example",
+    "recordRef": "#/page/registrableDomain"
+  },
+  "status": "complete",
+  "failureCode": null,
+  "statusPresentation": {
+    "label": "COMPLETE CAPTURE",
+    "partialLabelRequired": false
+  },
+  "shareState": "link-only",
+  "hero": null,
+  "content": {
+    "productName": "DOM X-Ray",
+    "finalFrameCta": "X-RAY ANOTHER SITE",
+    "requiredLayers": [
+      "page-identity",
+      "scene",
+      "neutral-summary",
+      "product-identity",
+      "new-scan-cta"
+    ]
+  },
+  "exports": {
+    "poster": {
+      "kind": "poster",
+      "eligible": false,
+      "state": "ineligible",
+      "mediaType": "image/png",
+      "width": 1080,
+      "height": 1080,
+      "durationMs": null,
+      "maxByteLength": 8000000,
+      "sourceResultBindingSha256": "7fc7bda5fe3cc54cdb7eaf6e327cd6e68392fcbe366531c21c746ab6ec49bbe8",
+      "sourceSceneSha256": "264c19fe87d40acea8c904a0f28ad73b7c9593a904759ec21ef2ba21332ac373",
+      "sourceHeroSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "artifact": null
+    },
+    "video": {
+      "kind": "video",
+      "eligible": false,
+      "state": "ineligible",
+      "mediaType": "video/mp4",
+      "width": 1080,
+      "height": 1080,
+      "durationMs": 5000,
+      "maxByteLength": 8000000,
+      "sourceResultBindingSha256": "7fc7bda5fe3cc54cdb7eaf6e327cd6e68392fcbe366531c21c746ab6ec49bbe8",
+      "sourceSceneSha256": "264c19fe87d40acea8c904a0f28ad73b7c9593a904759ec21ef2ba21332ac373",
+      "sourceHeroSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "artifact": null
+    }
+  },
+  "limitations": []
+}

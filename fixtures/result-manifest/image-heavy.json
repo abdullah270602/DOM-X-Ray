@@ -1,0 +1,107 @@
+{
+  "resultManifestVersion": "result-manifest-v0.1.0",
+  "resultId": "r_572950dc9af4494cb2e382f30872b175",
+  "resultPath": "/r/r_572950dc9af4494cb2e382f30872b175",
+  "scanId": "fixture-image-heavy",
+  "scanRecordSchemaVersion": "0.1.0",
+  "mappingVersion": "mapping-v0.1.0",
+  "sceneManifestVersion": "scene-manifest-v0.1.0",
+  "sourceHashes": {
+    "scanRecordSha256": "350241859b05a36be63bcea92584838a5f048b698a1a48f2e6e948fb72cc19ce",
+    "sceneManifestSha256": "b79c3f7b136df4e441266afbdd205cbb7cf861474b391388bbfd98436815e6a3",
+    "mappingRegistrySha256": "0bef2b6c6e0fe01af279db865b9e29982507bdfcf5fd694b3c57495770c4a472",
+    "heroSha256": "69d1882b2fbe7ecea91de02d3287adcbca1794a73bee83e07227f479cc7e18d0",
+    "resultBindingSha256": "6b960cbff30976d4bd599dbd2a98d12a0b1d2c605a7e5f604fcf5845f4368db2"
+  },
+  "pageIdentity": {
+    "label": "gallery.example",
+    "recordRef": "#/page/registrableDomain"
+  },
+  "status": "complete",
+  "failureCode": null,
+  "statusPresentation": {
+    "label": "COMPLETE CAPTURE",
+    "partialLabelRequired": false
+  },
+  "shareState": "artifact-eligible",
+  "hero": {
+    "insightId": "i-image-share",
+    "kind": "weight",
+    "statement": "Images accounted for 87.5% of the 5.2 MB transferred in this captured load.",
+    "shareEligible": true,
+    "recordRef": "#/insights/0",
+    "sourceRefs": [
+      "#/resources/0/transferredBytes",
+      "#/resources/1/transferredBytes",
+      "#/resources/2/transferredBytes",
+      "#/resources/3/transferredBytes",
+      "#/resources/4/transferredBytes",
+      "#/resources/5/transferredBytes",
+      "#/resources/6/transferredBytes"
+    ],
+    "limitationCodes": [],
+    "evidence": [
+      {
+        "role": "primary",
+        "level": "derived",
+        "attributionScope": "page-level",
+        "metric": "image_transfer_share",
+        "value": 87.5,
+        "unit": "percent",
+        "sourceRefs": [
+          "#/resources/0/transferredBytes",
+          "#/resources/1/transferredBytes",
+          "#/resources/2/transferredBytes",
+          "#/resources/3/transferredBytes",
+          "#/resources/4/transferredBytes",
+          "#/resources/5/transferredBytes",
+          "#/resources/6/transferredBytes"
+        ],
+        "rule": "round(imageBytes * 1000 / totalBytes) / 10"
+      }
+    ],
+    "selectionRule": "dominant-resource-type-share-v1"
+  },
+  "content": {
+    "productName": "DOM X-Ray",
+    "finalFrameCta": "X-RAY ANOTHER SITE",
+    "requiredLayers": [
+      "page-identity",
+      "scene",
+      "hero-fact",
+      "product-identity",
+      "new-scan-cta"
+    ]
+  },
+  "exports": {
+    "poster": {
+      "kind": "poster",
+      "eligible": true,
+      "state": "not-generated",
+      "mediaType": "image/png",
+      "width": 1080,
+      "height": 1080,
+      "durationMs": null,
+      "maxByteLength": 8000000,
+      "sourceResultBindingSha256": "6b960cbff30976d4bd599dbd2a98d12a0b1d2c605a7e5f604fcf5845f4368db2",
+      "sourceSceneSha256": "b79c3f7b136df4e441266afbdd205cbb7cf861474b391388bbfd98436815e6a3",
+      "sourceHeroSha256": "69d1882b2fbe7ecea91de02d3287adcbca1794a73bee83e07227f479cc7e18d0",
+      "artifact": null
+    },
+    "video": {
+      "kind": "video",
+      "eligible": true,
+      "state": "not-generated",
+      "mediaType": "video/mp4",
+      "width": 1080,
+      "height": 1080,
+      "durationMs": 5000,
+      "maxByteLength": 8000000,
+      "sourceResultBindingSha256": "6b960cbff30976d4bd599dbd2a98d12a0b1d2c605a7e5f604fcf5845f4368db2",
+      "sourceSceneSha256": "b79c3f7b136df4e441266afbdd205cbb7cf861474b391388bbfd98436815e6a3",
+      "sourceHeroSha256": "69d1882b2fbe7ecea91de02d3287adcbca1794a73bee83e07227f479cc7e18d0",
+      "artifact": null
+    }
+  },
+  "limitations": []
+}

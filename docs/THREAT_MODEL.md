@@ -95,6 +95,8 @@ The same local proxy now proves inclusive request admission, per-response wire-b
 - Shared links use opaque, unguessable IDs and never contain the original URL's query string.
 - No-login deletion uses a separate high-entropy deletion token that is never embedded in the public result URL.
 
+`result-manifest-v0.1.0` now provides deterministic pre-render binding evidence for the immutable scan, mapping registry, scene, complete hero evidence, limitation set, opaque result path, and future artifact byte hashes. Its strict field allowlist has no dedicated fields for target resources, page copy, selectors, executable payloads, or deletion tokens, and its copied public strings reject control characters and angle brackets. This boundary still depends on prior scan schema-plus-semantic admission, and every renderer must output copied strings as inert text. This is not pixel-equivalence, media-decoder, storage, route-availability, or deletion proof; the renderer/exporter and deployed result surface must still satisfy the controls above.
+
 ## Abuse, retention, and incident requirements
 
 Before any public launch, the project needs:

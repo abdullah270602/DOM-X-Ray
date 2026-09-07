@@ -159,6 +159,8 @@ Pivot rule: if visitors watch but do not inspect or rescan, improve the transiti
 
 **Question:** Does the artifact survive outside the product and invite the next scan?
 
+Current status: **immutable binding implemented; rendering and publication not started**. `result-manifest-v0.1.0` deterministically binds an opaque result path, scan record, mapping registry, scene manifest, exact hero sentence and numeric evidence, limitation disclosure, and bounded poster/video targets. Three golden fixtures prove link-only fallback, complete artifact eligibility, and visibly partial artifact eligibility. No pixels, video container, storage, public route, preview, deletion path, or X upload have been implemented or claimed.
+
 Deliverables:
 
 - Stable public result URL.

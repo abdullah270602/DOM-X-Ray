@@ -1,0 +1,130 @@
+{
+  "resultManifestVersion": "result-manifest-v0.1.0",
+  "resultId": "r_a67e06bb119a4384bd31793f594be064",
+  "resultPath": "/r/r_a67e06bb119a4384bd31793f594be064",
+  "scanId": "fixture-third-party-heavy",
+  "scanRecordSchemaVersion": "0.1.0",
+  "mappingVersion": "mapping-v0.1.0",
+  "sceneManifestVersion": "scene-manifest-v0.1.0",
+  "sourceHashes": {
+    "scanRecordSha256": "15859153e6e215925e3da66369e52b8919f883bdb92e45cc2903a88f89d6c0d2",
+    "sceneManifestSha256": "f209bed602212d371cc2b5a1b11f380307b24e81ff216a7f8602ed784767068d",
+    "mappingRegistrySha256": "0bef2b6c6e0fe01af279db865b9e29982507bdfcf5fd694b3c57495770c4a472",
+    "heroSha256": "3f7fbdb49256ee1dd043c14989edd1f709fec2c476eb6e12280185e2fd7f7695",
+    "resultBindingSha256": "c2eb16c3d1644f721f1ad903215a19cf92149bd3bf2827c507197569bb3f6fb8"
+  },
+  "pageIdentity": {
+    "label": "newsroom.example",
+    "recordRef": "#/page/registrableDomain"
+  },
+  "status": "partial",
+  "failureCode": "measurement-unavailable",
+  "statusPresentation": {
+    "label": "PARTIAL CAPTURE",
+    "partialLabelRequired": true
+  },
+  "shareState": "artifact-eligible",
+  "hero": {
+    "insightId": "i-third-party-requests",
+    "kind": "third-party",
+    "statement": "4 of 8 requests used domains different from newsroom.example in this captured load.",
+    "shareEligible": true,
+    "recordRef": "#/insights/0",
+    "sourceRefs": [
+      "#/resources/4/party",
+      "#/resources/5/party",
+      "#/resources/6/party",
+      "#/resources/7/party",
+      "#/capture/requestCount"
+    ],
+    "limitationCodes": [
+      "resource-bytes-unavailable"
+    ],
+    "evidence": [
+      {
+        "role": "primary",
+        "level": "derived",
+        "attributionScope": "page-level",
+        "metric": "third_party_requests",
+        "value": 4,
+        "unit": "requests",
+        "sourceRefs": [
+          "#/resources/4/party",
+          "#/resources/5/party",
+          "#/resources/6/party",
+          "#/resources/7/party"
+        ],
+        "rule": "registrable-domain-v1"
+      },
+      {
+        "role": "support",
+        "level": "observed",
+        "attributionScope": "page-level",
+        "metric": "observed_requests",
+        "value": 8,
+        "unit": "requests",
+        "sourceRefs": [
+          "#/capture/requestCount"
+        ],
+        "rule": "capture-request-count-v1"
+      }
+    ],
+    "selectionRule": "third-party-request-share-v1"
+  },
+  "content": {
+    "productName": "DOM X-Ray",
+    "finalFrameCta": "X-RAY ANOTHER SITE",
+    "requiredLayers": [
+      "page-identity",
+      "scene",
+      "hero-fact",
+      "product-identity",
+      "new-scan-cta",
+      "partial-status",
+      "limitation-disclosure"
+    ]
+  },
+  "exports": {
+    "poster": {
+      "kind": "poster",
+      "eligible": true,
+      "state": "not-generated",
+      "mediaType": "image/png",
+      "width": 1080,
+      "height": 1080,
+      "durationMs": null,
+      "maxByteLength": 8000000,
+      "sourceResultBindingSha256": "c2eb16c3d1644f721f1ad903215a19cf92149bd3bf2827c507197569bb3f6fb8",
+      "sourceSceneSha256": "f209bed602212d371cc2b5a1b11f380307b24e81ff216a7f8602ed784767068d",
+      "sourceHeroSha256": "3f7fbdb49256ee1dd043c14989edd1f709fec2c476eb6e12280185e2fd7f7695",
+      "artifact": null
+    },
+    "video": {
+      "kind": "video",
+      "eligible": true,
+      "state": "not-generated",
+      "mediaType": "video/mp4",
+      "width": 1080,
+      "height": 1080,
+      "durationMs": 5000,
+      "maxByteLength": 8000000,
+      "sourceResultBindingSha256": "c2eb16c3d1644f721f1ad903215a19cf92149bd3bf2827c507197569bb3f6fb8",
+      "sourceSceneSha256": "f209bed602212d371cc2b5a1b11f380307b24e81ff216a7f8602ed784767068d",
+      "sourceHeroSha256": "3f7fbdb49256ee1dd043c14989edd1f709fec2c476eb6e12280185e2fd7f7695",
+      "artifact": null
+    }
+  },
+  "limitations": [
+    {
+      "code": "resource-bytes-unavailable",
+      "scope": "resource",
+      "targetId": "r-metrics",
+      "message": "Transfer bytes were unavailable for one third-party response; byte-share insights are suppressed.",
+      "invalidatesMetrics": [
+        "total_transferred_bytes",
+        "third_party_transferred_bytes"
+      ],
+      "recordRef": "#/limitations/0"
+    }
+  ]
+}
