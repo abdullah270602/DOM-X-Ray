@@ -1,10 +1,14 @@
 # ADR-001: Application Stack and Runtime Split
 
-Status: **proposed — explicit user approval required before scaffolding**
+Status: **accepted**
 
-Date: 2026-09-06
+Date: 2026-09-07
 
-## Decision to approve
+Approved by the user on 2026-09-07: option 1, React + TypeScript + Vite +
+Three.js + React Three Fiber for the static viewer. The Python scanner remains a
+separate runtime.
+
+## Decision
 
 Build DOM X-Ray as two deliberately separate runtimes:
 

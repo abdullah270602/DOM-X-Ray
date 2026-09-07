@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-Open decision. The user has been offered a framework/deployment choice and has not selected one yet. Do not scaffold the application until that answer is explicit. The current technical hypothesis—not a commitment—is a TypeScript web client using Three.js or React Three Fiber, paired with a controlled browser scanner.
+The viewer uses React, TypeScript, Vite, Three.js, and React Three Fiber. The user approved this stack on 2026-09-07. The existing Python controlled Playwright/Chromium scanner stays a separate runtime. Gate 1 is local and fixture-driven; hosting and production scanner deployment remain later decisions.
 
 ## Users
 

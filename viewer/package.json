@@ -1,0 +1,39 @@
+{
+  "name": "dom-x-ray-viewer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "sync:fixtures": "node scripts/sync-fixtures.mjs",
+    "predev": "npm run sync:fixtures",
+    "dev": "vite",
+    "prebuild": "npm run sync:fixtures",
+    "build": "tsc -b && vite build",
+    "pretest": "npm run sync:fixtures",
+    "test": "vitest run",
+    "typecheck": "npm run sync:fixtures && tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@fontsource-variable/archivo": "5.3.0",
+    "@fontsource/barlow-condensed": "5.3.0",
+    "@phosphor-icons/react": "2.1.10",
+    "@react-three/fiber": "9.7.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@types/three": "0.185.4",
+    "@vitejs/plugin-react": "6.1.1",
+    "jsdom": "29.1.1",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vitest": "5.0.0"
+  }
+}

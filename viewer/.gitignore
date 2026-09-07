@@ -1,0 +1,4 @@
+node_modules/
+dist/
+src/fixtures/generated/
+debug.log
