@@ -19,6 +19,7 @@ This ledger prevents documentation volume from being mistaken for completion. A 
 | Deterministic hero selection and claim suppression | `scanner/insights.py`, `python scripts/verify_insights.py`, live browser assertions | Pass: complete comparator, four enabled evidence candidates, neutral fallback, exact-attribution and 90% known-value boundaries, limitation suppression, hostile-copy independence, 3 positive browser outcomes, and 28 no-standout/interstitial outcomes |
 | Fixed browser/capture protocol | `docs/CAPTURE_PROTOCOL.md`, `scanner/browser_probe.py` | Partial implementation proven on local deterministic pages |
 | Public-destination URL/DNS policy seam | `scanner/destination_policy.py`, `python scripts/verify_destination_policy.py` | Pass as a deployment-neutral policy primitive: 51 public/forbidden addresses, 29 malformed or unsafe URLs, 7 resolver failure modes, independent initial/redirect/subresource resolution, same-family and mixed-family answer rejection, bounded answer collection, content-free errors, validated address sets available for future connector pinning, and same-host public-to-private rebinding rejection before connector contact. The seam is not wired into the fixture browser/proxy because neither can provide address-pinned public HTTPS; production parser/resolver selection, connector integration, HTTPS forwarding, and network-namespace enforcement remain open. |
+| Public-scan policy, worker, and record-admission composition | `scanner/scan_transport.py`, `docs/SCAN_TRANSPORT.md`, `python scripts/verify_scan_transport.py` | Pass as a deployment-neutral integration contract: initial targets are resolved into ephemeral grants before worker construction; redirect/subresource connector calls receive only their own fresh validated destination; all 29 target-policy cases, 7 DNS failures, and a public-to-private rebound make zero launch/contact calls; and only a supervised eligible artifact with an exact envelope, schema-valid and semantically valid record, and matching normalized `requestedUrl` is admitted. Launch/setup, crash, timeout, nonce, size, nonregular, envelope, schema, semantic, and target-mismatch negatives publish no record and leave no temporary artifact. Production address-pinned HTTPS, parser/resolver choice, public egress, queue adoption, durable publication, and container containment remain open. |
 | Scanner threat model and release-blocking controls | `docs/THREAT_MODEL.md` | Pass as model; automated controls unproven |
 | Privacy-minimized product telemetry and primary metric formulas | `docs/TELEMETRY.md` | Pass as contract; instrumentation unproven |
 | Geometry captured within 1 CSS pixel from deterministic pages | `fixtures/browser/`, `python scripts/verify_browser_fixtures.py` | Pass: 57 hand-marked rectangles in the 31-fixture live-browser suite |
@@ -50,6 +51,7 @@ python scripts/verify_browser_fixtures.py
 python scripts/verify_worker_deadline.py
 python scripts/verify_capture_worker.py
 python scripts/verify_destination_policy.py
+python scripts/verify_scan_transport.py
 ```
 
 Expected output:
@@ -109,6 +111,7 @@ Validated schema-conformant scene manifests for all 31 browser fixtures.
 Validated a 15-second-ceiling worker supervisor, bounded nonce-scoped transport eligibility, repeatable post-capture timeout, and Chromium descendant cleanup.
 Validated complete, resource-limited, service-worker, and page-timeout scan records through the supervised capture-worker transport; strict config parsing, deterministic clean evidence, and a real post-capture worker timeout also hold.
 Validated 51 public/forbidden addresses, 29 malformed or unsafe URLs, 7 DNS failure modes, and public-to-private rebinding rejection before contact.
+Validated public-scan transport: independent initial/redirect/subresource address grants, zero launch on 29 target and 7 DNS rejections, rebinding denial, supervised artifact eligibility, strict envelope admission, and schema-plus-semantic target-bound record validation.
 ```
 
 ## Next proof-producing slice
