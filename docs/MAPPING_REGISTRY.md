@@ -37,7 +37,7 @@ z = min(2.4, 0.42 × log2(1 + domDepth))
 
 The logarithm prevents deeply nested utility wrappers from turning the scene into an unreadable tower. The cap preserves non-decreasing order but intentionally stops increasing visual distance after the cap. The inspector always shows the uncapped raw depth.
 
-An inferred stacking context adds a visible 0.08-world-unit seam and a drafting-film plane. That seam says only “this node met `stacking-context-v1`”; it does not represent browser compositor layers, GPU work, or simple z-index order.
+An inferred stacking context adds a visible 0.08-world-unit seam and a drafting-film plane. The scene object's final z position is the structural depth plus that seam when `stackingContext.creates` is true; otherwise it is the structural depth alone. That seam says only “this node met `stacking-context-v1`”; it does not represent browser compositor layers, GPU work, or simple z-index order.
 
 ## Weight mapping
 
@@ -67,16 +67,17 @@ Unattributed scripts, styles, fonts, fetches, and other requests feed a page-lev
 Party is derived from the final page's registrable domain under `registrable-domain-v1`.
 
 - First-party resources remain inside the page plinth.
-- Each unique stored `resource.registrableDomain` classified as third party becomes one external hub on a 7.5-world-unit ring. Subdomains and ports that resolve to the same registrable domain share a hub.
-- Requests connect to their exact region only when attribution is exact; otherwise they terminate at the page-level bus.
-- Known cable thickness uses the same monotonic byte mapping as mass.
+- Each unique stored `resource.registrableDomain` classified as third party becomes one external hub on the right-hand arc of a 7.5-world-unit ring. Domains sort case-insensitively with the original value as the final tie-breaker, then occupy evenly spaced angles from -22° to +22°; one domain sits at 0°. Subdomains and ports that resolve to the same registrable domain share a hub. Every hub has z = 0.12 and a 0.34-world-unit node radius.
+- The page-level bus sits inside the right edge of the page plinth at `(viewportPlaneWidthWorld / 2 - 0.25, 0, 0.12)`.
+- A first-party resource originates at the page bus; a third-party resource originates at its registrable-domain hub. Exact attribution terminates at every scene-included exact region. Non-exact attribution terminates at the page bus. When an exact target is evidence-only because of mandatory overflow, its path uses the page bus as an explicitly labelled display fallback while preserving the exact node ID; it never silently reattributes the request.
+- Known cable thickness is `0.01 + mass × 0.08` world units, using the same monotonic mass as the resource.
 - Unknown transfer uses a dashed, hollow connection.
 
 External topology means “different registrable domain in this captured load.” It never means tracker, advertising, ownership, surveillance, necessity, or harm.
 
 ## Perceptual aggregation
 
-The renderer has a hard budget of 650 scene objects, including external hubs. `perceptual-region-v1` runs deterministically in document order:
+The renderer has a hard budget of 650 counted scene objects: scene-included regions plus external hubs. The page bus and batched/instanced connection primitives do not consume aggregation slots; instrumentation reports both the counted logical total and actual Three.js object/draw-call totals. `perceptual-region-v1` runs deterministically in document order:
 
 1. Create candidates from the capture protocol's viewport-intersecting nodes.
 2. Mark mandatory nodes: root/body, semantic landmarks, replaced media, exact resource-link targets, shift sources, inferred stacking contexts, canvas, SVG roots, and iframes.
@@ -88,7 +89,7 @@ The renderer has a hard budget of 650 scene objects, including external hubs. `p
 
 The algorithm never describes omitted candidates as nonexistent. `rawDomNodeCount`, `inspectedNodeCount`, `candidateNodeCount`, `aggregatedNodeCount`, and `renderedRegionCount` remain separate.
 
-The Gate 0 browser proof exercises three distinct paths: 723 candidates reduce to 650 rendered regions with 73 inspectable aggregate members; two same-footprint evidence-free wrappers collapse while represented parents and exact image attribution remain intact; and 654 mandatory candidates produce a partial 650-object overview with four complete evidence-only node records. In the overflow fixture, the exact-linked image is deliberately evidence-only, proving its raw rectangle and symmetric resource link survive even though it is not a scene object. If external hubs leave no DOM scene slot at all, the reducer still refuses to invent a scene.
+The Gate 0 browser proof exercises three distinct paths: 723 candidates reduce to 650 rendered regions with 73 inspectable aggregate members; two same-footprint evidence-free wrappers collapse while represented parents and exact image attribution remain intact; and 654 mandatory candidates produce a partial 650-object overview with four complete evidence-only node records. In the overflow fixture, the exact-linked image is deliberately evidence-only, proving its raw rectangle and symmetric resource link survive even though it is not a scene object. If external hubs leave no DOM scene slot at all, the reducer still refuses to invent a scene. The reducer reserves hub slots before it chooses regions, so a valid normalized record's `renderedRegionCount + uniqueThirdPartyDomainCount` is never above 650.
 
 ## Hero selection
 

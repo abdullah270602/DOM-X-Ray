@@ -22,8 +22,8 @@
     "timezone": "UTC",
     "region": null,
     "inspectedNodeCount": 8,
-    "candidateNodeCount": 8,
-    "renderedRegionCount": 6,
+    "candidateNodeCount": 6,
+    "renderedRegionCount": 4,
     "aggregatedNodeCount": 2,
     "requestCount": 7,
     "requestsWithoutByteData": 0,
@@ -91,30 +91,6 @@
       "memberNodeIds": ["raw-card-1", "raw-card-2"],
       "aggregationRule": "grid-region-v1",
       "resourceIds": ["r-gallery", "r-thumbnail"]
-    },
-    {
-      "id": "n-caption",
-      "parentId": "n-gallery",
-      "tag": "p",
-      "selector": "section.gallery > p.caption",
-      "rect": { "x": 88, "y": 1392, "width": 640, "height": 48 },
-      "domDepth": 4,
-      "stackingContext": { "creates": false, "rule": null },
-      "memberNodeIds": [],
-      "aggregationRule": null,
-      "resourceIds": []
-    },
-    {
-      "id": "n-footer",
-      "parentId": "n-body",
-      "tag": "footer",
-      "selector": "footer",
-      "rect": { "x": 72, "y": 1512, "width": 1296, "height": 96 },
-      "domDepth": 2,
-      "stackingContext": { "creates": false, "rule": null },
-      "memberNodeIds": [],
-      "aggregationRule": null,
-      "resourceIds": []
     }
   ],
   "resources": [

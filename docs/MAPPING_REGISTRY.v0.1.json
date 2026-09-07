@@ -5,6 +5,8 @@
   "scene": {
     "viewportPlaneWidthWorld": 12,
     "maxSceneObjects": 650,
+    "objectBudgetRule": "scene-included-regions-plus-third-party-hubs-v1",
+    "pageBusCountsTowardObjectBudget": false,
     "minimumCandidateAreaCssPx2": 16,
     "coordinateRule": {
       "clip": "intersection-with-captured-viewport",
@@ -17,6 +19,7 @@
   },
   "structure": {
     "depthRule": "min(maxWorld, coefficient * log2(1 + domDepth))",
+    "zRule": "depthRule + stackingContextSeamWorld when stackingContext.creates, otherwise depthRule",
     "coefficient": 0.42,
     "maxWorld": 2.4,
     "stackingContextSeamWorld": 0.08,
@@ -37,7 +40,18 @@
     "thirdPartyTopology": "external-domain-hub",
     "firstPartyTopology": "within-page-plinth",
     "hubRadiusWorld": 7.5,
+    "hubPlacementRule": "right-edge-arc-even-v1",
+    "hubAngleStartDegrees": -22,
+    "hubAngleEndDegrees": 22,
+    "hubZWorld": 0.12,
+    "hubNodeRadiusWorld": 0.34,
+    "pageBusPlacementRule": "right-page-edge-center-v1",
+    "pageBusInsetWorld": 0.25,
+    "pageBusZWorld": 0.12,
     "knownCableRule": "weight.massRule",
+    "knownCableThicknessRule": "cableThicknessBaseWorld + mass * cableThicknessRangeWorld",
+    "cableThicknessBaseWorld": 0.01,
+    "cableThicknessRangeWorld": 0.08,
     "unknownCableStyle": "dashed-hollow"
   },
   "heroSelection": {

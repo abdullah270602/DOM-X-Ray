@@ -22,8 +22,8 @@
     "timezone": "UTC",
     "region": null,
     "inspectedNodeCount": 7,
-    "candidateNodeCount": 7,
-    "renderedRegionCount": 7,
+    "candidateNodeCount": 5,
+    "renderedRegionCount": 5,
     "aggregatedNodeCount": 0,
     "requestCount": 8,
     "requestsWithoutByteData": 1,
@@ -100,30 +100,6 @@
       "rect": { "x": 1080, "y": 312, "width": 96, "height": 240 },
       "domDepth": 3,
       "stackingContext": { "creates": true, "rule": "positioned-z-index" },
-      "memberNodeIds": [],
-      "aggregationRule": null,
-      "resourceIds": []
-    },
-    {
-      "id": "n-comments",
-      "parentId": "n-body",
-      "tag": "section",
-      "selector": "section.comments",
-      "rect": { "x": 232, "y": 1200, "width": 816, "height": 224 },
-      "domDepth": 2,
-      "stackingContext": { "creates": false, "rule": null },
-      "memberNodeIds": [],
-      "aggregationRule": null,
-      "resourceIds": ["r-comments-api"]
-    },
-    {
-      "id": "n-footer",
-      "parentId": "n-body",
-      "tag": "footer",
-      "selector": "footer",
-      "rect": { "x": 96, "y": 1456, "width": 1248, "height": 64 },
-      "domDepth": 2,
-      "stackingContext": { "creates": false, "rule": null },
       "memberNodeIds": [],
       "aggregationRule": null,
       "resourceIds": []
@@ -255,8 +231,8 @@
       "transferredBytes": 62000,
       "decodedBodyBytes": 174000,
       "durationMs": 175,
-      "attributionScope": "probable-link",
-      "attributedNodeIds": ["n-comments"]
+      "attributionScope": "page-level",
+      "attributedNodeIds": []
     }
   ],
   "layoutShifts": [

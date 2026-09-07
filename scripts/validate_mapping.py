@@ -5,11 +5,17 @@ from __future__ import annotations
 import copy
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any, Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from scanner.scene_manifest import resource_mass, scene_rect, structure_depth  # noqa: E402
+
+
 REGISTRY_PATH = ROOT / "docs" / "MAPPING_REGISTRY.v0.1.json"
 FIXTURE_DIR = ROOT / "fixtures" / "scan"
 FIXTURE_NAMES = ("clean.json", "image-heavy.json", "third-party-heavy.json")
@@ -24,53 +30,20 @@ def require(condition: bool, message: str) -> None:
         raise MappingError(message)
 
 
-def clamp(value: float, minimum: float, maximum: float) -> float:
-    return min(maximum, max(minimum, value))
-
-
-def structure_depth(registry: dict[str, Any], dom_depth: int) -> float:
-    config = registry["structure"]
-    return min(config["maxWorld"], config["coefficient"] * math.log2(1 + dom_depth))
-
-
-def resource_mass(registry: dict[str, Any], transferred_bytes: int) -> float:
-    config = registry["weight"]
-    return clamp(
-        math.log2(1 + transferred_bytes / config["baseBytes"]) / config["normalizer"],
-        0,
-        1,
-    )
-
-
-def clipped_rect(rect: dict[str, float], viewport: dict[str, float]) -> dict[str, float] | None:
-    left = max(0, rect["x"])
-    top = max(0, rect["y"])
-    right = min(viewport["width"], rect["x"] + rect["width"])
-    bottom = min(viewport["height"], rect["y"] + rect["height"])
-    if right <= left or bottom <= top:
-        return None
-    return {"x": left, "y": top, "width": right - left, "height": bottom - top}
-
-
-def scene_rect(registry: dict[str, Any], rect: dict[str, float], viewport: dict[str, float]) -> dict[str, float] | None:
-    clipped = clipped_rect(rect, viewport)
-    if clipped is None:
-        return None
-    plane_width = registry["scene"]["viewportPlaneWidthWorld"]
-    scale = plane_width / viewport["width"]
-    return {
-        "x": (clipped["x"] + clipped["width"] / 2 - viewport["width"] / 2) * scale,
-        "y": -(clipped["y"] + clipped["height"] / 2 - viewport["height"] / 2) * scale,
-        "width": clipped["width"] * scale,
-        "height": clipped["height"] * scale,
-    }
-
-
 def validate_registry(registry: dict[str, Any], fixtures: list[dict[str, Any]]) -> None:
     require(registry["version"] == "mapping-v0.1.0", "unexpected mapping version")
     require(registry["status"] == "prototype", "Gate 1 registry must remain explicitly provisional")
     require(1 <= registry["scene"]["maxSceneObjects"] <= 650, "scene object budget exceeds Gate 1")
     require(registry["scene"]["viewportPlaneWidthWorld"] > 0, "viewport plane width must be positive")
+    require(
+        registry["scene"]["objectBudgetRule"]
+        == "scene-included-regions-plus-third-party-hubs-v1",
+        "scene object budget rule drifted",
+    )
+    require(
+        registry["scene"]["pageBusCountsTowardObjectBudget"] is False,
+        "page bus budget treatment drifted",
+    )
 
     depths = [structure_depth(registry, depth) for depth in range(0, 201)]
     require(depths == sorted(depths), "structure depth mapping is not monotonic")
@@ -91,8 +64,35 @@ def validate_registry(registry: dict[str, Any], fixtures: list[dict[str, Any]]) 
     require([stage["id"] for stage in reveal] == ["flat", "structure", "weight", "party", "hero"], "reveal order drifted")
     require(reveal[0]["startSeconds"] == 0, "reveal does not start at zero")
     for previous, current in zip(reveal, reveal[1:]):
+        require(previous["endSeconds"] > previous["startSeconds"], "reveal stage has no duration")
         require(previous["endSeconds"] == current["startSeconds"], "reveal contains a gap or overlap")
+    require(reveal[-1]["endSeconds"] > reveal[-1]["startSeconds"], "final reveal stage has no duration")
     require(abs(reveal[-1]["endSeconds"] - 5) < 1e-9, "reveal is not exactly five seconds")
+
+    party = registry["party"]
+    require(party["hubPlacementRule"] == "right-edge-arc-even-v1", "hub placement rule drifted")
+    require(
+        -90 < party["hubAngleStartDegrees"] <= party["hubAngleEndDegrees"] < 90,
+        "hub arc must remain on the external right edge",
+    )
+    require(party["hubRadiusWorld"] > registry["scene"]["viewportPlaneWidthWorld"] / 2, "hubs overlap the page center")
+    require(party["hubNodeRadiusWorld"] > 0, "hub node radius must be positive")
+    outer_angle = max(abs(party["hubAngleStartDegrees"]), abs(party["hubAngleEndDegrees"]))
+    inner_hub_x = (
+        party["hubRadiusWorld"] * math.cos(math.radians(outer_angle))
+        - party["hubNodeRadiusWorld"]
+    )
+    require(
+        inner_hub_x > registry["scene"]["viewportPlaneWidthWorld"] / 2,
+        "external hub geometry overlaps the page plinth",
+    )
+    require(party["pageBusInsetWorld"] >= 0, "page bus inset must be non-negative")
+    require(
+        party["pageBusInsetWorld"] <= registry["scene"]["viewportPlaneWidthWorld"] / 2,
+        "page bus escaped the page plinth",
+    )
+    require(party["cableThicknessBaseWorld"] > 0, "cable base thickness must be positive")
+    require(party["cableThicknessRangeWorld"] > 0, "cable thickness range must be positive")
 
     hero = registry["heroSelection"]
     for key, value in hero.items():
@@ -203,9 +203,10 @@ def main() -> None:
     expect_failure("zero byte base", registry, fixtures, lambda r, _f: r["weight"].update({"baseBytes": 0}))
     expect_failure("unknown equals zero", registry, fixtures, lambda r, _f: r["weight"].update({"unknownTransferredBytesStyle": "cached-hollow"}))
     expect_failure("timeline gap", registry, fixtures, lambda r, _f: r["reveal"][2].update({"startSeconds": 1.8}))
+    expect_failure("zero-duration stage", registry, fixtures, lambda r, _f: r["reveal"][2].update({"endSeconds": 1.7}))
     expect_failure("shareable neutral fallback", registry, fixtures, lambda r, _f: r["heroSelection"].update({"fallbackShareEligible": True}))
 
-    print("Validated mapping-v0.1.0 against 3 fixtures and 6 negative controls; reveal duration is 5.0 seconds.")
+    print("Validated mapping-v0.1.0 against 3 fixtures and 7 negative controls; reveal duration is 5.0 seconds.")
 
 
 if __name__ == "__main__":

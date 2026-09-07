@@ -14,7 +14,8 @@ This ledger prevents documentation volume from being mistaken for completion. A 
 | Versioned scan record encodes the three target archetypes | `docs/SCAN_RECORD.schema.json`, `fixtures/scan/*.json` | Pass |
 | Cross-record provenance, five distinct node-count meanings, parent acyclicity, party/domain consistency, auxiliary-event bounds, hero rules, and negative mutations | `python scripts/validate_fixtures.py` | Pass: 3 fixtures + 15 negative controls |
 | Versioned semantic-to-scene formulas and reveal timing | `docs/MAPPING_REGISTRY.md`, `docs/MAPPING_REGISTRY.v0.1.json` | Pass as prototype contract |
-| Mapping monotonicity, deterministic fixture transforms, object cap, unknown states, and five-second duration | `python scripts/validate_mapping.py` | Pass: 3 fixtures + 6 negative controls |
+| Mapping monotonicity, deterministic fixture transforms, object cap, explicit bus/hub placement, unknown states, and five-second duration | `python scripts/validate_mapping.py` | Pass: 3 fixtures + 7 negative controls |
+| Executable renderer-neutral scene topology and evidence handoff | `scanner/scene_manifest.py`, `docs/SCENE_MANIFEST.md`, `python scripts/verify_scene_manifest.py` | Pass for the deterministic handoff: all 3 fixtures use one mapper; stable fingerprints cover exact geometry, mass, page-bus and sorted right-arc hub endpoints, evidence-only exclusion, hero binding, and distinct known/cache/worker/unknown/blocked transfer states; 7 negative controls fail closed. The static fixture audit also removed four wholly off-viewport nodes that had contradicted the viewport-candidate contract. |
 | Deterministic hero selection and claim suppression | `scanner/insights.py`, `python scripts/verify_insights.py`, live browser assertions | Pass: complete comparator, four enabled evidence candidates, neutral fallback, exact-attribution and 90% known-value boundaries, limitation suppression, hostile-copy independence, 3 positive browser outcomes, and 28 no-standout/interstitial outcomes |
 | Fixed browser/capture protocol | `docs/CAPTURE_PROTOCOL.md`, `scanner/browser_probe.py` | Partial implementation proven on local deterministic pages |
 | Public-destination URL/DNS policy seam | `scanner/destination_policy.py`, `python scripts/verify_destination_policy.py` | Pass as a deployment-neutral policy primitive: 51 public/forbidden addresses, 29 malformed or unsafe URLs, 7 resolver failure modes, independent initial/redirect/subresource resolution, same-family and mixed-family answer rejection, bounded answer collection, content-free errors, validated address sets available for future connector pinning, and same-host public-to-private rebinding rejection before connector contact. The seam is not wired into the fixture browser/proxy because neither can provide address-pinned public HTTPS; production parser/resolver selection, connector integration, HTTPS forwarding, and network-namespace enforcement remain open. |
@@ -43,6 +44,7 @@ This ledger prevents documentation volume from being mistaken for completion. A 
 ```sh
 python scripts/validate_fixtures.py
 python scripts/validate_mapping.py
+python scripts/verify_scene_manifest.py
 python scripts/verify_insights.py
 python scripts/verify_browser_fixtures.py
 python scripts/verify_worker_deadline.py
@@ -54,7 +56,8 @@ Expected output:
 
 ```text
 Validated 3 fixtures and 15 negative controls against Gate 0.
-Validated mapping-v0.1.0 against 3 fixtures and 6 negative controls; reveal duration is 5.0 seconds.
+Validated mapping-v0.1.0 against 3 fixtures and 7 negative controls; reveal duration is 5.0 seconds.
+Verified scene-manifest-v0.1.0 across 3 fixtures, one transfer/endpoint matrix, and 7 negative controls; fingerprints: {'fixture-clean': '264c19fe87d40ace', 'fixture-image-heavy': 'b79c3f7b136df4e4', 'fixture-third-party-heavy': 'f209bed602212d37'}.
 Validated deterministic hero selection across 3 scan fixtures and 7 boundary cases.
 Validated controlled Chromium 140.0.7339.16 against 31 deterministic browser fixtures.
   clean: 11 candidates -> 11 regions (0 aggregated), 2 exact element links, 5 requests, 180770 known CDP/wire bytes, 0 missing-byte requests
