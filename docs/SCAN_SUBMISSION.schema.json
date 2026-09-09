@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dom-x-ray.invalid/schema/scan-submission-v0.1.0.json",
+  "title": "DOM X-Ray Scan Submission v0.1.0",
+  "description": "The complete anonymous request body accepted by the public scan API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "url"],
+  "properties": {
+    "apiVersion": { "const": "scan-api-v0.1.0" },
+    "url": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 2048,
+      "pattern": "^https?://[^\\s]+$"
+    }
+  }
+}

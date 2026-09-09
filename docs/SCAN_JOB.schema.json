@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dom-x-ray.invalid/schema/scan-job-v0.1.0.json",
+  "title": "DOM X-Ray Scan Job v0.1.0",
+  "description": "A pollable anonymous job. Job lifecycle remains distinct from admitted scan-record status.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "jobId",
+    "state",
+    "progress",
+    "submittedAt",
+    "updatedAt",
+    "scanStatus",
+    "result",
+    "error",
+    "pollAfterMs"
+  ],
+  "properties": {
+    "apiVersion": { "const": "scan-api-v0.1.0" },
+    "jobId": { "type": "string", "pattern": "^j_[0-9a-f]{32}$" },
+    "state": { "enum": ["queued", "running", "ready", "rejected", "failed"] },
+    "progress": {
+      "enum": ["admission", "queued", "capturing", "mapping", "publishing", "complete", "rejected", "failed"]
+    },
+    "submittedAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "scanStatus": {
+      "type": ["string", "null"],
+      "enum": ["complete", "partial", "interstitial", "blocked", "failed", null]
+    },
+    "result": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["resultId", "resultPath", "bundleUrl"],
+          "properties": {
+            "resultId": { "type": "string", "pattern": "^r_[0-9a-f]{32}$" },
+            "resultPath": { "type": "string", "pattern": "^/r/r_[0-9a-f]{32}$" },
+            "bundleUrl": { "type": "string", "pattern": "^/api/results/r_[0-9a-f]{32}$" }
+          }
+        }
+      ]
+    },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message", "retryable"],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid-target",
+                "rate-limited",
+                "queue-full",
+                "scanner-disabled",
+                "scan-timeout",
+                "worker-crashed",
+                "invalid-result",
+                "capture-failed",
+                "internal-error"
+              ]
+            },
+            "message": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "retryable": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "pollAfterMs": {
+      "type": ["integer", "null"],
+      "minimum": 250,
+      "maximum": 5000
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "queued" } }, "required": ["state"] },
+      "then": {
+        "properties": {
+          "progress": { "enum": ["admission", "queued"] },
+          "scanStatus": { "type": "null" },
+          "result": { "type": "null" },
+          "error": { "type": "null" },
+          "pollAfterMs": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "running" } }, "required": ["state"] },
+      "then": {
+        "properties": {
+          "progress": { "enum": ["capturing", "mapping", "publishing"] },
+          "scanStatus": { "type": "null" },
+          "result": { "type": "null" },
+          "error": { "type": "null" },
+          "pollAfterMs": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "ready" } }, "required": ["state"] },
+      "then": {
+        "properties": {
+          "progress": { "const": "complete" },
+          "scanStatus": { "enum": ["complete", "partial", "interstitial", "blocked", "failed"] },
+          "result": { "type": "object" },
+          "error": { "type": "null" },
+          "pollAfterMs": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "rejected" } }, "required": ["state"] },
+      "then": {
+        "properties": {
+          "progress": { "const": "rejected" },
+          "scanStatus": { "type": "null" },
+          "result": { "type": "null" },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "enum": ["invalid-target", "rate-limited", "queue-full", "scanner-disabled"] }
+            }
+          },
+          "pollAfterMs": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "failed" } }, "required": ["state"] },
+      "then": {
+        "properties": {
+          "progress": { "const": "failed" },
+          "scanStatus": { "type": "null" },
+          "result": { "type": "null" },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "enum": ["scan-timeout", "worker-crashed", "invalid-result", "capture-failed", "internal-error"] }
+            }
+          },
+          "pollAfterMs": { "type": "null" }
+        }
+      }
+    }
+  ]
+}

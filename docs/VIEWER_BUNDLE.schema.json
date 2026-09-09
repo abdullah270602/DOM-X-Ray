@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dom-x-ray.invalid/schema/viewer-bundle-v0.1.0.json",
+  "title": "DOM X-Ray Viewer Bundle v0.1.0",
+  "description": "The immutable, self-contained input fetched by every public result view.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bundleVersion", "record", "scene", "result", "runtime", "mapping"],
+  "properties": {
+    "bundleVersion": { "const": "viewer-bundle-v0.1.0" },
+    "record": { "$ref": "https://dom-x-ray.invalid/schema/scan-record-v0.1.json" },
+    "scene": { "$ref": "https://dom-x-ray.invalid/schema/scene-manifest-v0.1.0.json" },
+    "result": { "$ref": "https://dom-x-ray.invalid/schema/result-manifest-v0.1.0.json" },
+    "runtime": { "$ref": "https://dom-x-ray.invalid/schema/viewer-runtime-v0.1.0.json" },
+    "mapping": {
+      "type": "object",
+      "required": ["version"],
+      "properties": { "version": { "const": "mapping-v0.1.0" } }
+    }
+  }
+}
