@@ -1,10 +1,13 @@
-import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020";
-import addFormats from "ajv-formats";
+import type { ErrorObject, ValidateFunction } from "ajv";
 import mappingJson from "../fixtures/generated/contracts/MAPPING_REGISTRY.v0.1.json";
-import resultSchema from "../fixtures/generated/contracts/RESULT_MANIFEST.schema.json";
-import scanSchema from "../fixtures/generated/contracts/SCAN_RECORD.schema.json";
-import sceneSchema from "../fixtures/generated/contracts/SCENE_MANIFEST.schema.json";
-import runtimeSchema from "../fixtures/generated/contracts/VIEWER_RUNTIME.schema.json";
+import {
+  validateBundle,
+  validateJob,
+  validateRecord,
+  validateResult,
+  validateRuntime,
+  validateScene,
+} from "../fixtures/generated/validators.mjs";
 import cleanRecord from "../fixtures/generated/scan/clean.json";
 import imageRecord from "../fixtures/generated/scan/image-heavy.json";
 import thirdRecord from "../fixtures/generated/scan/third-party-heavy.json";
@@ -25,24 +28,16 @@ import type {
   SceneManifest,
   ViewerBundle,
   ViewerRuntime,
+  ScanJob,
 } from "./types";
 
-// The committed conditional schemas inherit array types from their parent branch.
-// Ajv's strict type and required lints require inherited branch declarations to
-// be repeated locally, so only those lints are disabled. Validation stays active.
-const ajv = new Ajv2020({
-  allErrors: true,
-  strict: true,
-  strictTypes: false,
-  strictRequired: false,
-});
-addFormats(ajv);
-
 const validators = {
-  record: ajv.compile(scanSchema),
-  scene: ajv.compile(sceneSchema),
-  result: ajv.compile(resultSchema),
-  runtime: ajv.compile(runtimeSchema),
+  record: validateRecord,
+  scene: validateScene,
+  result: validateResult,
+  runtime: validateRuntime,
+  bundle: validateBundle,
+  job: validateJob,
 };
 
 const rawCatalog: Record<
@@ -138,6 +133,19 @@ function assertBundleIdentity(bundle: Omit<ViewerBundle, "name">): void {
   runtime.presentation.limitationResultRefs.forEach((ref) => resolvePointer(result, ref));
 }
 
+export function validateViewerBundle(name: string, value: unknown): ViewerBundle {
+  assertSchema(`${name} viewer bundle`, value, validators.bundle);
+  const raw = value as Omit<ViewerBundle, "name">;
+  const bundle: ViewerBundle = { name, ...raw };
+  assertBundleIdentity(bundle);
+  return bundle;
+}
+
+export function validateScanJob(value: unknown): ScanJob {
+  assertSchema("scan job", value, validators.job);
+  return value as ScanJob;
+}
+
 function validateFixture(name: FixtureName): ViewerBundle {
   const raw = rawCatalog[name];
   assertSchema(`${name} scan record`, raw.record, validators.record);
@@ -146,6 +154,7 @@ function validateFixture(name: FixtureName): ViewerBundle {
   assertSchema(`${name} viewer runtime`, raw.runtime, validators.runtime);
 
   const bundle: ViewerBundle = {
+    bundleVersion: "viewer-bundle-v0.1.0",
     name,
     record: raw.record as ScanRecord,
     scene: raw.scene as SceneManifest,
@@ -168,10 +177,3 @@ export const fixtures: Record<FixtureName, ViewerBundle> = {
   "image-heavy": validateFixture("image-heavy"),
   "third-party-heavy": validateFixture("third-party-heavy"),
 };
-
-export function fixtureFromUrl(url: string): FixtureName {
-  const host = new URL(url).hostname;
-  if (host.includes("gallery") || host.includes("image")) return "image-heavy";
-  if (host.includes("news") || host.includes("third")) return "third-party-heavy";
-  return "clean";
-}

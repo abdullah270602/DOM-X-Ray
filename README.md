@@ -10,7 +10,7 @@ The first release is deliberately not a full developer dashboard, a Lighthouse r
 
 ## Current status
 
-Gate 0 is in progress. Product truth, the gated roadmap, and the measurement-to-visual contract are documented, with thirty-one deterministic browser fixtures covering geometry, bounded DOM/candidate collection, transfer evidence, bounded aggregation, policy behavior, popup/download containment, storage isolation, and conservative login/error interstitials. A separate resolver-injected destination-policy proof covers malformed targets, public/special-use IPv4 and IPv6 answers, mixed DNS sets, and public-to-private rebinding before connector contact. A deployment-neutral public-scan transport now requires that policy grant before worker construction and admits only supervised artifacts that pass strict envelope, scan-schema, and semantic validation. A deterministic renderer-neutral scene manifest fixes world geometry, hub placement, resource endpoints, mass, transfer states, evidence links, and reveal data. The result manifest binds the immutable public result and future exports. A third viewer-runtime contract now fixes shared replay, scrub, mode, selection, isolation, reduced-motion, text fallback, and evidence-resolution behavior without choosing a UI framework. The implementation stack and deployment target remain open decisions, so no application scaffold has been selected yet.
+Gate 0's local extraction, policy, supervision, and transport proofs are implemented, while production egress and containment remain open release gates. Gate 1 now has a shipped React/Three.js viewer for all three immutable fixtures, and the authored Gate 2 reveal runs through the shared five-stage runtime. The first Gate 3 integration slice adds an anonymous pollable job contract, a transport-backed seeded local API, immutable viewer bundles with ETags, stable in-process result routes, and honest recovery when arbitrary public scanning is disabled. This is executable product progress, not a production-scanner claim: public egress, durable storage and deletion, distributed abuse controls, representative benchmarks, share rendering, and hosting remain unfinished.
 
 ## Project documents
 
@@ -33,7 +33,7 @@ Gate 0 is in progress. Product truth, the gated roadmap, and the measurement-to-
 - [docs/TELEMETRY.md](docs/TELEMETRY.md) — product event chain, metrics, and data minimization
 - [docs/GATE_0_EVIDENCE.md](docs/GATE_0_EVIDENCE.md) — requirement-by-requirement completion evidence and remaining proof
 
-## Gate 0 verification
+## Project verification
 
 The fixture validator is contract tooling, not a commitment to the eventual application stack. With Python and `jsonschema` available, run:
 
@@ -58,6 +58,8 @@ The first command validates the three deterministic scan profiles against JSON S
 The tenth command is network-free: it exercises the deployment-neutral destination-policy seam against 51 public/forbidden addresses, 29 malformed or unsafe URLs, seven resolver failure modes, and a same-host public-to-private answer sequence. The second resolution is rejected before its connector callback can run. This proves fail-closed policy behavior, not a deployed resolver, HTTPS proxy, or egress firewall.
 
 The eleventh composes that policy with the supervised worker and record-admission boundary. It proves independent initial/redirect/subresource grants, zero launch on 29 target and seven DNS rejections, rebinding denial, strict worker-envelope admission, scan-schema plus semantic validation, and exact initial-target correlation. No record is publishable after launch/setup failure, crash, timeout, stale nonce, oversized/nonregular artifact, malformed envelope, invalid record, or target mismatch. It is connector-contract evidence, not proof of production address-pinned HTTPS, public egress, a queue, or container containment.
+
+The scan-API verifier proves the separate anonymous job lifecycle and immutable bundle boundary. The local HTTP verifier then exercises bounded JSON submission, queued/running/ready states, the existing supervised transport, schema-plus-semantic admission, deterministic mapping, ETags, exact-result reuse, target correlation, queue and cooling limits, the stable result shell, and content-free misses. It also proves that an arbitrary public target remains disabled in this local safety proof.
 
 ## Product loop
 

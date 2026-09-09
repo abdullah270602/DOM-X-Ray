@@ -49,7 +49,7 @@ Pivot rule: if the concept requires invented causality to feel dramatic, remove 
 
 **Question:** Does truthful data produce a legible and desirable physical world?
 
-Current status: **composition approved; renderer-neutral mapping and behavior implemented**. The approved **Instrument Panorama** reference and `docs/VIEWER_CONTRACT.md` define the first-viewport spatial contract. `scene-manifest-v0.1.0` deterministically materializes clipped world geometry, exact page-bus/domain-hub topology, resource mass and state, evidence references, hero binding, object budgeting, and reveal data. `viewer-runtime-v0.1.0` now binds that scene to the immutable public result and provides deterministic replay, scrub, mode, selection, isolation, reduced-motion, text-fallback, and evidence-resolution behavior. Formal schemas, three committed golden scene inputs, three golden runtime models, semantic evidence checks, and all thirty-one live browser fixtures prove the stack-neutral handoffs. The application stack and deployment target remain explicit pre-scaffold decisions, so the interactive viewer itself has not been scaffolded.
+Current status: **interactive local visual proof implemented and independently reviewed `ship`**. The approved **Instrument Panorama** reference and `docs/VIEWER_CONTRACT.md` define the spatial contract. One React/Three.js renderer consumes all three validated bundles and implements Structure, Weight, Origins, selection, isolation, evidence, replay, scrub, bounded orbit, reduced-motion stepping, text fallback, deterministic capture routes, and frame/object instrumentation. Automated browser checks prove those paths. Target-laptop frame benchmarks and the 10-person comprehension/desirability study remain exit evidence; headless SwiftShader measurements are labeled as software rendering and are not substituted for that hardware proof.
 
 Build exactly three local, deterministic scan fixtures:
 
@@ -83,6 +83,8 @@ Pivot rule: if two bounded visual iterations still require explanation, aggregat
 
 **Question:** Can one short sequence teach the causal story and end on a shareable fact?
 
+Current status: **authored local reveal implemented; human and platform evidence still open**. The viewer reproduces the five deterministic stages, replay and scrubbing, reduced-motion stepping, and exact hero-fact binding across all three fixtures. Automated browser checks cover the timing/state contract. Target-hardware timing, the 10-person comprehension test, the 360-pixel feed-preview check, and a current X recompression test remain required exit evidence.
+
 Required sequence:
 
 - **0.0–0.7 s:** recognizable flat page.
@@ -110,6 +112,8 @@ Pivot rule: high completion with low comprehension means simplify the mapping an
 ## Gate 3 — Real public-page scanner
 
 **Question:** Can real pages be captured consistently, safely, and fast enough?
+
+Current status: **local anonymous job/publication proof implemented; arbitrary public scanning remains deliberately disabled**. A transport-backed seeded API now admits three exact HTTPS fixtures, crosses the scanner worker and validation boundaries, exposes bounded queued/running/ready/rejected/failed jobs, publishes immutable ETag-bound viewer bundles, and serves stable in-process result routes. Exact reuse, concurrency bounds, target correlation, admission cooling, content-free misses, and honest `scanner-disabled` rejection are verified. Production work still requires address-pinned HTTPS egress, process/container isolation, distributed rate limits, durable storage and deletion, scanner identity and opt-out policy, and the representative 100-URL corpus.
 
 Deliverables:
 
@@ -159,7 +163,7 @@ Pivot rule: if visitors watch but do not inspect or rescan, improve the transiti
 
 **Question:** Does the artifact survive outside the product and invite the next scan?
 
-Current status: **immutable binding implemented; rendering and publication not started**. `result-manifest-v0.1.0` deterministically binds an opaque result path, scan record, mapping registry, scene manifest, exact hero sentence and numeric evidence, limitation disclosure, and bounded poster/video targets. Three golden fixtures prove link-only fallback, complete artifact eligibility, and visibly partial artifact eligibility. No pixels, video container, storage, public route, preview, deletion path, or X upload have been implemented or claimed.
+Current status: **immutable binding and local result publication implemented; media and durable public storage are not started**. `result-manifest-v0.1.0` deterministically binds an opaque result path, scan record, mapping registry, scene manifest, exact hero sentence and numeric evidence, limitation disclosure, and bounded poster/video targets. Three golden fixtures prove link-only fallback, complete artifact eligibility, and visibly partial artifact eligibility. The seeded API now exposes immutable ETag-bound bundles and stable in-process `/r/{resultId}` routes consumed by the viewer. No poster pixels, video container, durable storage, public hosting, deletion path, share preview, or X upload have been implemented or claimed.
 
 Deliverables:
 
@@ -212,7 +216,7 @@ Decision rules:
 - A gate's status changes only with linked evidence: test output, captured artifact, benchmark, or research notes.
 - New scope enters the backlog; it does not enter the current gate unless it is required for that gate's exit criteria.
 - “Looks good” never substitutes for comprehension, provenance, performance, or reliability evidence.
-- Current open decisions: implementation stack, deployment target, storage/retention policy, and the exact representative URL corpus. The current viewer follows a comp-first workflow; **Instrument Panorama** is the approved implementation reference.
+- Current open decisions: production deployment and isolation target, durable storage/retention/deletion policy, scanner identity and opt-out policy, and the exact representative URL corpus. The implementation stack is React, TypeScript, Vite, Three.js, and React Three Fiber; **Instrument Panorama** is the approved implementation reference.
 
 ## Core event chain
 

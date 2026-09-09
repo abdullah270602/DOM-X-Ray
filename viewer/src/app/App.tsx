@@ -5,15 +5,20 @@ import {
   Crosshair,
   GlobeSimple,
   ListMagnifyingGlass,
+  SpinnerGap,
   Warning,
 } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { fetchViewerBundle, pollScanJob, resultIdFromPath, submitScan } from "../domain/api";
 import { dossierFor } from "../domain/pointer";
-import { fixtureFromUrl, fixtureNames, fixtures } from "../domain/fixtures";
+import { fixtureNames, fixtures } from "../domain/fixtures";
 import { presentationFrame, reduceViewerState } from "../domain/runtime";
 import type {
   FixtureName,
+  ScanJob,
+  ScanJobProgress,
+  ViewerBundle,
   ViewerEvent,
   ViewerRuntime,
   ViewerState,
@@ -77,9 +82,25 @@ const emptyPerformance: ScenePerformance = {
   renderer: null,
 };
 
+const jobLabels: Record<ScanJobProgress, string> = {
+  admission: "CHECKING TARGET",
+  queued: "SCAN QUEUED",
+  capturing: "ADMITTING CAPTURE",
+  mapping: "MAPPING MEASUREMENTS",
+  publishing: "PUBLISHING RESULT",
+  complete: "IMMUTABLE RESULT READY",
+  rejected: "SCAN NOT ADMITTED",
+  failed: "SCAN INCOMPLETE",
+};
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 export function App() {
-  const [fixtureName, setFixtureName] = useState<FixtureName>(initialFixture);
-  const bundle = fixtures[fixtureName];
+  const firstFixture = initialFixture();
+  const [fixtureName, setFixtureName] = useState<FixtureName | null>(firstFixture);
+  const [bundle, setBundle] = useState<ViewerBundle>(() => fixtures[firstFixture]);
   const reduced = useMemo(prefersReducedMotion, []);
   const [state, setState] = useState<ViewerState>(() =>
     initialViewerState(bundle.runtime, reduced),
@@ -87,13 +108,14 @@ export function App() {
   const [url, setUrl] = useState(bundle.record.requestedUrl);
   const [fieldError, setFieldError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [job, setJob] = useState<ScanJob | null>(null);
   const [copied, setCopied] = useState(false);
   const [performance, setPerformance] = useState<ScenePerformance>(emptyPerformance);
   const [showTextScene, setShowTextScene] = useState(
     () => new URLSearchParams(window.location.search).get("fallback") === "text" || !supportsWebGL(),
   );
   const inputRef = useRef<HTMLInputElement>(null);
-  const loadTimer = useRef<number | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
     (event: ViewerEvent) => {
@@ -114,12 +136,66 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [send, state.motion, state.playback]);
 
-  useEffect(
-    () => () => {
-      if (loadTimer.current !== null) window.clearTimeout(loadTimer.current);
+  const activateBundle = useCallback(
+    (nextBundle: ViewerBundle) => {
+      setBundle(nextBundle);
+      setUrl(nextBundle.record.requestedUrl);
+      setState(initialViewerState(nextBundle.runtime, reduced));
+      setPerformance(emptyPerformance);
+      setFieldError("");
     },
-    [],
+    [reduced],
   );
+
+  useEffect(() => {
+    let routeController: AbortController | null = null;
+
+    const openCurrentLocation = () => {
+      routeController?.abort();
+      requestRef.current?.abort();
+      const resultId = resultIdFromPath(window.location.pathname);
+      if (!resultId) {
+        requestRef.current = null;
+        const nextName = initialFixture();
+        setFixtureName(nextName);
+        activateBundle(fixtures[nextName]);
+        setJob(null);
+        setLoading(false);
+        return;
+      }
+
+      const controller = new AbortController();
+      routeController = controller;
+      requestRef.current = controller;
+      setLoading(true);
+      setJob(null);
+      void fetchViewerBundle(`/api/results/${resultId}`, resultId, controller.signal)
+        .then((nextBundle) => {
+          if (requestRef.current !== controller) return;
+          activateBundle(nextBundle);
+          setFixtureName(null);
+        })
+        .catch((error: unknown) => {
+          if (requestRef.current === controller && !isAbortError(error)) {
+            setFieldError("This immutable result is unavailable. Choose a seeded capture below.");
+          }
+        })
+        .finally(() => {
+          if (requestRef.current === controller) {
+            requestRef.current = null;
+            setLoading(false);
+          }
+        });
+    };
+
+    openCurrentLocation();
+    window.addEventListener("popstate", openCurrentLocation);
+    return () => {
+      window.removeEventListener("popstate", openCurrentLocation);
+      routeController?.abort();
+      requestRef.current?.abort();
+    };
+  }, [activateBundle]);
 
   const frame = presentationFrame(bundle.runtime, state);
   const dossier = useMemo(
@@ -131,39 +207,92 @@ export function App() {
   )?.id;
 
   function loadFixture(nextName: FixtureName, nextUrl = fixtures[nextName].record.requestedUrl) {
+    requestRef.current?.abort();
+    requestRef.current = null;
     const nextBundle = fixtures[nextName];
     setFixtureName(nextName);
+    activateBundle(nextBundle);
     setUrl(nextUrl);
-    setState(initialViewerState(nextBundle.runtime, reduced));
-    setPerformance(emptyPerformance);
-    setFieldError("");
+    setJob(null);
+    setLoading(false);
     const params = new URLSearchParams(window.location.search);
     params.set("fixture", nextName);
-    window.history.replaceState(null, "", `${window.location.pathname}?${params}`);
+    window.history.replaceState(null, "", `/?${params}`);
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     let parsed: URL;
     try {
       parsed = new URL(url);
-      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error("Unsupported protocol");
+      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("Unsupported protocol");
+      if (parsed.username || parsed.password) throw new Error("Credentials are not accepted");
+      if (parsed.search || parsed.hash) {
+        setFieldError("Remove query parameters and fragments before scanning.");
+        inputRef.current?.focus();
+        return;
+      }
     } catch {
       setFieldError("Enter a complete public HTTP or HTTPS URL.");
       inputRef.current?.focus();
       return;
     }
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
     setFieldError("");
     setLoading(true);
-    if (loadTimer.current !== null) window.clearTimeout(loadTimer.current);
-    loadTimer.current = window.setTimeout(() => {
-      loadFixture(fixtureFromUrl(parsed.href), parsed.href);
-      setLoading(false);
-    }, 650);
+    setJob(null);
+    let loadingPublishedResult = false;
+    try {
+      const submitted = await submitScan(parsed.href, controller.signal);
+      if (requestRef.current !== controller) return;
+      setJob(submitted);
+      const terminal = await pollScanJob(submitted, controller.signal, (nextJob) => {
+        if (requestRef.current === controller) setJob(nextJob);
+      });
+      if (requestRef.current !== controller) return;
+      if (terminal.state !== "ready" || terminal.result === null) {
+        setFieldError(terminal.error?.message ?? "The scan did not produce a result.");
+        return;
+      }
+      loadingPublishedResult = true;
+      const nextBundle = await fetchViewerBundle(
+        terminal.result.bundleUrl,
+        terminal.result.resultId,
+        controller.signal,
+      );
+      if (requestRef.current !== controller) return;
+      activateBundle(nextBundle);
+      setFixtureName(null);
+      setJob(terminal);
+      window.history.pushState(null, "", nextBundle.result.resultPath);
+    } catch (error) {
+      if (requestRef.current === controller && !isAbortError(error)) {
+        if (loadingPublishedResult) {
+          setJob(null);
+          setFieldError(
+            "The scan finished, but its immutable result could not be verified. Your current result is unchanged.",
+          );
+        } else {
+          setFieldError(
+            error instanceof Error
+              ? error.message
+              : "The scanner connection was interrupted. Try the seeded capture again.",
+          );
+        }
+      }
+    } finally {
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        setLoading(false);
+      }
+    }
   }
 
   async function copyFinding() {
-    const text = `${bundle.runtime.presentation.finding.statement}\n\nDOM X-Ray local proof: ${bundle.runtime.resultPath}`;
+    const resultUrl = new URL(bundle.runtime.resultPath, window.location.origin).href;
+    const text = `${bundle.runtime.presentation.finding.statement}\n\nDOM X-Ray: ${resultUrl}`;
     await navigator.clipboard.writeText(text);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
@@ -190,13 +319,27 @@ export function App() {
               inputMode="url"
               value={url}
               onChange={(event) => setUrl(event.currentTarget.value)}
-              aria-describedby="scan-help scan-error"
+              aria-describedby={fieldError ? "scan-help scan-error" : "scan-help"}
               aria-invalid={Boolean(fieldError)}
               disabled={loading}
+              maxLength={2048}
+              autoComplete="off"
+              spellCheck={false}
             />
             <GlobeSimple size={22} weight="regular" aria-hidden="true" />
           </div>
-          <p id="scan-help">Local fixture proof. No live website is fetched yet.</p>
+          <p id="scan-help">
+            Seeded safety proof: these three captures cross the real worker boundary. Arbitrary public scanning stays off.
+          </p>
+          {job && (
+            <div className={`job-readout job-${job.state}`} role="status" aria-live="polite">
+              <span className="job-mark" aria-hidden="true" />
+              <span>
+                <strong>{jobLabels[job.progress]}</strong>
+                <small>{job.state === "ready" ? job.result?.resultId : job.jobId}</small>
+              </span>
+            </div>
+          )}
           {fieldError && (
             <p id="scan-error" className="field-error" role="alert">
               <Warning size={16} weight="fill" aria-hidden="true" />
@@ -204,18 +347,25 @@ export function App() {
             </p>
           )}
           <button className="xray-button" type="submit" disabled={loading}>
-            {loading ? "PREPARING CUTAWAY" : "X-RAY DEMO"}
+            {loading && <SpinnerGap className="job-spinner" size={20} weight="bold" aria-hidden="true" />}
+            {loading
+              ? job?.state === "ready"
+                ? "LOADING RESULT"
+                : jobLabels[job?.progress ?? "admission"]
+              : "START X-RAY"}
             {!loading && <ArrowRight size={22} weight="bold" aria-hidden="true" />}
           </button>
         </form>
 
         <div className="fixture-switcher">
-          <label htmlFor="fixture">DEMO RECORD</label>
+          <label htmlFor="fixture">SEEDED CAPTURE</label>
           <select
             id="fixture"
-            value={fixtureName}
+            value={fixtureName ?? ""}
             onChange={(event) => loadFixture(event.currentTarget.value as FixtureName)}
+            disabled={loading}
           >
+            {fixtureName === null && <option value="" disabled>Published result</option>}
             <option value="clean">Clean page</option>
             <option value="image-heavy">Image-heavy page</option>
             <option value="third-party-heavy">Third-party-heavy page</option>
@@ -240,7 +390,7 @@ export function App() {
             VIEW EVIDENCE
             <ArrowRight size={19} weight="bold" aria-hidden="true" />
           </button>
-          {bundle.runtime.presentation.finding.shareEligible && (
+          {bundle.runtime.presentation.finding.shareEligible && fixtureName === null && (
             <button className="copy-button" type="button" onClick={copyFinding}>
               {copied ? <Check size={18} weight="bold" /> : <Copy size={18} />}
               {copied ? "COPIED" : "COPY FINDING"}
@@ -259,7 +409,7 @@ export function App() {
           </div>
           <div>
             <dt>METHOD</dt>
-            <dd>NAVIGATION</dd>
+            <dd>{fixtureName === null ? "ADMITTED" : "FIXTURE"}</dd>
           </div>
           <div>
             <dt>BY</dt>
@@ -301,7 +451,7 @@ export function App() {
               }
             >
               <InstrumentScene
-                key={bundle.name}
+                key={bundle.runtime.resultId}
                 manifest={bundle.scene}
                 channels={frame.channels}
                 mode={state.mode}

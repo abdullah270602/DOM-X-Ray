@@ -81,11 +81,32 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .url-field.has-error { border-color: var(--red-dark); }
 .url-field input {
   width: 100%; min-width: 0; padding: 0 8px 0 16px;
-  border: 0; outline: 0; color: var(--graphite); background: transparent; font-size: 0.96rem;
+  border: 0; outline: 0; color: var(--graphite); background: transparent; font-size: 1rem;
 }
 .url-field svg { flex: 0 0 auto; margin-right: 14px; }
 .scan-form > p { margin: 0; color: var(--soft); font-size: 0.72rem; line-height: 1.4; }
-.scan-form .field-error { display: flex; align-items: center; gap: 6px; color: var(--red-dark); font-weight: 650; }
+.scan-form .field-error {
+  display: flex; min-width: 0; align-items: flex-start; gap: 6px; color: var(--red-dark);
+  font-weight: 650; overflow-wrap: anywhere;
+}
+.scan-form .field-error svg { flex: 0 0 auto; margin-top: 1px; }
+
+.job-readout {
+  display: grid; min-width: 0; grid-template-columns: 10px minmax(0, 1fr); align-items: center;
+  gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  color: var(--teal); font-family: "Courier New", monospace;
+}
+.job-readout > span:last-child { display: grid; min-width: 0; gap: 2px; }
+.job-readout strong { font-size: 0.64rem; letter-spacing: 0.11em; }
+.job-readout small { overflow: hidden; color: var(--soft); font-size: 0.58rem; text-overflow: ellipsis; white-space: nowrap; }
+.job-mark { width: 9px; height: 9px; border: 1px solid currentColor; background: transparent; }
+.job-running .job-mark { background: currentColor; animation: job-pulse 900ms ease-in-out infinite alternate; }
+.job-ready .job-mark { background: currentColor; }
+.job-rejected, .job-failed { color: var(--red-dark); }
+.job-spinner { animation: job-spin 760ms linear infinite; }
+
+@keyframes job-pulse { to { opacity: 0.25; } }
+@keyframes job-spin { to { transform: rotate(1turn); } }
 
 .xray-button, .evidence-button, .copy-button, .drawer-action {
   display: flex; min-height: 50px; align-items: center; justify-content: center; gap: 12px;
@@ -284,6 +305,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   .brand-lockup, .scan-form, .fixture-switcher, .finding-block, .capture-plate { margin-left: 0; padding-left: 0; }
   .brand-lockup { padding-top: 0; }
   .brand-lockup h1 { font-size: clamp(4.8rem, 24vw, 6.3rem); }
+  .fixture-switcher select { font-size: 1rem; }
   .finding-block > p { font-size: 2rem; }
   .capture-plate { display: grid; margin-top: 22px; }
   .model-stage { min-height: 560px; order: 2; }

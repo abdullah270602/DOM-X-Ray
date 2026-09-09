@@ -64,6 +64,12 @@ components:
     rounded: "{rounded.hairline}"
     height: "55px"
     padding: "0 16px"
+  job-readout:
+    backgroundColor: "transparent"
+    textColor: "{colors.external-teal}"
+    rounded: "{rounded.hairline}"
+    height: "39px"
+    padding: "9px 0"
 
 # Design System: DOM X-Ray
 
@@ -82,6 +88,7 @@ The first viewport uses a quiet instrument column beside a dominant 3D cutaway. 
 - A 3D architectural cutaway paired with a complete text/object-index fallback.
 - Evidence is a first-class path, not decorative annotation.
 - Deliberate reveal, bounded orbit, and reduced-motion stage stepping.
+- A compact worker-status readout that keeps scan progress and recovery in the instrument column.
 
 ## Colors
 
@@ -159,6 +166,14 @@ The form language is rectangular and lightly mechanical. Most controls use a res
 - **Focus:** Teal border plus an inset teal keyline.
 - **Error / Disabled:** Error uses inspection-red-dark; disabled controls lower opacity to `0.56` and retain the instrument geometry.
 
+### Scan-job Status Readout
+
+- **Style:** A compact, two-line Courier New status strip sits inline below the URL help text, bounded by one-pixel rules rather than a modal or progress card. The first line is the stage label; the second is the opaque job ID or published result ID.
+- **States:** Use the implemented labels **CHECKING TARGET**, **SCAN QUEUED**, **ADMITTING CAPTURE**, **MAPPING MEASUREMENTS**, **PUBLISHING RESULT**, **IMMUTABLE RESULT READY**, **SCAN NOT ADMITTED**, and **SCAN INCOMPLETE** for admission, queued, capturing, mapping, publishing, ready, rejected, and failed progress.
+- **Motion and color:** Running states use a small teal mark with a restrained pulse; ready fills the mark; rejected and failed use inspection-red-dark. The loading action may show a small spinner, but the readout remains the durable status source.
+- **Recovery:** Inline errors remain adjacent to the field and preserve the last valid current bundle/model. A failed or rejected request must not erase a previously valid result.
+- **Publication boundary:** Seeded fixture previews are explicitly labeled `FIXTURE` and do not expose a share/copy action. Copy/share appears only when a published result is active (`fixtureName === null`) and its finding is share-eligible.
+
 ### Navigation / Instrument Rail
 
 - **Style:** One continuous paper-light rail across the bottom, divided by vertical rules rather than individual cards.
@@ -191,6 +206,7 @@ The 3D scene is a bounded inspection table: a board plinth, layered region plate
 - **Do** make every emphasized object traceable to raw evidence and its mapping rule.
 - **Do** retain the hero statement and evidence in reduced-motion, text-only, and no-WebGL paths.
 - **Do** use thin rules, board/drafting-film layering, brass registration, and compact mono readouts to create depth.
+- **Do** keep scan admission/progress, terminal status, and recovery visible inline without displacing a valid current result.
 
 ### Don't:
 
@@ -199,3 +215,4 @@ The 3D scene is a bounded inspection table: a board plinth, layered region plate
 - **Don't** make third-party origin teal imply “tracker”; preserve the external-origin meaning.
 - **Don't** replace the continuous bottom rail with a row of floating cards.
 - **Don't** let a spectacular 3D object outrun its evidence, or let essential facts depend on WebGL.
+- **Don't** show share/copy affordances for unpublished fixture-only previews.

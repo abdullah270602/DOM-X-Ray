@@ -274,12 +274,45 @@ export interface ViewerRuntime {
 }
 
 export interface ViewerBundle {
-  name: FixtureName;
+  bundleVersion: "viewer-bundle-v0.1.0";
+  name: string;
   runtime: ViewerRuntime;
   scene: SceneManifest;
   result: ResultManifest;
   record: ScanRecord;
   mapping: Record<string, unknown> & { version: "mapping-v0.1.0" };
+}
+
+export type ScanJobState = "queued" | "running" | "ready" | "rejected" | "failed";
+export type ScanJobProgress =
+  | "admission"
+  | "queued"
+  | "capturing"
+  | "mapping"
+  | "publishing"
+  | "complete"
+  | "rejected"
+  | "failed";
+
+export interface ScanJob {
+  apiVersion: "scan-api-v0.1.0";
+  jobId: string;
+  state: ScanJobState;
+  progress: ScanJobProgress;
+  submittedAt: string;
+  updatedAt: string;
+  scanStatus: "complete" | "partial" | "interstitial" | "blocked" | "failed" | null;
+  result: null | {
+    resultId: string;
+    resultPath: string;
+    bundleUrl: string;
+  };
+  error: null | {
+    code: string;
+    message: string;
+    retryable: boolean;
+  };
+  pollAfterMs: number | null;
 }
 
 export type ViewerEvent =

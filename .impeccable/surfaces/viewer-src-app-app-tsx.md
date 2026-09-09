@@ -11,11 +11,11 @@ The fixture-driven public result viewer is an Experience surface with Operate co
 
 ## Audience, job, action, and proof
 
-Design- and technology-curious visitors need to understand one consequential fact about a captured page, explore the measured object behind it, and copy the finding. The primary action is X-RAY DEMO until a public scanner is connected. The proof is the immutable scan, scene, result, mapping, and runtime bundle exposed through one evidence path.
+Design- and technology-curious visitors need to understand one consequential fact about a captured page, explore the measured object behind it, and copy the finding. The primary action is START X-RAY. In the local proof it submits only the three visibly named seeded capture URLs through the supervised transport boundary, then loads the immutable scan, scene, result, mapping, and runtime bundle through the same path a public result will use.
 
 ## Constraints
 
-Gate 1 uses checked-in fixtures only. It must preserve keyboard, touch, reduced-motion, and no-WebGL access, render at most 650 counted objects, keep Three.js outside application state, and never imply a live fetch or unsupported attribution.
+The current Gate 3 integration proof keeps arbitrary public scanning disabled until containment is proven. It must preserve keyboard, touch, reduced-motion, and no-WebGL access, render at most 650 counted objects, keep Three.js outside application state, and never relabel a seeded fixture as another submitted URL.
 
 ## Direction and memorable moment
 
@@ -23,4 +23,4 @@ Instrument Panorama renders the page as a warm-paper architectural section on a 
 
 ## Unresolved decisions
 
-Public scan transport integration, hosting, immutable production storage, poster/video generation, and stable public result routing remain later gated decisions.
+Production public egress, durable storage and retention, abuse controls, hosting, and poster/video generation remain later gated decisions. Local pollable jobs, immutable bundles, and stable in-process result routes are now implemented.
