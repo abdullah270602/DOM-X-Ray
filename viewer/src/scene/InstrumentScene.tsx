@@ -18,6 +18,7 @@ export interface ScenePerformance {
   fps: number | null;
   drawCalls: number;
   triangles: number;
+  renderer: "GPU" | "SOFTWARE" | null;
 }
 
 interface InstrumentSceneProps {
@@ -46,11 +47,13 @@ function easeOutCubic(value: number) {
 }
 
 function CameraRig() {
-  const { camera, gl, invalidate } = useThree();
+  const { camera, gl, invalidate, size } = useThree();
   const controlsRef = useRef<OrbitControls | null>(null);
 
   useEffect(() => {
-    camera.position.set(9.8, 7.6, 16.5);
+    const narrow = size.width < 640;
+    if (narrow) camera.position.set(13, 10, 34);
+    else camera.position.set(9.8, 7.6, 16.5);
     camera.lookAt(0.7, -0.2, 0.5);
     camera.updateProjectionMatrix();
 
@@ -58,8 +61,8 @@ function CameraRig() {
     controls.target.set(0.7, -0.2, 0.5);
     controls.enableDamping = false;
     controls.enablePan = false;
-    controls.minDistance = 11;
-    controls.maxDistance = 25;
+    controls.minDistance = narrow ? 28 : 11;
+    controls.maxDistance = narrow ? 44 : 25;
     controls.minPolarAngle = Math.PI * 0.2;
     controls.maxPolarAngle = Math.PI * 0.48;
     controls.minAzimuthAngle = -Math.PI * 0.22;
@@ -73,7 +76,7 @@ function CameraRig() {
       controls.dispose();
       controlsRef.current = null;
     };
-  }, [camera, gl, invalidate]);
+  }, [camera, gl, invalidate, size.width]);
 
   return null;
 }
@@ -98,11 +101,16 @@ function PerformanceProbe({
     elapsed.current = 0;
     const ordered = [...samples.current].sort((left, right) => left - right);
     const median = ordered[Math.floor(ordered.length / 2)] ?? null;
+    const debug = gl.getContext().getExtension("WEBGL_debug_renderer_info");
+    const rendererName = debug
+      ? String(gl.getContext().getParameter(debug.UNMASKED_RENDERER_WEBGL))
+      : String(gl.getContext().getParameter(gl.getContext().RENDERER));
     onPerformance({
       frameMs: median === null ? null : Number(median.toFixed(1)),
       fps: median === null || median === 0 ? null : Math.round(1000 / median),
       drawCalls: gl.info.render.calls,
       triangles: gl.info.render.triangles,
+      renderer: /swiftshader|software|llvmpipe/i.test(rendererName) ? "SOFTWARE" : "GPU",
     });
   });
   return null;
@@ -202,6 +210,38 @@ function RegionPlate({
           opacity={isolated ? 0.12 : 0.6}
         />
       </lineSegments>
+      {object.documentOrder > 0 && (
+        <lineSegments position={[0, 0, 0.515]}>
+          <bufferGeometry
+            attach="geometry"
+            onUpdate={(geometry) => {
+              const halfWidth = object.sizeWorld.width * 0.39;
+              const halfHeight = object.sizeWorld.height * 0.32;
+              const rows = object.sizeWorld.height < 1 ? 1 : 3;
+              const points: number[] = [
+                -halfWidth, -halfHeight, 0,
+                halfWidth, -halfHeight, 0,
+                halfWidth, -halfHeight, 0,
+                halfWidth, halfHeight, 0,
+                halfWidth, halfHeight, 0,
+                -halfWidth, halfHeight, 0,
+                -halfWidth, halfHeight, 0,
+                -halfWidth, -halfHeight, 0,
+              ];
+              for (let row = 1; row <= rows; row += 1) {
+                const y = halfHeight - (row * (halfHeight * 2)) / (rows + 1);
+                points.push(-halfWidth * 0.82, y, 0, halfWidth * (row === rows ? 0.22 : 0.7), y, 0);
+              }
+              geometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+            }}
+          />
+          <lineBasicMaterial
+            color={selected ? palette.paper : palette.graphite}
+            transparent
+            opacity={isolated ? 0.05 : 0.42}
+          />
+        </lineSegments>
+      )}
     </mesh>
   );
 }
@@ -467,7 +507,7 @@ function InspectionTable(props: Omit<InstrumentSceneProps, "onPerformance" | "pl
   );
   return (
     <group rotation={[-0.02, -0.035, -0.015]}>
-      <mesh position={[0, 0, -0.42]} receiveShadow>
+      <mesh position={[0, 0, -0.42]}>
         <boxGeometry args={[13.2, 8.55, 0.28]} />
         <meshStandardMaterial color={palette.board} roughness={0.88} />
       </mesh>
@@ -515,21 +555,14 @@ export function InstrumentScene(props: InstrumentSceneProps) {
     <Canvas
       aria-hidden="true"
       camera={{ fov: 34, near: 0.1, far: 100 }}
-      dpr={[1, 1.5]}
+      dpr={[0.75, 1]}
       frameloop={props.playing ? "always" : "demand"}
       gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
       onPointerMissed={() => undefined}
-      shadows
     >
       <color attach="background" args={[palette.paper]} />
       <ambientLight intensity={1.7} />
-      <directionalLight
-        position={[4, 7, 11]}
-        intensity={2.5}
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-      />
+      <directionalLight position={[4, 7, 11]} intensity={2.5} />
       <directionalLight position={[-6, -2, 8]} intensity={0.65} color="#a5c1c4" />
       <CameraRig />
       <InspectionTable

@@ -177,6 +177,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   font-family: "Courier New", monospace; font-size: 0.58rem;
 }
 .performance-plate div { display: grid; grid-template-columns: auto auto; gap: 5px; }
+.performance-plate div:last-child { grid-column: 1 / -1; }
 .performance-plate dt, .performance-plate dd { margin: 0; }
 .performance-plate dd { font-weight: 700; }
 

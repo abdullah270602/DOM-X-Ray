@@ -74,6 +74,7 @@ const emptyPerformance: ScenePerformance = {
   fps: null,
   drawCalls: 0,
   triangles: 0,
+  renderer: null,
 };
 
 export function App() {
@@ -323,6 +324,7 @@ export function App() {
           <div><dt>DRAW</dt><dd>{performance.drawCalls || "MEASURING"}</dd></div>
           <div><dt>FRAME</dt><dd>{performance.frameMs === null ? "MEASURING" : `${performance.frameMs} MS`}</dd></div>
           <div><dt>FPS</dt><dd>{performance.fps ?? "MEASURING"}</dd></div>
+          <div><dt>RENDER</dt><dd>{performance.renderer ?? "MEASURING"}</dd></div>
         </dl>
 
         <EvidenceDrawer
