@@ -144,3 +144,17 @@ class ScanAdmissionGate:
             if reservation is None:
                 raise ValueError("cannot complete an unreserved scan")
             reservation.result_id = result_id
+
+    def abandon(self, url: str) -> None:
+        """Release an unfinished exact-target reservation after terminal failure.
+
+        The origin cooling timestamp deliberately remains. A failed worker must
+        not pin the exact target for the full duplicate window, but it also must
+        not let a caller immediately hammer the same origin.
+        """
+
+        target, _origin = _canonical_target(url)
+        with self._lock:
+            reservation = self._targets.get(target)
+            if reservation is not None and reservation.result_id is None:
+                del self._targets[target]

@@ -568,6 +568,24 @@ def assert_admission_policy_guards() -> None:
         "exact result reuse expired with the shorter origin window",
     )
 
+    failed_target = "https://failed.test/page"
+    require(
+        gate.reserve(failed_target).action == "scan",
+        "failed-target reservation was not admitted",
+    )
+    gate.abandon(failed_target)
+    abandoned_cooling = gate.reserve(failed_target)
+    require(
+        abandoned_cooling.action == "reject"
+        and abandoned_cooling.reason == "origin-cooling",
+        "abandoned target bypassed origin cooling",
+    )
+    now[0] += 60.1
+    require(
+        gate.reserve(failed_target).action == "scan",
+        "abandoned target remained pinned for the duplicate window",
+    )
+
     for invalid in (
         "file:///tmp/page",
         "https://user:secret@example.test/page",

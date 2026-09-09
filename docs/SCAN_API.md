@@ -28,6 +28,8 @@ maximum request body is 2,048 bytes and the media type is
 - `200 OK`: an exact immutable result was reused.
 - `400 Bad Request`: malformed JSON or submission shape.
 - `403 Forbidden`: target rejected by destination policy.
+- `413 Content Too Large`: request body exceeds 2,048 bytes.
+- `415 Unsupported Media Type`: body is not JSON.
 - `429 Too Many Requests`: admission or queue limit; include `Retry-After`.
 - `503 Service Unavailable`: scanner disabled by the emergency switch.
 
