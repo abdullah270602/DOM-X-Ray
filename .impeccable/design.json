@@ -67,6 +67,14 @@
       "css": ".ds-rail { display:flex; min-height:78px; align-items:stretch; border-top:1px solid rgba(32,37,31,.31); background:#f3ede3; } .ds-rail button { position:relative; min-width:90px; padding:0 18px; border:0; border-right:1px solid rgba(32,37,31,.31); color:#20251f; background:transparent; font:750 0.67rem/1 Archivo Variable,Arial,sans-serif; letter-spacing:.1em; } .ds-rail button:hover { background:rgba(184,170,139,.28); } .ds-rail button.is-active { color:#a92e1b; } .ds-rail button.is-active::after { position:absolute; right:18px; bottom:0; left:18px; height:3px; background:#d9492f; content:\"\"; } .ds-rail button:focus-visible { outline:3px solid #2d6571; outline-offset:-3px; }"
     },
     {
+      "name": "Owner Delete Action",
+      "kind": "button",
+      "refersTo": "button-owner-delete",
+      "description": "Subordinate destructive action shown only when the active published result has a valid browser-held deletion key.",
+      "html": "<button class=\"ds-owner-delete\">DELETE RESULT</button>",
+      "css": ".ds-owner-delete { display:flex; min-height:38px; align-items:center; justify-content:center; gap:9px; padding:0 12px; border:0; border-top:1px solid rgba(169,46,27,.38); color:#a92e1b; background:transparent; font:750 .68rem/1 Archivo Variable,Arial,sans-serif; letter-spacing:.09em; transition:color 160ms ease-out,background-color 160ms ease-out; } .ds-owner-delete:hover { color:#fffaf2; background:#a92e1b; } .ds-owner-delete:focus-visible { outline:3px solid #2d6571; outline-offset:3px; }"
+    },
+    {
       "name": "Evidence Drawer",
       "kind": "custom",
       "description": "Selected-object provenance ledger with isolation and raw-source disclosure.",

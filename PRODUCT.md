@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-The viewer uses React, TypeScript, Vite, Three.js, and React Three Fiber. The user approved this stack on 2026-09-07. The existing Python controlled Playwright/Chromium scanner stays a separate runtime. The current local API proves anonymous jobs and immutable result routes with seeded records only; hosting and production public-scanner deployment remain later decisions.
+The viewer uses React, TypeScript, Vite, Three.js, and React Three Fiber. The user approved this stack on 2026-09-07. The existing Python controlled Playwright/Chromium scanner stays a separate runtime. The current local API proves anonymous jobs, restart-stable immutable result routes, bounded engineering retention, and browser-held no-login deletion with seeded records only; hosting, distributed storage/abuse controls, and production public-scanner deployment remain later decisions.
 
 ## Users
 

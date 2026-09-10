@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchViewerBundle, pollScanJob, resultIdFromPath, submitScan } from "./api";
+import {
+  createDeletionToken,
+  deleteResult,
+  fetchViewerBundle,
+  pollScanJob,
+  resultIdFromPath,
+  submitScan,
+} from "./api";
 import { fixtures } from "./fixtures";
 import type { ScanJob } from "./types";
 
 
 const jobId = "j_0123456789abcdef0123456789abcdef";
 const resultId = "r_0123456789abcdef0123456789abcdef";
+const deletionToken = `dxrd_${"a".repeat(64)}`;
 
 function job(state: ScanJob["state"], progress: ScanJob["progress"]): ScanJob {
   const ready = state === "ready";
@@ -57,9 +65,62 @@ afterEach(() => vi.unstubAllGlobals());
 describe("scan API boundary", () => {
   it("retains a typed rejection returned with a non-success HTTP status", async () => {
     const rejected = job("rejected", "rejected");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(rejected, 503)));
-    const result = await submitScan("https://public.example/", new AbortController().signal);
-    expect(result).toEqual(rejected);
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(rejected, 503));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await submitScan(
+      "https://public.example/",
+      deletionToken,
+      new AbortController().signal,
+    );
+    expect(result).toEqual({ job: rejected, ownsResult: false });
+    const expectedDigest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(deletionToken),
+    );
+    const expectedHex = Array.from(new Uint8Array(expectedDigest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/scans",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-Deletion-Token-Digest": `sha256=${expectedHex}`,
+        }),
+      }),
+    );
+  });
+
+  it("mints browser-held deletion keys and maps deletion outcomes", async () => {
+    expect(createDeletionToken()).toMatch(/^dxrd_[0-9a-f]{64}$/);
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 429 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      deleteResult(resultId, deletionToken, new AbortController().signal),
+    ).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `/api/results/${resultId}`,
+      expect.objectContaining({
+        method: "DELETE",
+        headers: { "X-Deletion-Token": deletionToken },
+      }),
+    );
+    await expect(
+      deleteResult(resultId, deletionToken, new AbortController().signal),
+    ).rejects.toThrow(/matching deletion key/i);
+    await expect(
+      deleteResult(resultId, deletionToken, new AbortController().signal),
+    ).rejects.toThrow(/expired or been deleted/i);
+    await expect(
+      deleteResult(resultId, deletionToken, new AbortController().signal),
+    ).rejects.toThrow(/wait a minute/i);
   });
 
   it("polls only while work is non-terminal and emits admitted states", async () => {

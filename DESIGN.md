@@ -70,6 +70,12 @@ components:
     rounded: "{rounded.hairline}"
     height: "39px"
     padding: "9px 0"
+  button-owner-delete:
+    backgroundColor: "transparent"
+    textColor: "{colors.inspection-red-dark}"
+    rounded: "{rounded.hairline}"
+    height: "38px"
+    padding: "0 12px"
 
 # Design System: DOM X-Ray
 
@@ -158,6 +164,7 @@ The form language is rectangular and lightly mechanical. Most controls use a res
 - **Shape:** Rectangular instrument controls with a `2px` radius and a minimum `50px` primary action height.
 - **Primary:** Inspection red fill, light text, bold uppercase label with moderate tracking, and a directional arrow. Hover deepens the red and lifts the button by `1px`.
 - **Secondary / Ghost:** Transparent paper surfaces with graphite border and text; hover inverts to graphite with light text. Evidence, copy, drawer, and icon actions share this language.
+- **Owner deletion:** A low-priority, borderless red-dark text action appears only when the active published result has a valid browser-held deletion key. It requires native confirmation, shows an in-place deleting state, and never appears for fixtures, reused submissions without the original key, or shared browsers.
 - **Focus:** A visible `3px` teal outline with `3px` offset is the keyboard focus treatment.
 
 ### Inputs / Fields
@@ -173,6 +180,7 @@ The form language is rectangular and lightly mechanical. Most controls use a res
 - **Motion and color:** Running states use a small teal mark with a restrained pulse; ready fills the mark; rejected and failed use inspection-red-dark. The loading action may show a small spinner, but the readout remains the durable status source.
 - **Recovery:** Inline errors remain adjacent to the field and preserve the last valid current bundle/model. A failed or rejected request must not erase a previously valid result.
 - **Publication boundary:** Seeded fixture previews are explicitly labeled `FIXTURE` and do not expose a share/copy action. Copy/share appears only when a published result is active (`fixtureName === null`) and its finding is share-eligible.
+- **Owner boundary:** Deletion authority is browser-local and is never shown in job IDs, result URLs, copy text, or evidence. Successful deletion returns the viewer to a seeded capture with a terse live status; failed deletion preserves the current result and names recovery inline.
 
 ### Navigation / Instrument Rail
 

@@ -6,11 +6,19 @@ import {
   GlobeSimple,
   ListMagnifyingGlass,
   SpinnerGap,
+  Trash,
   Warning,
 } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { fetchViewerBundle, pollScanJob, resultIdFromPath, submitScan } from "../domain/api";
+import {
+  createDeletionToken,
+  deleteResult,
+  fetchViewerBundle,
+  pollScanJob,
+  resultIdFromPath,
+  submitScan,
+} from "../domain/api";
 import { dossierFor } from "../domain/pointer";
 import { fixtureNames, fixtures } from "../domain/fixtures";
 import { presentationFrame, reduceViewerState } from "../domain/runtime";
@@ -97,6 +105,35 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
+function ownerStorageKey(resultId: string): string {
+  return `dom-x-ray:owner:${resultId}`;
+}
+
+function storedOwnerToken(resultId: string): string | null {
+  try {
+    const token = window.localStorage.getItem(ownerStorageKey(resultId));
+    return token && /^dxrd_[0-9a-f]{64}$/.test(token) ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeOwnerToken(resultId: string, token: string): void {
+  try {
+    window.localStorage.setItem(ownerStorageKey(resultId), token);
+  } catch {
+    // The result still works when private storage is unavailable; deletion will not survive reload.
+  }
+}
+
+function removeOwnerToken(resultId: string): void {
+  try {
+    window.localStorage.removeItem(ownerStorageKey(resultId));
+  } catch {
+    // Nothing else can be done when origin-local storage is unavailable.
+  }
+}
+
 export function App() {
   const firstFixture = initialFixture();
   const [fixtureName, setFixtureName] = useState<FixtureName | null>(firstFixture);
@@ -107,8 +144,11 @@ export function App() {
   );
   const [url, setUrl] = useState(bundle.record.requestedUrl);
   const [fieldError, setFieldError] = useState("");
+  const [resultNotice, setResultNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [job, setJob] = useState<ScanJob | null>(null);
+  const [ownerToken, setOwnerToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [performance, setPerformance] = useState<ScenePerformance>(emptyPerformance);
   const [showTextScene, setShowTextScene] = useState(
@@ -143,6 +183,7 @@ export function App() {
       setState(initialViewerState(nextBundle.runtime, reduced));
       setPerformance(emptyPerformance);
       setFieldError("");
+      setResultNotice("");
     },
     [reduced],
   );
@@ -159,6 +200,7 @@ export function App() {
         const nextName = initialFixture();
         setFixtureName(nextName);
         activateBundle(fixtures[nextName]);
+        setOwnerToken(null);
         setJob(null);
         setLoading(false);
         return;
@@ -168,15 +210,18 @@ export function App() {
       routeController = controller;
       requestRef.current = controller;
       setLoading(true);
+      setOwnerToken(null);
       setJob(null);
       void fetchViewerBundle(`/api/results/${resultId}`, resultId, controller.signal)
         .then((nextBundle) => {
           if (requestRef.current !== controller) return;
           activateBundle(nextBundle);
           setFixtureName(null);
+          setOwnerToken(storedOwnerToken(resultId));
         })
         .catch((error: unknown) => {
           if (requestRef.current === controller && !isAbortError(error)) {
+            setOwnerToken(null);
             setFieldError("This immutable result is unavailable. Choose a seeded capture below.");
           }
         })
@@ -212,6 +257,7 @@ export function App() {
     const nextBundle = fixtures[nextName];
     setFixtureName(nextName);
     activateBundle(nextBundle);
+    setOwnerToken(null);
     setUrl(nextUrl);
     setJob(null);
     setLoading(false);
@@ -241,11 +287,18 @@ export function App() {
     const controller = new AbortController();
     requestRef.current = controller;
     setFieldError("");
+    setResultNotice("");
     setLoading(true);
     setJob(null);
     let loadingPublishedResult = false;
+    const candidateOwnerToken = createDeletionToken();
     try {
-      const submitted = await submitScan(parsed.href, controller.signal);
+      const submission = await submitScan(
+        parsed.href,
+        candidateOwnerToken,
+        controller.signal,
+      );
+      const submitted = submission.job;
       if (requestRef.current !== controller) return;
       setJob(submitted);
       const terminal = await pollScanJob(submitted, controller.signal, (nextJob) => {
@@ -256,6 +309,9 @@ export function App() {
         setFieldError(terminal.error?.message ?? "The scan did not produce a result.");
         return;
       }
+      if (submission.ownsResult) {
+        storeOwnerToken(terminal.result.resultId, candidateOwnerToken);
+      }
       loadingPublishedResult = true;
       const nextBundle = await fetchViewerBundle(
         terminal.result.bundleUrl,
@@ -265,6 +321,11 @@ export function App() {
       if (requestRef.current !== controller) return;
       activateBundle(nextBundle);
       setFixtureName(null);
+      setOwnerToken(
+        submission.ownsResult
+          ? candidateOwnerToken
+          : storedOwnerToken(terminal.result.resultId),
+      );
       setJob(terminal);
       window.history.pushState(null, "", nextBundle.result.resultPath);
     } catch (error) {
@@ -286,6 +347,44 @@ export function App() {
       if (requestRef.current === controller) {
         requestRef.current = null;
         setLoading(false);
+      }
+    }
+  }
+
+  async function deletePublishedResult() {
+    const resultId = bundle.result.resultId;
+    if (!ownerToken || fixtureName !== null || deleting) return;
+    const confirmed = window.confirm(
+      "Delete this result? Anyone with the link will lose access. This cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    setDeleting(true);
+    setFieldError("");
+    setResultNotice("");
+    try {
+      await deleteResult(resultId, ownerToken, controller.signal);
+      if (requestRef.current !== controller) return;
+      removeOwnerToken(resultId);
+      setOwnerToken(null);
+      setDeleting(false);
+      loadFixture(initialFixture());
+      setResultNotice("RESULT DELETED · SHARED LINK REMOVED");
+    } catch (error) {
+      if (requestRef.current === controller && !isAbortError(error)) {
+        setFieldError(
+          error instanceof Error
+            ? error.message
+            : "The result could not be deleted. Try again.",
+        );
+      }
+    } finally {
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        setDeleting(false);
       }
     }
   }
@@ -321,7 +420,7 @@ export function App() {
               onChange={(event) => setUrl(event.currentTarget.value)}
               aria-describedby={fieldError ? "scan-help scan-error" : "scan-help"}
               aria-invalid={Boolean(fieldError)}
-              disabled={loading}
+              disabled={loading || deleting}
               maxLength={2048}
               autoComplete="off"
               spellCheck={false}
@@ -346,7 +445,13 @@ export function App() {
               {fieldError}
             </p>
           )}
-          <button className="xray-button" type="submit" disabled={loading}>
+          {resultNotice && (
+            <p className="result-notice" role="status" aria-live="polite">
+              <Check size={16} weight="bold" aria-hidden="true" />
+              {resultNotice}
+            </p>
+          )}
+          <button className="xray-button" type="submit" disabled={loading || deleting}>
             {loading && <SpinnerGap className="job-spinner" size={20} weight="bold" aria-hidden="true" />}
             {loading
               ? job?.state === "ready"
@@ -363,7 +468,7 @@ export function App() {
             id="fixture"
             value={fixtureName ?? ""}
             onChange={(event) => loadFixture(event.currentTarget.value as FixtureName)}
-            disabled={loading}
+            disabled={loading || deleting}
           >
             {fixtureName === null && <option value="" disabled>Published result</option>}
             <option value="clean">Clean page</option>
@@ -394,6 +499,21 @@ export function App() {
             <button className="copy-button" type="button" onClick={copyFinding}>
               {copied ? <Check size={18} weight="bold" /> : <Copy size={18} />}
               {copied ? "COPIED" : "COPY FINDING"}
+            </button>
+          )}
+          {fixtureName === null && ownerToken && (
+            <button
+              className="delete-button"
+              type="button"
+              onClick={deletePublishedResult}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <SpinnerGap className="job-spinner" size={17} weight="bold" aria-hidden="true" />
+              ) : (
+                <Trash size={17} aria-hidden="true" />
+              )}
+              {deleting ? "DELETING RESULT" : "DELETE RESULT"}
             </button>
           )}
         </article>

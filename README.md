@@ -10,7 +10,7 @@ The first release is deliberately not a full developer dashboard, a Lighthouse r
 
 ## Current status
 
-Gate 0's local extraction, policy, supervision, and transport proofs are implemented, while production egress and containment remain open release gates. Gate 1 now has a shipped React/Three.js viewer for all three immutable fixtures, and the authored Gate 2 reveal runs through the shared five-stage runtime. The first Gate 3 integration slice adds an anonymous pollable job contract, a transport-backed seeded local API, immutable viewer bundles with ETags, stable in-process result routes, and honest recovery when arbitrary public scanning is disabled. This is executable product progress, not a production-scanner claim: public egress, durable storage and deletion, distributed abuse controls, representative benchmarks, share rendering, and hosting remain unfinished.
+Gate 0's local extraction, policy, supervision, and transport proofs are implemented, while production egress and containment remain open release gates. Gate 1 now has a shipped React/Three.js viewer for all three immutable fixtures, and the authored Gate 2 reveal runs through the shared five-stage runtime. The Gate 3 local API now adds anonymous pollable jobs, transport-backed seeded scans, restart-stable immutable result bundles, strong ETags, bounded retention, and a separate HMAC-backed no-login deletion capability. Arbitrary public scanning remains honestly disabled. This is executable product progress, not a production-scanner claim: public egress, distributed queues and abuse controls, an approved retention/takedown policy, representative benchmarks, share rendering, and hosting remain unfinished.
 
 ## Project documents
 
@@ -29,6 +29,7 @@ Gate 0's local extraction, policy, supervision, and transport proofs are impleme
 - [docs/VIEWER_RUNTIME.schema.json](docs/VIEWER_RUNTIME.schema.json) — renderer-neutral runtime contract
 - [docs/SCAN_TRANSPORT.md](docs/SCAN_TRANSPORT.md) — destination-grant, worker, and record-admission boundary
 - [docs/SCAN_API.md](docs/SCAN_API.md) — anonymous job lifecycle and immutable viewer-bundle boundary
+- [docs/RESULT_STORAGE.md](docs/RESULT_STORAGE.md) — durable local publication, retention, and deletion boundary
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — release-blocking public-scanner security boundary
 - [docs/TELEMETRY.md](docs/TELEMETRY.md) — product event chain, metrics, and data minimization
 - [docs/GATE_0_EVIDENCE.md](docs/GATE_0_EVIDENCE.md) — requirement-by-requirement completion evidence and remaining proof
@@ -50,6 +51,7 @@ python scripts/verify_capture_worker.py
 python scripts/verify_destination_policy.py
 python scripts/verify_scan_transport.py
 python scripts/verify_scan_api_contract.py
+python scripts/verify_result_store.py
 python scripts/verify_local_scan_api.py
 ```
 
@@ -59,7 +61,7 @@ The tenth command is network-free: it exercises the deployment-neutral destinati
 
 The eleventh composes that policy with the supervised worker and record-admission boundary. It proves independent initial/redirect/subresource grants, zero launch on 29 target and seven DNS rejections, rebinding denial, strict worker-envelope admission, scan-schema plus semantic validation, and exact initial-target correlation. No record is publishable after launch/setup failure, crash, timeout, stale nonce, oversized/nonregular artifact, malformed envelope, invalid record, or target mismatch. It is connector-contract evidence, not proof of production address-pinned HTTPS, public egress, a queue, or container containment.
 
-The scan-API verifier proves the separate anonymous job lifecycle and immutable bundle boundary. The local HTTP verifier then exercises bounded JSON submission, queued/running/ready states, the existing supervised transport, schema-plus-semantic admission, deterministic mapping, ETags, exact-result reuse, target correlation, queue and cooling limits, the stable result shell, and content-free misses. It also proves that an arbitrary public target remains disabled in this local safety proof.
+The scan-API verifier proves the separate anonymous job lifecycle and immutable bundle boundary. The result-store verifier proves atomic file publication, byte-identical restart recovery, HMAC-only digest storage, key rotation, retention, tombstoned non-reuse, corruption rejection, deletion, concurrency, and identifier safety. The local HTTP verifier then exercises bounded JSON submission, browser-minted deletion digests, queued/running/ready states, the existing supervised transport, schema-plus-semantic admission, no-store ETags, restart recovery and owner deletion, exact-result reuse without ownership transfer, owner-safe guess throttling, expiry recovery, target correlation, queue and cooling limits, the stable result shell, and content-free misses. It also proves that an arbitrary public target remains disabled in this local safety proof.
 
 ## Product loop
 

@@ -5,6 +5,11 @@ export const scanApiVersion = "scan-api-v0.1.0" as const;
 
 type Wait = (milliseconds: number, signal: AbortSignal) => Promise<void>;
 
+export interface ScanSubmissionResult {
+  job: ScanJob;
+  ownsResult: boolean;
+}
+
 async function responseJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -34,14 +39,68 @@ async function immutableResponseJson(response: Response): Promise<unknown> {
   }
 }
 
-export async function submitScan(url: string, signal: AbortSignal): Promise<ScanJob> {
+export function createDeletionToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return `dxrd_${hex(bytes)}`;
+}
+
+async function deletionDigest(token: string): Promise<string> {
+  if (!/^dxrd_[0-9a-f]{64}$/.test(token)) {
+    throw new Error("The local deletion key is invalid.");
+  }
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return hex(new Uint8Array(digest));
+}
+
+export async function submitScan(
+  url: string,
+  deletionToken: string,
+  signal: AbortSignal,
+): Promise<ScanSubmissionResult> {
+  const digest = await deletionDigest(deletionToken);
   const response = await fetch("/api/scans", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Deletion-Token-Digest": `sha256=${digest}`,
+    },
     body: JSON.stringify({ apiVersion: scanApiVersion, url }),
     signal,
   });
-  return validateScanJob(await responseJson(response));
+  return {
+    job: validateScanJob(await responseJson(response)),
+    ownsResult: response.status === 202,
+  };
+}
+
+export async function deleteResult(
+  resultId: string,
+  deletionToken: string,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!/^r_[0-9a-f]{32}$/.test(resultId)) {
+    throw new Error("The result identity is invalid.");
+  }
+  if (!/^dxrd_[0-9a-f]{64}$/.test(deletionToken)) {
+    throw new Error("This browser's deletion key is invalid.");
+  }
+  const response = await fetch(`/api/results/${resultId}`, {
+    method: "DELETE",
+    headers: { "X-Deletion-Token": deletionToken },
+    cache: "no-store",
+    signal,
+  });
+  if (response.status === 204) return;
+  if (response.status === 400 || response.status === 403) {
+    throw new Error("This browser no longer holds the matching deletion key.");
+  }
+  if (response.status === 404) {
+    throw new Error("This result has already expired or been deleted.");
+  }
+  if (response.status === 429) {
+    throw new Error("Too many deletion attempts. Wait a minute, then try again.");
+  }
+  throw new Error("The result could not be deleted. Try again.");
 }
 
 export async function fetchScanJob(jobId: string, signal: AbortSignal): Promise<ScanJob> {

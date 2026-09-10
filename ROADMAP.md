@@ -113,7 +113,7 @@ Pivot rule: high completion with low comprehension means simplify the mapping an
 
 **Question:** Can real pages be captured consistently, safely, and fast enough?
 
-Current status: **local anonymous job/publication proof implemented; arbitrary public scanning remains deliberately disabled**. A transport-backed seeded API now admits three exact HTTPS fixtures, crosses the scanner worker and validation boundaries, exposes bounded queued/running/ready/rejected/failed jobs, publishes immutable ETag-bound viewer bundles, and serves stable in-process result routes. Exact reuse, concurrency bounds, target correlation, admission cooling, content-free misses, and honest `scanner-disabled` rejection are verified. Production work still requires address-pinned HTTPS egress, process/container isolation, distributed rate limits, durable storage and deletion, scanner identity and opt-out policy, and the representative 100-URL corpus.
+Current status: **local anonymous job/publication proof implemented; arbitrary public scanning remains deliberately disabled**. A transport-backed seeded API now admits three exact HTTPS fixtures, crosses the scanner worker and validation boundaries, exposes bounded queued/running/ready/rejected/failed jobs, publishes immutable ETag-bound viewer bundles, and serves restart-stable result routes from a staged local file store. Browser-minted no-login deletion, keyed-digest storage, tombstoned result-ID retirement, 24-hour engineering retention, exact reuse, expiry recovery, concurrency bounds, target correlation, admission cooling, content-free misses, and honest `scanner-disabled` rejection are verified. Production work still requires address-pinned HTTPS egress, process/container isolation, distributed storage and rate limits, an approved retention/takedown policy, scanner identity and opt-out policy, and the representative 100-URL corpus.
 
 Deliverables:
 
@@ -163,7 +163,7 @@ Pivot rule: if visitors watch but do not inspect or rescan, improve the transiti
 
 **Question:** Does the artifact survive outside the product and invite the next scan?
 
-Current status: **immutable binding and local result publication implemented; media and durable public storage are not started**. `result-manifest-v0.1.0` deterministically binds an opaque result path, scan record, mapping registry, scene manifest, exact hero sentence and numeric evidence, limitation disclosure, and bounded poster/video targets. Three golden fixtures prove link-only fallback, complete artifact eligibility, and visibly partial artifact eligibility. The seeded API now exposes immutable ETag-bound bundles and stable in-process `/r/{resultId}` routes consumed by the viewer. No poster pixels, video container, durable storage, public hosting, deletion path, share preview, or X upload have been implemented or claimed.
+Current status: **immutable binding and restart-stable local result publication implemented; media and durable public hosting are not started**. `result-manifest-v0.1.0` deterministically binds an opaque result path, scan record, mapping registry, scene manifest, exact hero sentence and numeric evidence, limitation disclosure, and bounded poster/video targets. Three golden fixtures prove link-only fallback, complete artifact eligibility, and visibly partial artifact eligibility. The seeded API now exposes immutable ETag-bound bundles and restart-stable `/r/{resultId}` routes consumed by the viewer; the creating browser can delete through a separate unshared capability, while retired IDs are tombstoned. No poster pixels, video container, distributed public storage, public hosting, cache-purge path, share preview, or X upload have been implemented or claimed.
 
 Deliverables:
 
@@ -216,7 +216,7 @@ Decision rules:
 - A gate's status changes only with linked evidence: test output, captured artifact, benchmark, or research notes.
 - New scope enters the backlog; it does not enter the current gate unless it is required for that gate's exit criteria.
 - “Looks good” never substitutes for comprehension, provenance, performance, or reliability evidence.
-- Current open decisions: production deployment and isolation target, durable storage/retention/deletion policy, scanner identity and opt-out policy, and the exact representative URL corpus. The implementation stack is React, TypeScript, Vite, Three.js, and React Three Fiber; **Instrument Panorama** is the approved implementation reference.
+- Current open decisions: production deployment and isolation target, distributed storage plus public retention/takedown policy, scanner identity and opt-out policy, and the exact representative URL corpus. The implementation stack is React, TypeScript, Vite, Three.js, and React Three Fiber; **Instrument Panorama** is the approved implementation reference.
 
 ## Core event chain
 
