@@ -567,6 +567,13 @@ def assert_admission_policy_guards() -> None:
         gate.reserve(target).action == "reuse",
         "exact result reuse expired with the shorter origin window",
     )
+    gate.forget_result("scan-result-1")
+    now[0] += 60.1
+    require(
+        gate.reserve(target).action == "scan",
+        "deleted result remained pinned in exact-target reuse",
+    )
+    gate.abandon(target)
 
     failed_target = "https://failed.test/page"
     require(

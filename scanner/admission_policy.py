@@ -158,3 +158,19 @@ class ScanAdmissionGate:
             reservation = self._targets.get(target)
             if reservation is not None and reservation.result_id is None:
                 del self._targets[target]
+
+    def forget_result(self, result_id: str) -> None:
+        """Remove completed exact-target mappings after deletion or expiry.
+
+        Origin cooling deliberately remains in force so deletion cannot become
+        an immediate rescan bypass.
+        """
+
+        if not result_id:
+            raise ValueError("result ID is required")
+        with self._lock:
+            self._targets = {
+                target: reservation
+                for target, reservation in self._targets.items()
+                if reservation.result_id != result_id
+            }

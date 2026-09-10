@@ -22,7 +22,10 @@ an honest failed result, not a transport failure.
 
 Accept exactly one JSON body conforming to `SCAN_SUBMISSION.schema.json`. The
 maximum request body is 2,048 bytes and the media type is
-`application/json`. The response is a `SCAN_JOB.schema.json` resource.
+`application/json`. Before submission, the browser creates a 256-bit deletion
+token and sends only its SHA-256 digest as
+`X-Deletion-Token-Digest: sha256=<64 lowercase hex>`. Missing or malformed
+digests are rejected. The response is a `SCAN_JOB.schema.json` resource.
 
 - `202 Accepted`: queued or running.
 - `200 OK`: an exact immutable result was reused.
@@ -48,7 +51,20 @@ requests fail.
 Return the immutable `VIEWER_BUNDLE.schema.json` document with a strong ETag.
 Once published, the bytes for a result ID cannot change. The viewer validates
 all component schemas, identities, versions, source hashes, connection
-endpoints, and evidence pointers before rendering.
+endpoints, and evidence pointers before rendering. While deletion is supported,
+responses use `Cache-Control: no-store`; a public immutable cache is forbidden
+until the deployment has a proven purge path.
+
+### `DELETE /api/results/{resultId}`
+
+Require the separate 256-bit `X-Deletion-Token` capability. A correct token
+retires the result ID, removes the durable bundle, and returns an empty `204`.
+Malformed, wrong, unknown, and rate-limited attempts return empty `400`, `403`,
+`404`, and `429` responses respectively, all with `Cache-Control: no-store`;
+`429` also includes `Retry-After`. Only a keyed HMAC of the browser-supplied
+digest is stored, token comparison is constant-time, repeated failures are
+bounded without blocking a correct token, and deletion invalidates in-process
+exact-result reuse. Production requires requester-aware distributed throttling.
 
 ### `GET /r/{resultId}`
 
@@ -74,6 +90,23 @@ POST or work may instead end at:
 Terminal states never transition. A job never exposes a result until transport
 admission, scan schema and semantic validation, deterministic mapping, bundle
 validation, and immutable publication all succeed.
+
+## Local durable storage and retention
+
+The command-line server writes committed result envelopes beneath
+`.dom-xray-data/results` by default and keeps its HMAC key separately at
+`.dom-xray-data/store.key`; both paths are ignored by Git. Publication writes a
+same-directory staging file, flushes it, atomically replaces the final opaque-ID
+path, and exposes only a fully validated committed envelope. Deletion or expiry
+writes a small durable tombstone before removing the bundle, so an old result ID
+can never resolve to different bytes. Startup removes abandoned staging files,
+rejects corrupt or symlinked result files, and sweeps expired entries. Bundle
+bytes, deletion authorization, tombstones, and ETags survive process restart.
+
+The local server defaults to a 24-hour engineering retention window, adjustable
+with `--retention-hours`. That is not the public product policy. Durable jobs,
+multi-process writers, distributed indexes, cache purge, takedown operations,
+and the approved production retention period remain release gates.
 
 ## Public error vocabulary
 

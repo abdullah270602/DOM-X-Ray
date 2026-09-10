@@ -14,6 +14,7 @@ import re
 import secrets
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -37,6 +38,13 @@ from scanner.api_contract import (
 )
 from scanner.destination_policy import DestinationPolicy, DestinationPolicyError
 from scanner.result_manifest import build_result_manifest
+from scanner.result_store import (
+    FilesystemResultStore,
+    MemoryResultStore,
+    ResultStore,
+    ResultStoreError,
+    load_or_create_store_key,
+)
 from scanner.scan_transport import PublicScanGrant, WorkerLaunch, run_public_scan_transport
 from scanner.scene_manifest import build_scene_manifest
 from scanner.viewer_runtime import build_viewer_runtime
@@ -46,12 +54,14 @@ from scripts.validate_fixtures import validate_semantics
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_WORKER = ROOT / "fixtures" / "worker" / "scan_transport_worker_fixture.py"
 FIXTURE_DIR = ROOT / "fixtures" / "scan"
-RESULT_FIXTURE_DIR = ROOT / "fixtures" / "result-manifest"
 SCAN_SCHEMA = json.loads((ROOT / "docs" / "SCAN_RECORD.schema.json").read_text(encoding="utf-8"))
 MAPPING = json.loads((ROOT / "docs" / "MAPPING_REGISTRY.v0.1.json").read_text(encoding="utf-8"))
 
 MAX_REQUEST_BODY_BYTES = 2_048
 DEFAULT_POLL_AFTER_MS = 350
+MAX_DELETION_FAILURES = 5
+DELETION_FAILURE_WINDOW_SECONDS = 60
+DELETION_DIGEST_HEADER_PATTERN = re.compile(r"^sha256=([0-9a-f]{64})$")
 PUBLIC_FIXTURE_ADDRESS = "93.184.216.34"
 SEEDED_TARGETS = {
     "https://clean.example/": "clean",
@@ -105,11 +115,12 @@ def _canonical_target(url: str) -> str:
 class FixtureScanExecutor:
     """Seed-only executor that still crosses the real supervised transport seam."""
 
-    def __init__(self) -> None:
+    def __init__(self, result_id_factory: Callable[[], str] | None = None) -> None:
         self._schema_validator = Draft202012Validator(
             SCAN_SCHEMA,
             format_checker=FormatChecker(),
         )
+        self._result_id_factory = result_id_factory or (lambda: f"r_{secrets.token_hex(16)}")
 
     def _fixture_name(self, target_url: str) -> str | None:
         try:
@@ -182,12 +193,9 @@ class FixtureScanExecutor:
         progress("mapping")
         record = transport.record
         scene = build_scene_manifest(record, MAPPING)
-        fixture_result = json.loads(
-            (RESULT_FIXTURE_DIR / f"{fixture_name}.json").read_text(encoding="utf-8")
-        )
         result = build_result_manifest(
             record,
-            result_id=fixture_result["resultId"],
+            result_id=self._result_id_factory(),
             scene_manifest=scene,
             mapping_registry=MAPPING,
         )
@@ -217,6 +225,7 @@ class _Job:
     error: dict[str, object] | None = None
     poll_after_ms: int | None = DEFAULT_POLL_AFTER_MS
     target_url: str | None = None
+    deletion_token_digest: str | None = None
 
 
 class LocalScanJobService:
@@ -229,6 +238,7 @@ class LocalScanJobService:
         max_workers: int = 2,
         max_active_jobs: int = 8,
         admission_gate: ScanAdmissionGate | None = None,
+        result_store: ResultStore | None = None,
     ) -> None:
         if max_workers <= 0 or max_active_jobs <= 0:
             raise ValueError("job service limits must be positive")
@@ -238,9 +248,10 @@ class LocalScanJobService:
             duplicate_window_seconds=60,
             origin_cooling_seconds=10,
         )
+        self._result_store = result_store or MemoryResultStore()
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="dom-xray-scan")
         self._jobs: dict[str, _Job] = {}
-        self._bundles: dict[str, bytes] = {}
+        self._deletion_failures: dict[str, list[float]] = {}
         self._lock = threading.Lock()
 
     @staticmethod
@@ -290,7 +301,13 @@ class LocalScanJobService:
             self._jobs[job.job_id] = job
             return self._snapshot(job)
 
-    def submit(self, target_url: str) -> tuple[dict[str, Any], int, int | None]:
+    def submit(
+        self,
+        target_url: str,
+        deletion_token_digest: str,
+    ) -> tuple[dict[str, Any], int, int | None]:
+        if re.fullmatch(r"[0-9a-f]{64}", deletion_token_digest) is None:
+            raise ValueError("invalid deletion token digest")
         if not self._scan_executor.supports(target_url):
             job = self._terminal_job("rejected", "scanner-disabled")
             with self._lock:
@@ -308,30 +325,36 @@ class LocalScanJobService:
             assert admission.reusable_result_id is not None
             result_id = admission.reusable_result_id
             with self._lock:
-                bundle_bytes = self._bundles.get(result_id)
-                if bundle_bytes is None:
-                    job = self._terminal_job("failed", "internal-error")
+                try:
+                    stored = self._result_store.get(result_id)
+                except (ValueError, ResultStoreError):
+                    stored = None
+                if stored is None:
+                    job = None
+                else:
+                    bundle = json.loads(stored.payload)
+                    now = self._now()
+                    job = _Job(
+                        job_id=self._new_job_id(),
+                        state="ready",
+                        progress="complete",
+                        submitted_at=now,
+                        updated_at=now,
+                        scan_status=bundle["record"]["status"],
+                        result={
+                            "resultId": result_id,
+                            "resultPath": bundle["result"]["resultPath"],
+                            "bundleUrl": f"/api/results/{result_id}",
+                        },
+                        poll_after_ms=None,
+                        target_url=target_url,
+                    )
                     self._jobs[job.job_id] = job
-                    return self._snapshot(job), HTTPStatus.INTERNAL_SERVER_ERROR, None
-                bundle = json.loads(bundle_bytes)
-                now = self._now()
-                job = _Job(
-                    job_id=self._new_job_id(),
-                    state="ready",
-                    progress="complete",
-                    submitted_at=now,
-                    updated_at=now,
-                    scan_status=bundle["record"]["status"],
-                    result={
-                        "resultId": result_id,
-                        "resultPath": bundle["result"]["resultPath"],
-                        "bundleUrl": f"/api/results/{result_id}",
-                    },
-                    poll_after_ms=None,
-                    target_url=target_url,
-                )
-                self._jobs[job.job_id] = job
-                return self._snapshot(job), HTTPStatus.OK, None
+                    snapshot = self._snapshot(job)
+            if stored is None:
+                self._admission.forget_result(result_id)
+                return self.submit(target_url, deletion_token_digest)
+            return snapshot, HTTPStatus.OK, None
 
         if admission.action == "reject":
             job = self._terminal_job("rejected", "rate-limited")
@@ -358,6 +381,7 @@ class LocalScanJobService:
                 submitted_at=now,
                 updated_at=now,
                 target_url=target_url,
+                deletion_token_digest=deletion_token_digest,
             )
             self._jobs[job.job_id] = job
             snapshot = self._snapshot(job)
@@ -385,11 +409,13 @@ class LocalScanJobService:
             if _canonical_target(bundle["record"]["requestedUrl"]) != _canonical_target(target_url):
                 raise ApiContractError("executor result does not match its requested target")
             result_id = bundle["result"]["resultId"]
-            bundle_bytes = stable_json_bytes(bundle)
             with self._lock:
-                self._bundles.setdefault(result_id, bundle_bytes)
-                if self._bundles[result_id] != bundle_bytes:
-                    raise ApiContractError("immutable result ID collision")
+                deletion_token_digest = self._jobs[job_id].deletion_token_digest
+            if deletion_token_digest is None:
+                raise ResultStoreError("queued scan has no deletion token digest")
+            self._result_store.publish(bundle, deletion_token_digest)
+            self._admission.complete(target_url, result_id)
+            with self._lock:
                 job = self._jobs[job_id]
                 job.state = "ready"
                 job.progress = "complete"
@@ -400,9 +426,9 @@ class LocalScanJobService:
                     "resultPath": bundle["result"]["resultPath"],
                     "bundleUrl": f"/api/results/{result_id}",
                 }
+                job.deletion_token_digest = None
                 job.poll_after_ms = None
                 self._snapshot(job)
-            self._admission.complete(target_url, result_id)
         except ScanExecutionError as error:
             self._fail(job_id, error.code)
         except Exception:
@@ -419,6 +445,7 @@ class LocalScanJobService:
             job.updated_at = self._now()
             job.error = self._error(code)
             job.poll_after_ms = None
+            job.deletion_token_digest = None
             target_url = job.target_url
             self._snapshot(job)
         if target_url is not None:
@@ -430,13 +457,38 @@ class LocalScanJobService:
             return None if job is None else self._snapshot(job)
 
     def get_bundle(self, result_id: str) -> tuple[bytes, str] | None:
-        with self._lock:
-            payload = self._bundles.get(result_id)
-            if payload is None:
-                return None
-            import hashlib
+        try:
+            stored = self._result_store.get(result_id)
+        except (ValueError, ResultStoreError):
+            return None
+        return None if stored is None else (stored.payload, stored.etag)
 
-            return payload, f'"{hashlib.sha256(payload).hexdigest()}"'
+    def delete_result(self, result_id: str, deletion_token: str) -> tuple[str, int | None]:
+        now = time.monotonic()
+        with self._lock:
+            try:
+                outcome = self._result_store.delete(result_id, deletion_token)
+            except ResultStoreError:
+                return "not-found", None
+            if outcome == "forbidden":
+                failures = [
+                    attempted_at
+                    for attempted_at in self._deletion_failures.get(result_id, [])
+                    if now - attempted_at < DELETION_FAILURE_WINDOW_SECONDS
+                ]
+                failures.append(now)
+                self._deletion_failures[result_id] = failures
+                if len(failures) >= MAX_DELETION_FAILURES:
+                    retry_after = max(
+                        1,
+                        int(DELETION_FAILURE_WINDOW_SECONDS - (now - failures[0]) + 0.999),
+                    )
+                    return "rate-limited", retry_after
+            elif outcome == "deleted":
+                self._deletion_failures.pop(result_id, None)
+        if outcome == "deleted":
+            self._admission.forget_result(result_id)
+        return outcome, None
 
     def shutdown(self) -> None:
         self._pool.shutdown(wait=True, cancel_futures=True)
@@ -503,12 +555,26 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
             headers=headers,
         )
 
+    def _send_empty(
+        self,
+        status: int,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.send_response(status)
+        self._security_headers()
+        self.send_header("Content-Length", "0")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.end_headers()
+
     def _rejected_body(self, status: int) -> None:
         job = self.server.service.reject_submission()
         self._send_json(status, job, headers={"Cache-Control": "no-store"})
 
     def do_POST(self) -> None:  # noqa: N802
-        if urlsplit(self.path).path != "/api/scans":
+        path = urlsplit(self.path).path
+        if path != "/api/scans":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not-found"})
             return
         media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
@@ -530,11 +596,41 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
         except (UnicodeError, json.JSONDecodeError, ApiContractError):
             self._rejected_body(HTTPStatus.BAD_REQUEST)
             return
-        job, status, retry_after = self.server.service.submit(target_url)
+        digest_header = self.headers.get("X-Deletion-Token-Digest", "")
+        digest_match = DELETION_DIGEST_HEADER_PATTERN.fullmatch(digest_header)
+        if digest_match is None:
+            self._rejected_body(HTTPStatus.BAD_REQUEST)
+            return
+        job, status, retry_after = self.server.service.submit(
+            target_url,
+            digest_match.group(1),
+        )
         headers = {"Cache-Control": "no-store", "Location": f"/api/scans/{job['jobId']}"}
         if retry_after is not None:
             headers["Retry-After"] = str(retry_after)
         self._send_json(status, job, headers=headers)
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        path = urlsplit(self.path).path
+        match = re.fullmatch(r"/api/results/(r_[0-9a-f]{32})", path)
+        if match is None:
+            self._send_empty(HTTPStatus.NOT_FOUND, headers={"Cache-Control": "no-store"})
+            return
+        token = self.headers.get("X-Deletion-Token", "")
+        outcome, retry_after = self.server.service.delete_result(match.group(1), token)
+        if outcome == "deleted":
+            self._send_empty(HTTPStatus.NO_CONTENT, headers={"Cache-Control": "no-store"})
+        elif outcome == "malformed":
+            self._send_empty(HTTPStatus.BAD_REQUEST, headers={"Cache-Control": "no-store"})
+        elif outcome == "forbidden":
+            self._send_empty(HTTPStatus.FORBIDDEN, headers={"Cache-Control": "no-store"})
+        elif outcome == "rate-limited":
+            self._send_empty(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                headers={"Cache-Control": "no-store", "Retry-After": str(retry_after)},
+            )
+        else:
+            self._send_empty(HTTPStatus.NOT_FOUND, headers={"Cache-Control": "no-store"})
 
     def do_HEAD(self) -> None:  # noqa: N802
         self._handle_get()
@@ -582,7 +678,7 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
                 payload,
                 "application/json; charset=utf-8",
                 headers={
-                    "Cache-Control": "public, max-age=31536000, immutable",
+                    "Cache-Control": "no-store",
                     "ETag": etag,
                 },
             )
@@ -647,9 +743,22 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--static-root", type=Path, default=ROOT / "viewer" / "dist")
+    parser.add_argument("--data-dir", type=Path, default=ROOT / ".dom-xray-data")
+    parser.add_argument(
+        "--retention-hours",
+        type=float,
+        default=24.0,
+        help="Local proof retention only; production policy remains an explicit launch decision.",
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
-    service = LocalScanJobService()
+    store_key = load_or_create_store_key(args.data_dir / "store.key")
+    result_store = FilesystemResultStore(
+        args.data_dir / "results",
+        keys=(store_key,),
+        retention_seconds=args.retention_hours * 60 * 60,
+    )
+    service = LocalScanJobService(result_store=result_store)
     server = build_server(
         args.host,
         args.port,

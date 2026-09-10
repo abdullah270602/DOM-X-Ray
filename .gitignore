@@ -11,6 +11,7 @@ coverage/
 playwright-report/
 test-results/
 .impeccable/questions/
+.dom-xray-data/
 
 *.log
 .DS_Store
