@@ -82,7 +82,7 @@
       "width": 1080,
       "height": 1080,
       "durationMs": null,
-      "maxByteLength": 8000000,
+      "maxByteLength": 5000000,
       "sourceResultBindingSha256": "6b960cbff30976d4bd599dbd2a98d12a0b1d2c605a7e5f604fcf5845f4368db2",
       "sourceSceneSha256": "b79c3f7b136df4e441266afbdd205cbb7cf861474b391388bbfd98436815e6a3",
       "sourceHeroSha256": "69d1882b2fbe7ecea91de02d3287adcbca1794a73bee83e07227f479cc7e18d0",

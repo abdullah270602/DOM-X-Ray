@@ -410,6 +410,8 @@ def main() -> None:
         != image["sourceHashes"]["resultManifestSha256"],
         "ready artifact metadata did not change the exact result hash",
     )
+    oversized_ready_poster = copy.deepcopy(ready_result)
+    oversized_ready_poster["exports"]["poster"]["artifact"]["byteLength"] = 5_000_001
 
     tampered_scene = copy.deepcopy(sources["image-heavy.json"][1])
     tampered_scene["objects"][0]["positionWorld"]["x"] += 1
@@ -442,6 +444,14 @@ def main() -> None:
     unsafe_id_record["nodes"].append(unsafe_node)
 
     runtime_controls = (
+        (
+            "ready poster exceeds its own byte envelope",
+            lambda: build_viewer_runtime(
+                sources["image-heavy.json"][0],
+                sources["image-heavy.json"][1],
+                oversized_ready_poster,
+            ),
+        ),
         (
             "tampered scene",
             lambda: build_viewer_runtime(
@@ -580,9 +590,9 @@ def main() -> None:
         for model in models.values()
     }
     expected_fingerprints = {
-        "fixture-clean": "ed1399af6e8f9514",
-        "fixture-image-heavy": "6411737b22f10a3b",
-        "fixture-third-party-heavy": "c107a80be4fe2f6c",
+        "fixture-clean": "69e4c9e0fcda0c16",
+        "fixture-image-heavy": "0c7f5c90744847d6",
+        "fixture-third-party-heavy": "acd8ace730b4486e",
     }
     require(fingerprints == expected_fingerprints, f"viewer-runtime fingerprints drifted: {fingerprints}")
     print(

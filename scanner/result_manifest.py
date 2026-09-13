@@ -19,7 +19,10 @@ from scanner.scene_manifest import (
 RESULT_MANIFEST_VERSION = "result-manifest-v0.1.0"
 _RESULT_ID = re.compile(r"r_[a-f0-9]{32}\Z")
 _UNSAFE_PUBLIC_TEXT = re.compile(r"[\x00-\x1f\x7f<>]")
-_MAX_ARTIFACT_BYTES = 8_000_000
+_MAX_ARTIFACT_BYTES = {
+    "poster": 5_000_000,
+    "video": 8_000_000,
+}
 _STATUS_LABELS = {
     "complete": "COMPLETE CAPTURE",
     "partial": "PARTIAL CAPTURE",
@@ -66,10 +69,11 @@ def _artifact_target(
     payload: bytes | None,
 ) -> dict[str, Any]:
     _require(kind in {"poster", "video"}, "unknown artifact kind")
+    max_byte_length = _MAX_ARTIFACT_BYTES[kind]
     if payload is not None:
         _require(eligible, f"ineligible {kind} cannot have artifact bytes")
         _require(isinstance(payload, bytes), f"{kind} artifact must be bytes")
-        _require(0 < len(payload) <= _MAX_ARTIFACT_BYTES, f"{kind} artifact size is invalid")
+        _require(0 < len(payload) <= max_byte_length, f"{kind} artifact size is invalid")
     return {
         "kind": kind,
         "eligible": eligible,
@@ -78,7 +82,7 @@ def _artifact_target(
         "width": 1080,
         "height": 1080,
         "durationMs": None if kind == "poster" else 5_000,
-        "maxByteLength": _MAX_ARTIFACT_BYTES,
+        "maxByteLength": max_byte_length,
         "sourceResultBindingSha256": result_binding_hash,
         "sourceSceneSha256": scene_hash,
         "sourceHeroSha256": hero_hash,

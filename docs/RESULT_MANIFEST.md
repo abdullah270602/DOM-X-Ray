@@ -74,10 +74,11 @@ this manifest or public route.
 
 ## Export targets
 
-Both targets are square 1080 × 1080 outputs with an 8 MB envelope:
+Both targets are square 1080 × 1080 outputs with platform-aware byte envelopes:
 
-- poster: `image/png`, no duration;
-- video: `video/mp4`, exactly 5000 ms, matching the authored reveal duration.
+- poster: `image/png`, no duration, maximum 5,000,000 bytes;
+- video: `video/mp4`, exactly 5000 ms, maximum 8,000,000 bytes, matching
+  the authored reveal duration.
 
 Required layers are product-owned and explicit. An eligible artifact includes
 page identity, the bound scene, the exact hero fact, DOM X-Ray identity, and the

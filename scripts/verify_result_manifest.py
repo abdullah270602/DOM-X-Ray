@@ -176,6 +176,11 @@ def main() -> None:
     image = manifests["image-heavy.json"]
     third = manifests["third-party-heavy.json"]
     require(
+        image["exports"]["poster"]["maxByteLength"] == 5_000_000
+        and image["exports"]["video"]["maxByteLength"] == 8_000_000,
+        "poster and video byte envelopes were not split",
+    )
+    require(
         clean["shareState"] == "link-only"
         and clean["hero"] is None
         and all(not target["eligible"] for target in clean["exports"].values()),
@@ -242,6 +247,27 @@ def main() -> None:
             f"{kind} byte envelope was not hashed exactly",
         )
 
+    boundary_payloads = {
+        "poster": b"p" * 5_000_000,
+        "video": b"v" * 8_000_000,
+    }
+    boundary_ready = build_result_manifest(
+        records["image-heavy.json"],
+        result_id=RESULT_IDS["image-heavy.json"],
+        artifact_payloads=boundary_payloads,
+    )
+    require(
+        not list(validator.iter_errors(boundary_ready)),
+        "exact poster/video byte boundaries failed schema",
+    )
+    require(
+        all(
+            boundary_ready["exports"][kind]["artifact"]["byteLength"] == len(payload)
+            for kind, payload in boundary_payloads.items()
+        ),
+        "exact poster/video byte boundaries were not accepted",
+    )
+
     scene = build_scene_manifest(records["image-heavy.json"])
     mismatched_scene = copy.deepcopy(scene)
     mismatched_scene["objects"][0]["positionWorld"]["x"] += 0.5
@@ -307,11 +333,19 @@ def main() -> None:
             ),
         ),
         (
-            "oversized artifact",
+            "oversized poster artifact",
             lambda: build_result_manifest(
                 records["image-heavy.json"],
                 result_id=RESULT_IDS["image-heavy.json"],
-                artifact_payloads={"poster": b"x" * 8_000_001},
+                artifact_payloads={"poster": b"x" * 5_000_001},
+            ),
+        ),
+        (
+            "oversized video artifact",
+            lambda: build_result_manifest(
+                records["image-heavy.json"],
+                result_id=RESULT_IDS["image-heavy.json"],
+                artifact_payloads={"video": b"x" * 8_000_001},
             ),
         ),
         (
@@ -367,6 +401,8 @@ def main() -> None:
         ("ready artifact missing metadata", lambda row: row["exports"]["poster"].update({"state": "ready"})),
         ("page identity trailing newline", lambda row: row["pageIdentity"].update({"label": "gallery.example\n"})),
         ("unsafe hero markup", lambda row: row["hero"].update({"statement": "<script>alert(1)</script>"})),
+        ("wrong poster byte limit", lambda row: row["exports"]["poster"].update({"maxByteLength": 8_000_000})),
+        ("wrong video byte limit", lambda row: row["exports"]["video"].update({"maxByteLength": 5_000_000})),
     )
     for name, mutate in schema_controls[:4]:
         expect_schema_failure(name, image, validator, mutate)
@@ -375,6 +411,18 @@ def main() -> None:
     expect_schema_failure(schema_controls[7][0], image, validator, schema_controls[7][1])
     for name, mutate in schema_controls[8:]:
         expect_schema_failure(name, image, validator, mutate)
+    expect_schema_failure(
+        "oversized ready poster metadata",
+        ready,
+        validator,
+        lambda row: row["exports"]["poster"]["artifact"].update({"byteLength": 5_000_001}),
+    )
+    expect_schema_failure(
+        "oversized ready video metadata",
+        ready,
+        validator,
+        lambda row: row["exports"]["video"]["artifact"].update({"byteLength": 8_000_001}),
+    )
 
     binding_controls = (
         ("scan identity", lambda row: row.update({"scanId": "other-scan"})),
@@ -423,9 +471,9 @@ def main() -> None:
     require(
         fingerprints
         == {
-            "fixture-clean": "f2f7a59371ef626d",
-            "fixture-image-heavy": "196f3f9b59512b53",
-            "fixture-third-party-heavy": "1d118979b467707b",
+            "fixture-clean": "e90a746071c72bc5",
+            "fixture-image-heavy": "1f976152933349e7",
+            "fixture-third-party-heavy": "759dcf9c1692b543",
         },
         f"result manifest fingerprints drifted: {fingerprints}",
     )

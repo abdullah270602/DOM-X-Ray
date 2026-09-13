@@ -372,14 +372,26 @@
         }
       }
     },
-    "artifact": {
+    "artifactBase": {
       "type": "object",
       "additionalProperties": false,
       "required": ["sha256", "byteLength"],
       "properties": {
         "sha256": { "$ref": "#/$defs/sha256" },
-        "byteLength": { "type": "integer", "minimum": 1, "maximum": 8000000 }
+        "byteLength": { "type": "integer", "minimum": 1 }
       }
+    },
+    "posterArtifact": {
+      "allOf": [
+        { "$ref": "#/$defs/artifactBase" },
+        { "properties": { "byteLength": { "maximum": 5000000 } } }
+      ]
+    },
+    "videoArtifact": {
+      "allOf": [
+        { "$ref": "#/$defs/artifactBase" },
+        { "properties": { "byteLength": { "maximum": 8000000 } } }
+      ]
     },
     "exportBase": {
       "type": "object",
@@ -406,21 +418,16 @@
         "width": { "const": 1080 },
         "height": { "const": 1080 },
         "durationMs": { "type": ["integer", "null"] },
-        "maxByteLength": { "const": 8000000 },
+        "maxByteLength": { "type": "integer", "minimum": 1 },
         "sourceResultBindingSha256": { "$ref": "#/$defs/sha256" },
         "sourceSceneSha256": { "$ref": "#/$defs/sha256" },
         "sourceHeroSha256": { "$ref": "#/$defs/sha256" },
-        "artifact": {
-          "oneOf": [
-            { "type": "null" },
-            { "$ref": "#/$defs/artifact" }
-          ]
-        }
+        "artifact": { "type": ["object", "null"] }
       },
       "allOf": [
         {
           "if": { "properties": { "state": { "const": "ready" } }, "required": ["state"] },
-          "then": { "properties": { "artifact": { "$ref": "#/$defs/artifact" } } },
+          "then": { "properties": { "artifact": { "type": "object" } } },
           "else": { "properties": { "artifact": { "type": "null" } } }
         }
       ]
@@ -432,7 +439,14 @@
           "properties": {
             "kind": { "const": "poster" },
             "mediaType": { "const": "image/png" },
-            "durationMs": { "type": "null" }
+            "durationMs": { "type": "null" },
+            "maxByteLength": { "const": 5000000 },
+            "artifact": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/$defs/posterArtifact" }
+              ]
+            }
           }
         }
       ]
@@ -444,7 +458,14 @@
           "properties": {
             "kind": { "const": "video" },
             "mediaType": { "const": "video/mp4" },
-            "durationMs": { "const": 5000 }
+            "durationMs": { "const": 5000 },
+            "maxByteLength": { "const": 8000000 },
+            "artifact": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/$defs/videoArtifact" }
+              ]
+            }
           }
         }
       ]
