@@ -10,7 +10,7 @@ The first release is deliberately not a full developer dashboard, a Lighthouse r
 
 ## Current status
 
-Gate 0's local extraction, policy, supervision, and transport proofs are implemented, while production egress and containment remain open release gates. Gate 1 now has a shipped React/Three.js viewer for all three immutable fixtures, and the authored Gate 2 reveal runs through the shared five-stage runtime. The Gate 3 local API now adds anonymous pollable jobs, transport-backed seeded scans, restart-stable immutable result bundles, strong ETags, bounded retention, and a separate HMAC-backed no-login deletion capability. Arbitrary public scanning remains honestly disabled. This is executable product progress, not a production-scanner claim: public egress, distributed queues and abuse controls, an approved retention/takedown policy, representative benchmarks, share rendering, and hosting remain unfinished.
+Gate 0's local extraction, policy, supervision, and transport proofs are implemented, while production egress and containment remain open release gates. Gate 1 now has a shipped React/Three.js viewer for all three immutable fixtures, and the authored Gate 2 reveal runs through the shared five-stage runtime. The Gate 3 local API adds anonymous pollable jobs, transport-backed seeded scans, restart-stable immutable result bundles, strong ETags, bounded retention, and a separate HMAC-backed no-login deletion capability. Published eligible results now have a fail-closed share preview, stable caption/link controls, and a browser-local 1080 × 1080 PNG poster; partial captures disclose their exact limitation and neutral captures remain link-only. Arbitrary public scanning remains honestly disabled. This is executable product progress, not a production-scanner claim: public egress, distributed queues and abuse controls, an approved retention/takedown policy, representative benchmarks, video encoding, durable public artifact hosting, and current X testing remain unfinished.
 
 ## Project documents
 
@@ -33,6 +33,7 @@ Gate 0's local extraction, policy, supervision, and transport proofs are impleme
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — release-blocking public-scanner security boundary
 - [docs/TELEMETRY.md](docs/TELEMETRY.md) — product event chain, metrics, and data minimization
 - [docs/GATE_0_EVIDENCE.md](docs/GATE_0_EVIDENCE.md) — requirement-by-requirement completion evidence and remaining proof
+- [docs/GATE_5_EVIDENCE.md](docs/GATE_5_EVIDENCE.md) — local share-preview/poster evidence and remaining Gate 5 proof
 
 ## Project verification
 

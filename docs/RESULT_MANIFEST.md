@@ -66,11 +66,11 @@ randomness.
 The only public path is `/r/{resultId}`. The strict field allowlist has no place
 for a deletion token, original query/fragment, target resource URL, selector,
 page title, target HTML, script, font, SVG, or live asset reference. Copied public
-strings reject control characters and angle brackets; the future renderer must
-still render every string as inert text rather than HTML. The page identity is
-the bounded registrable-domain label plus its scan-record pointer. A future
-no-login deletion capability must be separately generated and must never enter
-this manifest or public route.
+strings reject control characters and angle brackets; every renderer must still
+render each string as inert text rather than HTML. The page identity is the
+bounded registrable-domain label plus its scan-record pointer. The implemented
+no-login deletion capability is separately generated and never enters this
+manifest or public route.
 
 ## Export targets
 
@@ -90,6 +90,14 @@ does not inspect the media container, decode pixels, prove H.264 compatibility,
 or prove that rendered pixels match the claim. Those require the selected
 renderer/encoder, golden visual comparison, and current X upload/recompression
 testing before Gate 5 can pass.
+
+The current viewer supplies the first local renderer proof for the poster target:
+it derives a fail-closed SVG preview from the admitted record/scene/result bundle,
+rasterizes that exact source to a 1080 × 1080 PNG in Chromium, enforces the poster
+byte ceiling, and exposes no poster path for a link-only result. Browser evidence
+decodes both complete and honestly partial outputs and compares repeat pixel
+digests. The PNG remains a browser-local download; its bytes are not registered
+in the result manifest or durably published.
 
 ## Deterministic fixtures
 
@@ -116,7 +124,10 @@ invalidated-hero, route-identity, schema, and cross-source tampering.
 
 ## Deferred production proof
 
-This contract does not provide storage, route availability, deletion, retention,
-publication/privacy state, moderation, takedown, Open Graph delivery, rendering,
-encoding, or social-platform compatibility. It does not authorize a public launch
-or settle any open product/legal policy. Those remain explicit roadmap gates.
+This contract itself does not provide storage, route availability, deletion,
+retention, publication/privacy state, moderation, takedown, Open Graph delivery,
+rendering, encoding, or social-platform compatibility. Local implementations now
+prove result storage/deletion and browser poster rendering around the contract;
+durable public artifact publication, video, and platform compatibility remain
+open. Nothing here authorizes a public launch or settles an open product/legal
+policy.
