@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixtures } from "../domain/fixtures";
@@ -34,6 +34,18 @@ async function immutableResponse(value: object): Promise<Response> {
     byte.toString(16).padStart(2, "0"),
   ).join("")}"`;
   return new Response(body, { headers: { "Content-Type": "application/json", ETag: etag } });
+}
+
+function wireBundleFor(name: keyof typeof fixtures) {
+  const fixture = fixtures[name];
+  return {
+    bundleVersion: fixture.bundleVersion,
+    record: fixture.record,
+    scene: fixture.scene,
+    result: fixture.result,
+    runtime: fixture.runtime,
+    mapping: fixture.mapping,
+  };
 }
 
 beforeEach(() => {
@@ -90,6 +102,9 @@ describe("published result ownership", () => {
     await user.click(screen.getByRole("button", { name: "START X-RAY" }));
 
     await screen.findByRole("button", { name: "DELETE RESULT" });
+    expect(screen.getByText("STABLE RESULT ROUTE")).toBeTruthy();
+    expect(screen.queryByText(readyJob(resultId).jobId)).toBeNull();
+    expect(screen.queryByText(resultId)).toBeNull();
     const stored = window.localStorage.getItem(`dom-x-ray:owner:${resultId}`);
     expect(stored).toMatch(/^dxrd_[0-9a-f]{64}$/);
     expect(window.location.pathname).toBe(`/r/${resultId}`);
@@ -130,5 +145,102 @@ describe("published result ownership", () => {
     const input = screen.getByLabelText("PUBLIC PAGE URL") as HTMLInputElement;
     await waitFor(() => expect(input.value).toBe("https://clean.example/"));
     expect(screen.queryByRole("button", { name: "DELETE RESULT" })).toBeNull();
+  });
+});
+
+describe("published result sharing", () => {
+  it("opens a protected preview, copies the exact caption, and restores trigger focus", async () => {
+    const fixture = fixtures["image-heavy"];
+    const resultId = fixture.result.resultId;
+    window.history.replaceState(null, "", `/r/${resultId}?fallback=text`);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(await immutableResponse(wireBundleFor("image-heavy"))));
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    render(<App />);
+    const shareButton = await screen.findByRole("button", { name: "SHARE RESULT" });
+    expect(screen.queryByRole("button", { name: "COPY FINDING" })).toBeNull();
+    await user.click(shareButton);
+
+    const dialog = screen.getByRole("dialog", { name: "SHARE RESULT" });
+    expect(within(dialog).getByRole("img").getAttribute("src")).toMatch(/^data:image\/svg\+xml/u);
+    expect(within(dialog).getByRole("button", { name: "DOWNLOAD POSTER" })).toBeTruthy();
+    const closeButton = within(dialog).getByRole("button", { name: "CLOSE SHARE RESULT" });
+    const newScanButton = within(dialog).getByRole("button", { name: "X-RAY ANOTHER SITE" });
+    await waitFor(() => expect(document.activeElement).toBe(closeButton));
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(newScanButton);
+    await user.tab();
+    expect(document.activeElement).toBe(closeButton);
+
+    await user.click(within(dialog).getByRole("button", { name: "COPY CAPTION" }));
+    await screen.findByText("CAPTION COPIED");
+    expect(writeText).toHaveBeenCalledWith(
+      `${fixture.result.hero?.statement}\n\n${window.location.origin}${fixture.result.resultPath}`,
+    );
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "SHARE RESULT" })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(shareButton));
+  });
+
+  it("reports clipboard failure and moves directly to the next URL task", async () => {
+    const fixture = fixtures["third-party-heavy"];
+    const resultId = fixture.result.resultId;
+    window.history.replaceState(null, "", `/r/${resultId}?fallback=text`);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(await immutableResponse(wireBundleFor("third-party-heavy"))),
+    );
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("blocked"));
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "SHARE RESULT" }));
+    const dialog = screen.getByRole("dialog", { name: "SHARE RESULT" });
+    await user.click(within(dialog).getByRole("button", { name: "COPY RESULT LINK" }));
+    await screen.findByText("CLIPBOARD BLOCKED · USE YOUR BROWSER COPY CONTROL");
+    expect(screen.queryByText("RESULT LINK COPIED")).toBeNull();
+
+    await user.click(within(dialog).getByRole("button", { name: "X-RAY ANOTHER SITE" }));
+    const input = screen.getByLabelText("PUBLIC PAGE URL");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+  });
+
+  it("keeps seeded fixture previews free of public share controls", () => {
+    render(<App />);
+    expect(screen.queryByRole("button", { name: "SHARE RESULT" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "COPY RESULT LINK" })).toBeNull();
+  });
+
+  it("keeps a published neutral result link-only", async () => {
+    const fixture = fixtures.clean;
+    window.history.replaceState(null, "", `/r/${fixture.result.resultId}?fallback=text`);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(await immutableResponse(wireBundleFor("clean"))));
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+
+    render(<App />);
+    const copyLink = await screen.findByRole("button", { name: "COPY RESULT LINK" });
+    expect(screen.queryByRole("button", { name: "SHARE RESULT" })).toBeNull();
+    await user.click(copyLink);
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}${fixture.result.resultPath}`,
+    );
+    expect(screen.getByRole("button", { name: "RESULT LINK COPIED" })).toBeTruthy();
+  });
+
+  it("announces a clipboard failure for a published link-only result", async () => {
+    const fixture = fixtures.clean;
+    window.history.replaceState(null, "", `/r/${fixture.result.resultId}?fallback=text`);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(await immutableResponse(wireBundleFor("clean"))));
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("blocked"));
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "COPY RESULT LINK" }));
+    expect(screen.getByRole("button", { name: "COPY FAILED" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "CLIPBOARD BLOCKED · USE YOUR BROWSER COPY CONTROL",
+    );
+    expect(screen.queryByText("RESULT LINK COPIED")).toBeNull();
   });
 });

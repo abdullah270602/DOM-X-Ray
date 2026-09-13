@@ -444,7 +444,7 @@ function Connection({
   material.color.set(selected ? palette.red : palette.teal);
   material.opacity = (isolated ? 0.08 : 0.25 + channels.origins * 0.68) *
     (channels.weight > 0.01 ? 1 : 0.65);
-  material.linewidth = Math.max(1, connection.measurement.cableThicknessWorld * 12);
+  material.linewidth = Math.max(1, (connection.measurement.cableThicknessWorld ?? 0.01) * 12);
   line.visible = true;
   return (
     <primitive

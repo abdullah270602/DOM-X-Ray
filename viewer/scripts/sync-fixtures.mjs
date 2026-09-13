@@ -59,9 +59,30 @@ const validatorExports = {
   validateBundle: "https://dom-x-ray.invalid/schema/viewer-bundle-v0.1.0.json",
   validateJob: "https://dom-x-ray.invalid/schema/scan-job-v0.1.0.json",
 };
+
+function browserEsmValidatorCode(source) {
+  const imports = [
+    'import ajvFormatsModule from "ajv-formats/dist/formats.js";',
+    'import ajvEqualModule from "ajv/dist/runtime/equal.js";',
+    'import ajvUcs2LengthModule from "ajv/dist/runtime/ucs2length.js";',
+    "const ajvRuntimeDefault = (module) => typeof module === \"function\" ? module : module.default;",
+  ].join("\n");
+  const rewritten = source
+    .replaceAll('require("ajv-formats/dist/formats")', "ajvFormatsModule")
+    .replaceAll('require("ajv/dist/runtime/equal").default', "ajvRuntimeDefault(ajvEqualModule)")
+    .replaceAll(
+      'require("ajv/dist/runtime/ucs2length").default',
+      "ajvRuntimeDefault(ajvUcs2LengthModule)",
+    );
+  if (rewritten.includes("require(")) {
+    throw new Error("AJV emitted an unhandled CommonJS runtime dependency");
+  }
+  return `${imports}\n${rewritten}`;
+}
+
 await writeFile(
   resolve(outputRoot, "validators.mjs"),
-  standaloneCode(ajv, validatorExports),
+  browserEsmValidatorCode(standaloneCode(ajv, validatorExports)),
   "utf8",
 );
 await writeFile(

@@ -1,10 +1,11 @@
 import {
   ArrowRight,
   Check,
-  Copy,
   Crosshair,
   GlobeSimple,
+  LinkSimple,
   ListMagnifyingGlass,
+  ShareNetwork,
   SpinnerGap,
   Trash,
   Warning,
@@ -35,6 +36,7 @@ import type { ScenePerformance } from "../scene/InstrumentScene";
 import { EvidenceDrawer } from "./EvidenceDrawer";
 import { InstrumentRail } from "./InstrumentRail";
 import { TextScene } from "./TextScene";
+import { ShareDialog } from "../share/ShareDialog";
 
 const InstrumentScene = lazy(async () => {
   const module = await import("../scene/InstrumentScene");
@@ -149,13 +151,29 @@ export function App() {
   const [deleting, setDeleting] = useState(false);
   const [job, setJob] = useState<ScanJob | null>(null);
   const [ownerToken, setOwnerToken] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [linkCopyState, setLinkCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [performance, setPerformance] = useState<ScenePerformance>(emptyPerformance);
   const [showTextScene, setShowTextScene] = useState(
     () => new URLSearchParams(window.location.search).get("fallback") === "text" || !supportsWebGL(),
   );
   const inputRef = useRef<HTMLInputElement>(null);
+  const shareButtonRef = useRef<HTMLButtonElement>(null);
+  const linkCopyTimerRef = useRef<number | null>(null);
   const requestRef = useRef<AbortController | null>(null);
+
+  const closeShare = useCallback(() => {
+    setShareOpen(false);
+    window.requestAnimationFrame(() => shareButtonRef.current?.focus());
+  }, []);
+
+  const focusNewScan = useCallback(() => {
+    setShareOpen(false);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+  }, []);
 
   const send = useCallback(
     (event: ViewerEvent) => {
@@ -176,6 +194,13 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [send, state.motion, state.playback]);
 
+  useEffect(
+    () => () => {
+      if (linkCopyTimerRef.current !== null) window.clearTimeout(linkCopyTimerRef.current);
+    },
+    [],
+  );
+
   const activateBundle = useCallback(
     (nextBundle: ViewerBundle) => {
       setBundle(nextBundle);
@@ -184,6 +209,8 @@ export function App() {
       setPerformance(emptyPerformance);
       setFieldError("");
       setResultNotice("");
+      setShareOpen(false);
+      setLinkCopyState("idle");
     },
     [reduced],
   );
@@ -389,16 +416,35 @@ export function App() {
     }
   }
 
-  async function copyFinding() {
-    const resultUrl = new URL(bundle.runtime.resultPath, window.location.origin).href;
-    const text = `${bundle.runtime.presentation.finding.statement}\n\nDOM X-Ray: ${resultUrl}`;
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+  async function copyResultLink() {
+    const resultUrl = new URL(bundle.result.resultPath, window.location.origin).href;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(resultUrl);
+      setLinkCopyState("copied");
+    } catch {
+      setLinkCopyState("failed");
+    }
+    if (linkCopyTimerRef.current !== null) window.clearTimeout(linkCopyTimerRef.current);
+    linkCopyTimerRef.current = window.setTimeout(() => setLinkCopyState("idle"), 2200);
   }
 
+  const resultUrl = new URL(bundle.result.resultPath, window.location.origin).href;
+  const published = fixtureName === null;
+  const posterEligible =
+    published &&
+    bundle.runtime.presentation.finding.shareEligible &&
+    bundle.result.shareState === "artifact-eligible" &&
+    bundle.result.exports.poster.eligible;
+  const linkOnly = published && bundle.result.shareState === "link-only";
+
   return (
-    <main className="app-shell">
+    <>
+    <main
+      className="app-shell"
+      aria-hidden={shareOpen ? true : undefined}
+      inert={shareOpen ? true : undefined}
+    >
       <section className="instrument-column" aria-labelledby="product-title">
         <header className="brand-lockup">
           <h1 id="product-title">
@@ -435,7 +481,13 @@ export function App() {
               <span className="job-mark" aria-hidden="true" />
               <span>
                 <strong>{jobLabels[job.progress]}</strong>
-                <small>{job.state === "ready" ? job.result?.resultId : job.jobId}</small>
+                <small>
+                  {job.state === "ready"
+                    ? "STABLE RESULT ROUTE"
+                    : job.state === "failed" || job.state === "rejected"
+                      ? "NO RESULT PUBLISHED"
+                      : "SEEDED WORKER PIPELINE"}
+                </small>
               </span>
             </div>
           )}
@@ -495,11 +547,40 @@ export function App() {
             VIEW EVIDENCE
             <ArrowRight size={19} weight="bold" aria-hidden="true" />
           </button>
-          {bundle.runtime.presentation.finding.shareEligible && fixtureName === null && (
-            <button className="copy-button" type="button" onClick={copyFinding}>
-              {copied ? <Check size={18} weight="bold" /> : <Copy size={18} />}
-              {copied ? "COPIED" : "COPY FINDING"}
+          {posterEligible && (
+            <button
+              ref={shareButtonRef}
+              className="copy-button"
+              type="button"
+              onClick={() => setShareOpen(true)}
+              aria-haspopup="dialog"
+            >
+              <ShareNetwork size={18} weight="regular" aria-hidden="true" />
+              SHARE RESULT
             </button>
+          )}
+          {linkOnly && (
+            <>
+              <button className="copy-button" type="button" onClick={copyResultLink}>
+                {linkCopyState === "copied" ? (
+                  <Check size={18} weight="bold" aria-hidden="true" />
+                ) : (
+                  <LinkSimple size={18} aria-hidden="true" />
+                )}
+                {linkCopyState === "copied"
+                  ? "RESULT LINK COPIED"
+                  : linkCopyState === "failed"
+                    ? "COPY FAILED"
+                    : "COPY RESULT LINK"}
+              </button>
+              {linkCopyState !== "idle" && (
+                <span className="sr-only" role={linkCopyState === "failed" ? "alert" : "status"}>
+                  {linkCopyState === "failed"
+                    ? "CLIPBOARD BLOCKED · USE YOUR BROWSER COPY CONTROL"
+                    : "RESULT LINK COPIED"}
+                </span>
+              )}
+            </>
           )}
           {fixtureName === null && ownerToken && (
             <button
@@ -609,5 +690,14 @@ export function App() {
 
       <InstrumentRail runtime={bundle.runtime} state={state} send={send} />
     </main>
+    {shareOpen && published && (
+      <ShareDialog
+        bundle={bundle}
+        resultUrl={resultUrl}
+        onClose={closeShare}
+        onNewScan={focusNewScan}
+      />
+    )}
+    </>
   );
 }

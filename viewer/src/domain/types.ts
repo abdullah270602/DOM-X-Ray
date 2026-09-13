@@ -92,7 +92,7 @@ export interface SceneConnection {
   measurement: {
     transferredBytes: number | null;
     mass: number | null;
-    cableThicknessWorld: number;
+    cableThicknessWorld: number | null;
     massSuppressedByLimitation: boolean;
   };
   evidence: { recordRefs: string[]; limitationRefs: string[] };
@@ -135,6 +135,7 @@ export interface ResultManifest {
   resultId: string;
   resultPath: string;
   scanId: string;
+  scanRecordSchemaVersion: "0.1.0";
   mappingVersion: "mapping-v0.1.0";
   sceneManifestVersion: "scene-manifest-v0.1.0";
   sourceHashes: {
@@ -148,13 +149,50 @@ export interface ResultManifest {
   status: string;
   failureCode: string | null;
   statusPresentation: { label: string; partialLabelRequired: boolean };
-  shareState: string;
+  shareState: "artifact-eligible" | "link-only" | "unavailable";
   hero: null | {
+    insightId: string;
+    kind: "structure" | "weight" | "third-party" | "layout-shift";
     statement: string;
+    shareEligible: true;
+    recordRef: string;
+    sourceRefs: string[];
+    limitationCodes: string[];
     evidence: EvidenceMetric[];
-    [key: string]: unknown;
+    selectionRule: string;
   };
-  limitations: Array<{ code: string; message: string; recordRef: string }>;
+  content: {
+    productName: "DOM X-Ray";
+    finalFrameCta: "X-RAY ANOTHER SITE";
+    requiredLayers: string[];
+  };
+  exports: {
+    poster: ResultExportTarget & { kind: "poster"; mediaType: "image/png"; durationMs: null };
+    video: ResultExportTarget & { kind: "video"; mediaType: "video/mp4"; durationMs: 5000 };
+  };
+  limitations: Array<{
+    code: string;
+    scope: string;
+    targetId: string | null;
+    message: string;
+    invalidatesMetrics: string[];
+    recordRef: string;
+  }>;
+}
+
+export interface ResultExportTarget {
+  kind: "poster" | "video";
+  eligible: boolean;
+  state: "ineligible" | "not-generated" | "ready";
+  mediaType: "image/png" | "video/mp4";
+  width: 1080;
+  height: 1080;
+  durationMs: number | null;
+  maxByteLength: number;
+  sourceResultBindingSha256: string;
+  sourceSceneSha256: string;
+  sourceHeroSha256: string;
+  artifact: null | { sha256: string; byteLength: number };
 }
 
 export interface EvidenceMetric {
@@ -162,10 +200,16 @@ export interface EvidenceMetric {
   level: string;
   attributionScope: string;
   metric: string;
-  value: string | number | null;
+  value: string | number | boolean;
   unit: string;
   sourceRefs: string[];
   rule: string;
+  classifier?: {
+    id: string;
+    version: string;
+    basis: string;
+    confidence: "low" | "medium" | "high";
+  };
 }
 
 export interface ScanRecord {
@@ -187,7 +231,13 @@ export interface ScanRecord {
     title: string;
   };
   nodes: Array<Record<string, unknown>>;
-  resources: Array<Record<string, unknown>>;
+  resources: Array<Record<string, unknown> & {
+    id: string;
+    type: string;
+    party: "first" | "third" | "unknown";
+    transferredBytes: number | null;
+    attributedNodeIds: string[];
+  }>;
   insights: Array<Record<string, unknown>>;
   limitations: Array<Record<string, unknown>>;
 }
@@ -280,7 +330,15 @@ export interface ViewerBundle {
   scene: SceneManifest;
   result: ResultManifest;
   record: ScanRecord;
-  mapping: Record<string, unknown> & { version: "mapping-v0.1.0" };
+  mapping: Record<string, unknown> & {
+    version: "mapping-v0.1.0";
+    heroSelection: {
+      allowedPrimaryEvidence: string[];
+      enabledCandidates: string[];
+      percentRoundingRule: string;
+      byteDisplayRule: string;
+    };
+  };
 }
 
 export type ScanJobState = "queued" | "running" | "ready" | "rejected" | "failed";
