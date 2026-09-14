@@ -137,6 +137,13 @@ export interface ShareCaption {
   tooLong: boolean;
 }
 
+export type ArtifactRevealStage = "page" | "structure" | "weight" | "origins" | "hero";
+
+export interface PosterSvgOptions {
+  revealStage?: ArtifactRevealStage;
+  stageLabel?: string;
+}
+
 function requireContract(
   condition: unknown,
   code: PosterErrorCode,
@@ -860,7 +867,10 @@ function textLines(lines: string[], x: number, firstY: number, lineHeight: numbe
     .join("");
 }
 
-function sceneSvg(model: PosterModel): string {
+function sceneSvg(model: PosterModel, stage: ArtifactRevealStage): string {
+  const revealsWeight = stage === "weight" || stage === "origins" || stage === "hero";
+  const revealsOrigins = stage === "origins" || stage === "hero";
+  const revealsHero = stage === "hero";
   const base: PosterPlate = {
     kind: "region",
     center: { x: 0, y: 0, z: -0.38 },
@@ -872,38 +882,54 @@ function sceneSvg(model: PosterModel): string {
     order: -1,
     highlighted: false,
   };
+  const pageSkin: PosterPlate = {
+    kind: "region",
+    center: { x: 0, y: 0, z: -0.12 },
+    width: model.planeWidth,
+    height: model.planeHeight,
+    mass: null,
+    thickness: 0.08,
+    style: "page-surface",
+    order: 0,
+    highlighted: false,
+  };
   const baseTop = platePoints(base);
   const baseBottom = baseTop.map((point) => ({ x: point.x, y: point.y + 19 }));
-  const connectionMarkup = model.connections.map((connection) => {
+  const connectionMarkup = revealsOrigins ? model.connections.map((connection) => {
     const source = project(connection.source);
     const target = project(connection.target);
     const middleX = (source.x + target.x) / 2 + (target.x >= source.x ? 18 : -18);
     const middleY = Math.min(source.y, target.y) - 34;
-    return `<path d="M ${number(source.x)} ${number(source.y)} Q ${number(middleX)} ${number(middleY)} ${number(target.x)} ${number(target.y)}" fill="none" stroke="${connection.highlighted ? palette.red : palette.teal}" stroke-width="${number(Math.max(1.7, Math.min(7, connection.strokeWidth * 64)))}" stroke-linecap="round" opacity="${connection.highlighted ? "0.94" : "0.7"}"${connection.dashed ? ' stroke-dasharray="11 8"' : ""}/>`;
-  }).join("");
-  const plateMarkup = [base, ...model.plates].map((plate) => {
+    const highlighted = revealsHero && connection.highlighted;
+    return `<path d="M ${number(source.x)} ${number(source.y)} Q ${number(middleX)} ${number(middleY)} ${number(target.x)} ${number(target.y)}" fill="none" stroke="${highlighted ? palette.red : palette.teal}" stroke-width="${number(Math.max(1.7, Math.min(7, connection.strokeWidth * 64)))}" stroke-linecap="round" opacity="${highlighted ? "0.94" : "0.7"}"${connection.dashed ? ' stroke-dasharray="11 8"' : ""}/>`;
+  }).join("") : "";
+  const visiblePlates = stage === "page" ? [base, pageSkin] : [base, ...model.plates];
+  const plateMarkup = visiblePlates.map((plate) => {
     const top = platePoints(plate);
     const extrusion = plate.order === -1
       ? 19
-      : Math.max(7, Math.min(30, 8 + (plate.mass ?? 0) * 22));
+      : revealsWeight
+        ? Math.max(7, Math.min(30, 8 + (plate.mass ?? 0) * 22))
+        : 7;
     const bottom = top.map((point) => ({ x: point.x, y: point.y + extrusion }));
+    const highlighted = revealsHero && plate.highlighted;
     const face = plate.order === -1
       ? palette.board
-      : plate.highlighted
+      : highlighted
         ? palette.red
-        : (plate.mass ?? 0) > 0.72
+        : revealsWeight && (plate.mass ?? 0) > 0.72
           ? palette.graphite
           : plate.kind === "aggregate"
             ? "#d6c8ad"
             : palette.paperLight;
     const side = plate.order === -1
       ? "#8f8267"
-      : plate.highlighted
+      : highlighted
         ? palette.redDark
-        : (plate.mass ?? 0) > 0.72
+        : revealsWeight && (plate.mass ?? 0) > 0.72
           ? "#151914"
           : "#b7aa91";
-    const contentStroke = plate.highlighted || (plate.mass ?? 0) > 0.72
+    const contentStroke = highlighted || (revealsWeight && (plate.mass ?? 0) > 0.72)
       ? palette.paperLight
       : palette.graphite;
     const lineStart = {
@@ -920,17 +946,18 @@ function sceneSvg(model: PosterModel): string {
     }).join("");
     return `<g filter="url(#plate-shadow)"><polygon points="${polygon(bottom)}" fill="${side}" opacity="0.92"/><polygon points="${polygon(top)}" fill="${plate.style.includes("hollow") ? "url(#hatch)" : face}" fill-opacity="${plate.order === -1 ? "0.96" : "0.9"}" stroke="${palette.graphite}" stroke-width="1.2"${plate.kind === "aggregate" ? ' stroke-dasharray="6 5"' : ""}/>${guideLines}</g>`;
   }).join("");
-  const busMarkup = model.buses.map((bus) => {
+  const busMarkup = revealsOrigins ? model.buses.map((bus) => {
     const point = project(bus.center);
     return `<g><line x1="${number(point.x)}" y1="175" x2="${number(point.x)}" y2="${number(point.y + 96)}" stroke="${palette.graphite}" stroke-width="7"/><line x1="${number(point.x - 7)}" y1="175" x2="${number(point.x - 7)}" y2="${number(point.y + 96)}" stroke="${palette.brass}" stroke-width="3"/><rect x="${number(point.x - 17)}" y="${number(point.y - 3)}" width="34" height="22" fill="${palette.brass}" stroke="${palette.graphite}"/></g>`;
-  }).join("");
-  const hubMarkup = model.hubs.map((hub) => {
+  }).join("") : "";
+  const hubMarkup = revealsOrigins ? model.hubs.map((hub) => {
     const point = project({ ...hub.center, z: hub.center.z + 0.18 });
-    const fill = hub.highlighted ? palette.red : palette.teal;
-    return `<g filter="url(#plate-shadow)"><polygon points="${number(point.x)},${number(point.y - 19)} ${number(point.x + 21)},${number(point.y - 8)} ${number(point.x)},${number(point.y + 3)} ${number(point.x - 21)},${number(point.y - 8)}" fill="${fill}" stroke="${palette.graphite}"/><polygon points="${number(point.x - 21)},${number(point.y - 8)} ${number(point.x)},${number(point.y + 3)} ${number(point.x)},${number(point.y + 31)} ${number(point.x - 21)},${number(point.y + 20)}" fill="${palette.teal}" stroke="${palette.graphite}"/><polygon points="${number(point.x)},${number(point.y + 3)} ${number(point.x + 21)},${number(point.y - 8)} ${number(point.x + 21)},${number(point.y + 20)} ${number(point.x)},${number(point.y + 31)}" fill="${hub.highlighted ? palette.redDark : "#234e57"}" stroke="${palette.graphite}"/><rect x="${number(point.x - 29)}" y="${number(point.y + 31)}" width="58" height="7" fill="${palette.board}" stroke="${palette.graphite}"/></g>`;
-  }).join("");
+    const highlighted = revealsHero && hub.highlighted;
+    const fill = highlighted ? palette.red : palette.teal;
+    return `<g filter="url(#plate-shadow)"><polygon points="${number(point.x)},${number(point.y - 19)} ${number(point.x + 21)},${number(point.y - 8)} ${number(point.x)},${number(point.y + 3)} ${number(point.x - 21)},${number(point.y - 8)}" fill="${fill}" stroke="${palette.graphite}"/><polygon points="${number(point.x - 21)},${number(point.y - 8)} ${number(point.x)},${number(point.y + 3)} ${number(point.x)},${number(point.y + 31)} ${number(point.x - 21)},${number(point.y + 20)}" fill="${palette.teal}" stroke="${palette.graphite}"/><polygon points="${number(point.x)},${number(point.y + 3)} ${number(point.x + 21)},${number(point.y - 8)} ${number(point.x + 21)},${number(point.y + 20)} ${number(point.x)},${number(point.y + 31)}" fill="${highlighted ? palette.redDark : "#234e57"}" stroke="${palette.graphite}"/><rect x="${number(point.x - 29)}" y="${number(point.y + 31)}" width="58" height="7" fill="${palette.board}" stroke="${palette.graphite}"/></g>`;
+  }).join("") : "";
   const markerPlate = model.plates.find((plate) => plate.highlighted) ?? model.plates.find((plate) => plate.mass !== null);
-  const marker = markerPlate
+  const marker = revealsHero && markerPlate
     ? (() => {
         const point = project({ ...markerPlate.center, z: markerPlate.center.z + 0.24 });
         return `<g stroke="${palette.red}" fill="none" stroke-width="2"><circle cx="${number(point.x)}" cy="${number(point.y)}" r="18"/><circle cx="${number(point.x)}" cy="${number(point.y)}" r="5"/><line x1="${number(point.x - 30)}" y1="${number(point.y)}" x2="${number(point.x + 30)}" y2="${number(point.y)}"/><line x1="${number(point.x)}" y1="${number(point.y - 30)}" x2="${number(point.x)}" y2="${number(point.y + 30)}"/></g>`;
@@ -940,7 +967,9 @@ function sceneSvg(model: PosterModel): string {
   return `<g aria-hidden="true">${guides}${connectionMarkup}${plateMarkup}${busMarkup}${hubMarkup}${marker}</g>`;
 }
 
-export function posterSvgFor(model: PosterModel): string {
+export function posterSvgFor(model: PosterModel, options: PosterSvgOptions = {}): string {
+  const revealStage = options.revealStage ?? "hero";
+  const revealHero = revealStage === "hero";
   const statementLines = wrapText(model.statement, 58, 3, "Hero statement");
   const limitationLines = model.limitationMessages.flatMap((message) =>
     wrapText(message, 90, 3, "Limitation disclosure"),
@@ -960,16 +989,25 @@ export function posterSvgFor(model: PosterModel): string {
   requireContract(ctaY + 62 <= 1058, "content-overflow", "Poster copy leaves no room for the action.");
 
   const statusColor = model.partial ? palette.redDark : palette.red;
-  const accessibleDescription = `${model.statusLabel}. ${model.statement}${
-    model.limitationMessages.length
-      ? ` Limitations: ${model.limitationMessages.join(" ")}`
-      : ""
-  }`;
+  const accessibleDescription = revealHero
+    ? `${model.statusLabel}. ${model.statement}${
+        model.limitationMessages.length
+          ? ` Limitations: ${model.limitationMessages.join(" ")}`
+          : ""
+      }`
+    : `${model.statusLabel}. ${options.stageLabel ?? "Measured reveal stage"}.`;
   const limitationMarkup = limitationLines.length
     ? `<g><rect x="42" y="${limitationY}" width="996" height="${limitationHeight}" fill="#efd5cc"/><circle cx="68" cy="${limitationY + limitationHeight / 2}" r="15" fill="${palette.redDark}"/><text x="68" y="${limitationY + limitationHeight / 2 + 7}" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="${palette.paperLight}">!</text>${textLines(limitationLines, 96, limitationY + 32, 27, "limitation")}</g>`
     : "";
+  const heroMarkup = revealHero
+    ? `<text class="headline" x="42" y="${headlineBaseline}">${escapeXml(model.headline)}</text>${textLines(statementLines, 44, statementStart, statementLineHeight, "statement")}${limitationMarkup}<g><rect x="42" y="${ctaY}" width="444" height="62" fill="${palette.red}"/><text class="cta" x="67" y="${ctaY + 39}">${escapeXml(model.cta)}</text><line x1="416" y1="${ctaY + 31}" x2="457" y2="${ctaY + 31}" stroke="${palette.paperLight}" stroke-width="2"/><path d="M449 ${ctaY + 23}l9 8-9 8" fill="none" stroke="${palette.paperLight}" stroke-width="2"/></g>`
+    : "";
+  const stageLabelStart = revealHero ? 548 : 42;
+  const stageLabelMarkup = options.stageLabel
+    ? `<g aria-hidden="true"><line x1="${stageLabelStart}" y1="968" x2="1038" y2="968" stroke="${palette.graphite}" stroke-width="1" opacity="0.35"/><text class="stage-label" x="${stageLabelStart}" y="1019">${escapeXml(options.stageLabel)}</text><circle cx="1017" cy="1008" r="10" fill="${revealStage === "origins" ? palette.teal : palette.red}"/></g>`
+    : "";
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080" role="img" aria-labelledby="poster-title poster-description"><title id="poster-title">${escapeXml(model.pageLabel)} DOM X-Ray result</title><desc id="poster-description">${escapeXml(accessibleDescription)}</desc><defs><pattern id="paper" width="38" height="38" patternUnits="userSpaceOnUse"><path d="M4 8h1M20 25h1M31 13h1" stroke="${palette.graphite}" stroke-width="1" opacity="0.055"/></pattern><pattern id="hatch" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><rect width="12" height="12" fill="${palette.paperLight}"/><line x1="0" y1="0" x2="0" y2="12" stroke="${palette.graphite}" stroke-width="2" opacity="0.3"/></pattern><filter id="plate-shadow" x="-20%" y="-20%" width="150%" height="170%"><feDropShadow dx="0" dy="14" stdDeviation="13" flood-color="#2c2318" flood-opacity="0.12"/></filter><style>.logo{font:800 51px/0.78 Arial Narrow,Arial,sans-serif;letter-spacing:5px;fill:${palette.graphite}}.meta{font:400 20px Courier New,monospace;letter-spacing:2px;fill:${palette.graphite}}.status{font:700 16px Courier New,monospace;letter-spacing:7px;fill:${palette.graphite}}.headline{font:800 ${headlineSize}px Arial Narrow,Arial,sans-serif;letter-spacing:-4px;fill:${palette.redDark}}.statement{font:500 34px Arial,sans-serif;letter-spacing:-0.6px;fill:${palette.graphite}}.limitation{font:500 20px Arial,sans-serif;fill:${palette.redDark}}.cta{font:700 20px Courier New,monospace;letter-spacing:5px;fill:${palette.paperLight}}</style></defs><rect width="1080" height="1080" fill="${palette.paper}"/><rect width="1080" height="1080" fill="url(#paper)"/><g stroke="${palette.graphite}" stroke-width="1" opacity="0.45"><line x1="42" y1="34" x2="194" y2="34"/><line x1="225" y1="34" x2="1036" y2="34"/><line x1="286" y1="20" x2="286" y2="114"/><circle cx="1002" cy="74" r="9" fill="none"/><line x1="973" y1="74" x2="1031" y2="74"/><line x1="1002" y1="45" x2="1002" y2="103"/></g><text class="logo" x="45" y="62">DOM</text><text class="logo" x="45" y="108">X-RAY</text><text class="meta" x="322" y="59">${escapeXml(model.pageLabel)}</text><circle cx="306" cy="91" r="8" fill="${statusColor}"/><text class="status" x="326" y="98">${escapeXml(model.statusLabel)}</text>${sceneSvg(model)}<text class="headline" x="42" y="${headlineBaseline}">${escapeXml(model.headline)}</text>${textLines(statementLines, 44, statementStart, statementLineHeight, "statement")}${limitationMarkup}<g><rect x="42" y="${ctaY}" width="444" height="62" fill="${palette.red}"/><text class="cta" x="67" y="${ctaY + 39}">${escapeXml(model.cta)}</text><line x1="416" y1="${ctaY + 31}" x2="457" y2="${ctaY + 31}" stroke="${palette.paperLight}" stroke-width="2"/><path d="M449 ${ctaY + 23}l9 8-9 8" fill="none" stroke="${palette.paperLight}" stroke-width="2"/></g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080" role="img" aria-labelledby="poster-title poster-description"><title id="poster-title">${escapeXml(model.pageLabel)} DOM X-Ray result</title><desc id="poster-description">${escapeXml(accessibleDescription)}</desc><defs><pattern id="paper" width="38" height="38" patternUnits="userSpaceOnUse"><path d="M4 8h1M20 25h1M31 13h1" stroke="${palette.graphite}" stroke-width="1" opacity="0.055"/></pattern><pattern id="hatch" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><rect width="12" height="12" fill="${palette.paperLight}"/><line x1="0" y1="0" x2="0" y2="12" stroke="${palette.graphite}" stroke-width="2" opacity="0.3"/></pattern><filter id="plate-shadow" x="-20%" y="-20%" width="150%" height="170%"><feDropShadow dx="0" dy="14" stdDeviation="13" flood-color="#2c2318" flood-opacity="0.12"/></filter><style>.logo{font:800 51px/0.78 Arial Narrow,Arial,sans-serif;letter-spacing:5px;fill:${palette.graphite}}.meta{font:400 20px Courier New,monospace;letter-spacing:2px;fill:${palette.graphite}}.status{font:700 16px Courier New,monospace;letter-spacing:7px;fill:${palette.graphite}}.headline{font:800 ${headlineSize}px Arial Narrow,Arial,sans-serif;letter-spacing:-4px;fill:${palette.redDark}}.statement{font:500 34px Arial,sans-serif;letter-spacing:-0.6px;fill:${palette.graphite}}.limitation{font:500 20px Arial,sans-serif;fill:${palette.redDark}}.cta{font:700 20px Courier New,monospace;letter-spacing:5px;fill:${palette.paperLight}}.stage-label{font:700 29px Courier New,monospace;letter-spacing:7px;fill:${palette.graphite}}</style></defs><rect width="1080" height="1080" fill="${palette.paper}"/><rect width="1080" height="1080" fill="url(#paper)"/><g stroke="${palette.graphite}" stroke-width="1" opacity="0.45"><line x1="42" y1="34" x2="194" y2="34"/><line x1="225" y1="34" x2="1036" y2="34"/><line x1="286" y1="20" x2="286" y2="114"/><circle cx="1002" cy="74" r="9" fill="none"/><line x1="973" y1="74" x2="1031" y2="74"/><line x1="1002" y1="45" x2="1002" y2="103"/></g><text class="logo" x="45" y="62">DOM</text><text class="logo" x="45" y="108">X-RAY</text><text class="meta" x="322" y="59">${escapeXml(model.pageLabel)}</text><circle cx="306" cy="91" r="8" fill="${statusColor}"/><text class="status" x="326" y="98">${escapeXml(model.statusLabel)}</text>${sceneSvg(model, revealStage)}${heroMarkup}${stageLabelMarkup}</svg>`;
 }
 
 export function posterDataUrl(svg: string): string {

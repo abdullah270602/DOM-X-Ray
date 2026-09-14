@@ -15,7 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from .svg_rasterizer import rasterize_svg_frames
 
 
 RESULT_NONCE_ENV = "DOM_X_RAY_WORKER_RESULT_NONCE"
@@ -85,61 +85,6 @@ def _write_atomic(path: Path, payload: bytes) -> None:
         raise
 
 
-def _rasterize(svg: str) -> bytes:
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
-        try:
-            context = browser.new_context(
-                viewport={"width": POSTER_SIZE, "height": POSTER_SIZE},
-                service_workers="block",
-                locale="en-US",
-                timezone_id="UTC",
-                color_scheme="light",
-                reduced_motion="reduce",
-                device_scale_factor=1,
-            )
-            try:
-                # The document starts blank and all network requests are denied.
-                context.route("**/*", lambda route: route.abort())
-                page = context.new_page()
-                page.set_content("<html><head></head><body></body></html>")
-                return bytes(page.evaluate(
-                    """
-                    async ({svg, size}) => {
-                      const url = URL.createObjectURL(
-                        new Blob([svg], {type: "image/svg+xml;charset=utf-8"})
-                      );
-                      try {
-                        const image = new Image();
-                        await new Promise((resolve, reject) => {
-                          image.onload = resolve;
-                          image.onerror = () => reject(new Error("SVG decode failed"));
-                          image.src = url;
-                        });
-                        const canvas = document.createElement("canvas");
-                        canvas.width = size;
-                        canvas.height = size;
-                        const context = canvas.getContext("2d");
-                        if (!context) throw new Error("canvas unavailable");
-                        context.drawImage(image, 0, 0, size, size);
-                        const blob = await new Promise((resolve, reject) =>
-                          canvas.toBlob((value) => value ? resolve(value) : reject(new Error("PNG encode failed")), "image/png")
-                        );
-                        const bytes = new Uint8Array(await blob.arrayBuffer());
-                        return Array.from(bytes);
-                      } finally {
-                        URL.revokeObjectURL(url);
-                      }
-                    }
-                    """,
-                    {"svg": svg, "size": POSTER_SIZE},
-                ))
-            finally:
-                context.close()
-        finally:
-            browser.close()
-
-
 def main() -> int:
     arguments = _args()
     root = _render_root()
@@ -184,7 +129,7 @@ def main() -> int:
     ):
         raise RuntimeError("SVG generation failed")
     svg = svg_path.read_text(encoding="utf-8")
-    png = _rasterize(svg)
+    png = rasterize_svg_frames([svg], size=POSTER_SIZE)[0]
     if len(png) == 0 or len(png) > MAX_PNG_BYTES:
         raise ValueError("PNG is outside the approved byte envelope")
     _write_atomic(png_path, png)

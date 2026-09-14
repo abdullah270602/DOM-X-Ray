@@ -9,6 +9,7 @@ import {
   shareCaptionFor,
   shareLinkFor,
 } from "./poster";
+import { VIDEO_REVEAL_STAGES, videoStoryboardFor } from "./video";
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -100,6 +101,35 @@ describe("truthful share poster", () => {
     expect(first).not.toContain(bundle.record.page.title);
     expect(first).not.toMatch(/<image|<script|@font-face/iu);
     expect(posterDataUrl(first)).toMatch(/^data:image\/svg\+xml;charset=utf-8,/u);
+  });
+
+  it("authors five deterministic truthful reveal stages ending on the complete share frame", () => {
+    const bundle = fixtures["image-heavy"];
+    const first = videoStoryboardFor(bundle);
+    const second = videoStoryboardFor(bundle);
+
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      width: 1080,
+      height: 1080,
+      durationMs: 5_000,
+      frameRate: 30,
+      frameCount: 150,
+      maxByteLength: 8_000_000,
+    });
+    expect(first.frames.map((frame) => frame.id)).toEqual(
+      VIDEO_REVEAL_STAGES.map((stage) => stage.id),
+    );
+    expect(first.frames[0]?.svg).toContain("01 / PAGE SURFACE");
+    expect(first.frames[0]?.svg).not.toContain(bundle.result.hero?.statement);
+    expect(first.frames[1]?.svg).toContain("02 / DOM STRUCTURE");
+    expect(first.frames[2]?.svg).toContain("03 / TRANSFER WEIGHT");
+    expect(first.frames[3]?.svg).toContain("04 / EXTERNAL ORIGINS");
+    expect(first.frames[4]?.svg).toContain("05 / HERO EVIDENCE");
+    expect(first.frames[4]?.svg).toContain(bundle.result.hero?.statement);
+    expect(first.frames[4]?.svg).toContain("X-RAY ANOTHER SITE");
+    expect(first.frames.every((frame) => !frame.svg.includes("https://"))).toBe(true);
+    expect(first.frames.every((frame) => !/<image|<script|@font-face/iu.test(frame.svg))).toBe(true);
   });
 
   it("keeps the partial label, exact limitation, numeric request headline, and caption prefix", () => {
