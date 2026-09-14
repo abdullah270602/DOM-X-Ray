@@ -40,6 +40,7 @@ from scanner.destination_policy import DestinationPolicy, DestinationPolicyError
 from scanner.poster_renderer import render_poster_png
 from scanner.result_manifest import build_result_manifest
 from scanner.result_store import (
+    ArtifactKind,
     FilesystemResultStore,
     MemoryResultStore,
     ResultStore,
@@ -48,6 +49,7 @@ from scanner.result_store import (
 )
 from scanner.scan_transport import PublicScanGrant, WorkerLaunch, run_public_scan_transport
 from scanner.scene_manifest import build_scene_manifest
+from scanner.video_renderer import VideoRenderError, render_video_mp4
 from scanner.viewer_runtime import build_viewer_runtime
 from scripts.validate_fixtures import validate_semantics
 
@@ -63,6 +65,13 @@ DEFAULT_POLL_AFTER_MS = 350
 MAX_DELETION_FAILURES = 5
 DELETION_FAILURE_WINDOW_SECONDS = 60
 DELETION_DIGEST_HEADER_PATTERN = re.compile(r"^sha256=([0-9a-f]{64})$")
+ARTIFACT_ROUTE_PATTERN = re.compile(
+    r"^/api/results/(r_[0-9a-f]{32})/(poster\.png|video\.mp4)$"
+)
+ARTIFACT_ROUTES: dict[str, tuple[ArtifactKind, str]] = {
+    "poster.png": ("poster", "image/png"),
+    "video.mp4": ("video", "video/mp4"),
+}
 PUBLIC_FIXTURE_ADDRESS = "93.184.216.34"
 SEEDED_TARGETS = {
     "https://clean.example/": "clean",
@@ -126,6 +135,7 @@ class FixtureScanExecutor:
         self,
         result_id_factory: Callable[[], str] | None = None,
         poster_renderer: Callable[[dict[str, Any]], bytes] = render_poster_png,
+        video_renderer: Callable[[dict[str, Any]], bytes] = render_video_mp4,
     ) -> None:
         self._schema_validator = Draft202012Validator(
             SCAN_SCHEMA,
@@ -133,6 +143,7 @@ class FixtureScanExecutor:
         )
         self._result_id_factory = result_id_factory or (lambda: f"r_{secrets.token_hex(16)}")
         self._poster_renderer = poster_renderer
+        self._video_renderer = video_renderer
 
     def _fixture_name(self, target_url: str) -> str | None:
         try:
@@ -243,6 +254,32 @@ class FixtureScanExecutor:
             }
             validate_viewer_bundle(bundle)
             artifacts["poster"] = poster
+        if result["exports"]["video"]["eligible"]:
+            try:
+                video = self._video_renderer(bundle)
+            except VideoRenderError:
+                # A result remains useful and shareable as a verified poster if
+                # the optional video runtime is unavailable or fails closed.
+                pass
+            else:
+                artifacts["video"] = video
+                result = build_result_manifest(
+                    record,
+                    result_id=result["resultId"],
+                    scene_manifest=scene,
+                    mapping_registry=MAPPING,
+                    artifact_payloads=artifacts,
+                )
+                runtime = build_viewer_runtime(record, scene, result, MAPPING)
+                bundle = {
+                    "bundleVersion": BUNDLE_VERSION,
+                    "record": record,
+                    "scene": scene,
+                    "result": result,
+                    "runtime": runtime,
+                    "mapping": MAPPING,
+                }
+                validate_viewer_bundle(bundle)
         return ScanExecution(bundle=bundle, artifacts=artifacts)
 
 
@@ -508,9 +545,13 @@ class LocalScanJobService:
             return None
         return None if stored is None else (stored.payload, stored.etag)
 
-    def get_artifact(self, result_id: str) -> tuple[bytes, str] | None:
+    def get_artifact(
+        self,
+        result_id: str,
+        kind: ArtifactKind = "poster",
+    ) -> tuple[bytes, str] | None:
         try:
-            stored = self._result_store.get_artifact(result_id, "poster")
+            stored = self._result_store.get_artifact(result_id, kind)
         except (ValueError, ResultStoreError):
             return None
         return None if stored is None else (stored.payload, stored.etag)
@@ -641,8 +682,8 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
         except OSError:
             return False
 
-    def _reject_poster_method(self, path: str) -> bool:
-        if re.fullmatch(r"/api/results/r_[0-9a-f]{32}/poster\.png", path) is None:
+    def _reject_artifact_method(self, path: str) -> bool:
+        if ARTIFACT_ROUTE_PATTERN.fullmatch(path) is None:
             return False
         drained = self._drain_bounded_request_body()
         headers = {"Allow": "GET, HEAD", "Cache-Control": "no-store"}
@@ -657,7 +698,7 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
-        if self._reject_poster_method(path):
+        if self._reject_artifact_method(path):
             return
         if path != "/api/scans":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not-found"})
@@ -697,7 +738,7 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
-        if self._reject_poster_method(path):
+        if self._reject_artifact_method(path):
             return
         self._send_empty(HTTPStatus.NOT_FOUND, headers={"Cache-Control": "no-store"})
 
@@ -709,7 +750,7 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
-        if self._reject_poster_method(path):
+        if self._reject_artifact_method(path):
             return
         match = re.fullmatch(r"/api/results/(r_[0-9a-f]{32})", path)
         if match is None:
@@ -759,12 +800,10 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
             else:
                 self._send_json(HTTPStatus.OK, job, headers={"Cache-Control": "no-store"})
             return
-        poster_match = re.fullmatch(
-            r"/api/results/(r_[0-9a-f]{32})/poster\.png",
-            path,
-        )
-        if poster_match is not None:
-            found = self.server.service.get_artifact(poster_match.group(1))
+        artifact_match = ARTIFACT_ROUTE_PATTERN.fullmatch(path)
+        if artifact_match is not None:
+            kind, content_type = ARTIFACT_ROUTES[artifact_match.group(2)]
+            found = self.server.service.get_artifact(artifact_match.group(1), kind)
             if found is None:
                 self._send_empty(
                     HTTPStatus.NOT_FOUND,
@@ -782,7 +821,7 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
             self._send_bytes(
                 HTTPStatus.OK,
                 payload,
-                "image/png",
+                content_type,
                 headers={"Cache-Control": "no-store", "ETag": etag},
             )
             return
@@ -842,7 +881,8 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
             headers["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self'; style-src 'self'; "
                 "style-src-elem 'self'; style-src-attr 'unsafe-inline'; "
-                "font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; "
+                "font-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
+                "connect-src 'self'; object-src 'none'; "
                 "base-uri 'none'; frame-ancestors 'none'"
             )
         self._send_bytes(HTTPStatus.OK, target.read_bytes(), content_type, headers=headers)

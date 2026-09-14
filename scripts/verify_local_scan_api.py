@@ -24,8 +24,9 @@ from scanner.api_contract import (  # noqa: E402
     validate_job,
     validate_viewer_bundle,
 )
-from scanner.local_scan_api import LocalScanJobService, build_server  # noqa: E402
+from scanner.local_scan_api import FixtureScanExecutor, LocalScanJobService, build_server  # noqa: E402
 from scanner.result_store import FilesystemResultStore, MemoryResultStore  # noqa: E402
+from scanner.video_renderer import VideoRenderError  # noqa: E402
 
 
 def request(
@@ -72,6 +73,94 @@ def json_request(
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def verify_artifact_route(
+    base_url: str,
+    path: str,
+    descriptor: dict[str, object],
+    *,
+    label: str,
+    media_type: str,
+    signature: bytes,
+) -> tuple[bytes, str]:
+    status, headers, payload = request(base_url, path)
+    require(status == 200, f"{label} artifact route failed")
+    artifact = descriptor["artifact"]
+    sha256 = hashlib.sha256(payload).hexdigest()
+    require(payload.startswith(signature), f"{label} route returned the wrong media bytes")
+    require(descriptor["eligible"] is True, f"{label} was not eligible")
+    require(descriptor["state"] == "ready", f"{label} was not ready")
+    require(
+        isinstance(artifact, dict)
+        and artifact["sha256"] == sha256
+        and artifact["byteLength"] == len(payload)
+        and artifact["byteLength"] == int(headers["Content-Length"]),
+        f"{label} manifest descriptor did not match exact route bytes",
+    )
+    require(headers.get("Content-Type") == media_type, f"{label} content type drifted")
+    require(
+        headers.get("Cache-Control") == "no-store",
+        f"{label} artifact was cacheable without a purge path",
+    )
+    require(
+        headers.get("X-Content-Type-Options") == "nosniff",
+        f"{label} artifact omitted nosniff",
+    )
+    etag = headers.get("ETag")
+    require(
+        etag == f'"{sha256}"' and not etag.startswith("W/"),
+        f"{label} artifact did not use a strong content ETag",
+    )
+
+    status, head_headers, head_payload = request(base_url, path, method="HEAD")
+    require(status == 200 and not head_payload, f"{label} HEAD was not bodyless")
+    for header_name in (
+        "Content-Type",
+        "Content-Length",
+        "Cache-Control",
+        "ETag",
+        "X-Content-Type-Options",
+    ):
+        require(
+            head_headers.get(header_name) == headers.get(header_name),
+            f"{label} HEAD {header_name} did not match GET",
+        )
+
+    status, conditional_headers, conditional_payload = request(
+        base_url,
+        path,
+        headers={"If-None-Match": etag},
+    )
+    require(status == 304 and not conditional_payload, f"{label} conditional request failed")
+    require(conditional_headers.get("ETag") == etag, f"{label} conditional ETag drifted")
+    require(
+        conditional_headers.get("Cache-Control") == "no-store"
+        and conditional_headers.get("X-Content-Type-Options") == "nosniff",
+        f"{label} 304 response omitted cache/security headers",
+    )
+
+    for method in ("POST", "PUT", "PATCH", "DELETE", "OPTIONS"):
+        status, upload_headers, upload_payload = request(
+            base_url,
+            path,
+            method=method,
+            body=b"raw-upload-attempt",
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        require(
+            status == 405
+            and not upload_payload
+            and upload_headers.get("Allow") == "GET, HEAD"
+            and upload_headers.get("Cache-Control") == "no-store",
+            f"{label} {method} upload was not rejected as an empty 405",
+        )
+    status, _headers, unchanged_payload = request(base_url, path)
+    require(
+        status == 200 and unchanged_payload == payload,
+        f"raw {label} upload attempt altered the immutable artifact",
+    )
+    return payload, etag
 
 
 def deletion_digest(token: str) -> str:
@@ -193,7 +282,7 @@ def main() -> None:
             # The seeded executor crosses the supervised transport boundary and
             # renders the eligible poster in controlled Chromium. Keep this
             # bounded, but allow enough time for a cold browser process.
-            deadline = time.monotonic() + 30
+            deadline = time.monotonic() + 45
             observed_states = {job["state"]}
             while job["state"] in {"queued", "running"} and time.monotonic() < deadline:
                 time.sleep(0.05)
@@ -219,89 +308,42 @@ def main() -> None:
             require(bundle["record"]["requestedUrl"] == "https://gallery.example/", "record was relabeled")
 
             poster_path = f"/api/results/{result['resultId']}/poster.png"
-            status, poster_headers, poster_payload = request(base_url, poster_path)
-            require(status == 200, "poster artifact route failed")
             poster_descriptor = bundle["result"]["exports"]["poster"]
-            poster_artifact = poster_descriptor["artifact"]
-            poster_sha256 = hashlib.sha256(poster_payload).hexdigest()
-            require(poster_payload.startswith(b"\x89PNG\r\n\x1a\n"), "poster route did not return PNG bytes")
-            require(poster_descriptor["eligible"] is True, "gallery poster was not eligible")
-            require(poster_descriptor["state"] == "ready", "gallery poster was not ready")
-            require(
-                isinstance(poster_artifact, dict)
-                and poster_artifact["sha256"] == poster_sha256
-                and poster_artifact["byteLength"] == len(poster_payload)
-                and poster_artifact["byteLength"] == int(poster_headers["Content-Length"]),
-                "poster manifest descriptor did not match exact route bytes",
-            )
-            require(poster_headers.get("Content-Type") == "image/png", "poster content type drifted")
-            require(
-                poster_headers.get("Cache-Control") == "no-store",
-                "poster artifact was cacheable without a purge path",
-            )
-            require(
-                poster_headers.get("X-Content-Type-Options") == "nosniff",
-                "poster artifact omitted nosniff",
-            )
-            poster_etag = poster_headers.get("ETag")
-            require(
-                poster_etag == f'"{poster_sha256}"' and not poster_etag.startswith("W/"),
-                "poster artifact did not use a strong content ETag",
-            )
-
-            status, poster_head_headers, poster_head_payload = request(
+            poster_payload, poster_etag = verify_artifact_route(
                 base_url,
                 poster_path,
-                method="HEAD",
+                poster_descriptor,
+                label="poster",
+                media_type="image/png",
+                signature=b"\x89PNG\r\n\x1a\n",
             )
-            require(status == 200 and not poster_head_payload, "poster HEAD was not bodyless")
-            for header_name in ("Content-Type", "Content-Length", "Cache-Control", "ETag", "X-Content-Type-Options"):
-                require(
-                    poster_head_headers.get(header_name) == poster_headers.get(header_name),
-                    f"poster HEAD {header_name} did not match GET",
-                )
-
-            status, poster_304_headers, poster_304_payload = request(
+            video_path = f"/api/results/{result['resultId']}/video.mp4"
+            video_descriptor = bundle["result"]["exports"]["video"]
+            video_payload, video_etag = verify_artifact_route(
                 base_url,
-                poster_path,
-                headers={"If-None-Match": poster_etag},
+                video_path,
+                video_descriptor,
+                label="video",
+                media_type="video/mp4",
+                signature=b"\x00\x00",
             )
-            require(status == 304 and not poster_304_payload, "poster conditional request failed")
-            require(poster_304_headers.get("ETag") == poster_etag, "poster conditional ETag drifted")
             require(
-                poster_304_headers.get("Cache-Control") == "no-store"
-                and poster_304_headers.get("X-Content-Type-Options") == "nosniff",
-                "poster 304 response omitted cache/security headers",
+                video_payload[4:8] == b"ftyp"
+                and video_descriptor["durationMs"] == 5_000,
+                "video artifact did not preserve the exact MP4 contract",
             )
 
-            for method in ("POST", "PUT", "PATCH", "DELETE", "OPTIONS"):
-                status, upload_headers, upload_payload = request(
-                    base_url,
-                    poster_path,
-                    method=method,
-                    body=b"raw-upload-attempt",
-                    headers={"Content-Type": "application/octet-stream"},
-                )
-                require(
-                    status == 405
-                    and not upload_payload
-                    and upload_headers.get("Allow") == "GET, HEAD"
-                    and upload_headers.get("Cache-Control") == "no-store",
-                    f"poster {method} upload was not rejected as an empty 405",
-                )
-            status, _headers, unchanged_poster_payload = request(base_url, poster_path)
-            require(
-                status == 200 and unchanged_poster_payload == poster_payload,
-                "raw poster upload attempt altered the immutable artifact",
-            )
-
-            for miss_path in (
-                f"/api/results/r_{'0' * 32}/poster.png",
-                f"/api/results/r_{'0' * 32}%2Fposter.png",
-            ):
-                status, _headers, miss_payload = request(base_url, miss_path)
-                require(status == 404, "wrong or unsafe poster result ID was accepted")
-                require(not miss_payload or json.loads(miss_payload) == {"error": "not-found"}, "poster miss leaked data")
+            for artifact_name in ("poster.png", "video.mp4"):
+                for miss_path in (
+                    f"/api/results/r_{'0' * 32}/{artifact_name}",
+                    f"/api/results/r_{'0' * 32}%2F{artifact_name}",
+                ):
+                    status, _headers, miss_payload = request(base_url, miss_path)
+                    require(status == 404, "wrong or unsafe artifact result ID was accepted")
+                    require(
+                        not miss_payload or json.loads(miss_payload) == {"error": "not-found"},
+                        "artifact miss leaked data",
+                    )
 
             require(delete_token.encode("ascii") not in stable_result_files(result_root), "token reached disk")
             require(
@@ -322,6 +364,7 @@ def main() -> None:
             shell_csp = shell_headers.get("Content-Security-Policy", "")
             require("default-src 'self'" in shell_csp, "shell CSP missing")
             require("img-src 'self' data: blob:" in shell_csp, "shell CSP blocks verified poster previews")
+            require("media-src 'self' blob:" in shell_csp, "shell CSP blocks verified video playback")
 
             status, _headers, reused = json_request(
                 base_url,
@@ -366,15 +409,25 @@ def main() -> None:
             clean_bundle = json.loads(clean_bundle_payload)
             validate_viewer_bundle(clean_bundle)
             clean_poster = clean_bundle["result"]["exports"]["poster"]
+            clean_video = clean_bundle["result"]["exports"]["video"]
             require(
                 clean_poster["eligible"] is False
                 and clean_poster["state"] == "ineligible"
                 and clean_poster["artifact"] is None,
                 "neutral clean result unexpectedly became poster-eligible",
             )
+            require(
+                clean_video["eligible"] is False
+                and clean_video["state"] == "ineligible"
+                and clean_video["artifact"] is None,
+                "neutral clean result unexpectedly became video-eligible",
+            )
             clean_poster_path = f"/api/results/{clean_result['resultId']}/poster.png"
             status, _headers, clean_poster_payload = request(base_url, clean_poster_path)
             require(status == 404 and not clean_poster_payload, "neutral clean result exposed a poster")
+            clean_video_path = f"/api/results/{clean_result['resultId']}/video.mp4"
+            status, _headers, clean_video_payload = request(base_url, clean_video_path)
+            require(status == 404 and not clean_video_payload, "neutral clean result exposed a video")
 
             status, _headers, missing = json_request(base_url, "/api/scans/j_00000000000000000000000000000000")
             require(status == 404 and missing == {"error": "not-found"}, "unknown job leaked data")
@@ -420,6 +473,22 @@ def main() -> None:
                 restarted_poster_headers.get("Cache-Control") == "no-store"
                 and restarted_poster_headers.get("X-Content-Type-Options") == "nosniff",
                 "restarted poster omitted cache/security headers",
+            )
+            status, restarted_video_headers, restarted_video_payload = request(
+                restarted_url,
+                video_path,
+            )
+            require(
+                status == 200
+                and restarted_video_payload == video_payload
+                and restarted_video_headers.get("ETag") == video_etag
+                and restarted_video_headers.get("Content-Length") == str(len(video_payload)),
+                "durable video did not survive API restart byte-for-byte",
+            )
+            require(
+                restarted_video_headers.get("Cache-Control") == "no-store"
+                and restarted_video_headers.get("X-Content-Type-Options") == "nosniff",
+                "restarted video omitted cache/security headers",
             )
 
             status, malformed_headers, malformed_delete = request(
@@ -487,11 +556,91 @@ def main() -> None:
                 missing_poster_headers.get("Cache-Control") == "no-store",
                 "deleted poster miss was cacheable",
             )
+            status, missing_video_headers, missing_video_payload = request(
+                deletion_url,
+                video_path,
+                headers={"If-None-Match": video_etag},
+            )
+            require(
+                status == 404 and not missing_video_payload,
+                "deleted result video remained reachable with a stale ETag",
+            )
+            require(
+                missing_video_headers.get("Cache-Control") == "no-store",
+                "deleted video miss was cacheable",
+            )
         finally:
             deletion_server.shutdown()
             deletion_server.server_close()
             deletion_service.shutdown()
             deletion_thread.join(timeout=2)
+
+    def unavailable_video(_bundle: dict[str, object]) -> bytes:
+        raise VideoRenderError("injected video failure")
+
+    fallback_result_id = "r_" + "d" * 32
+    fallback_executor = FixtureScanExecutor(
+        result_id_factory=lambda: fallback_result_id,
+        poster_renderer=lambda _bundle: poster_payload,
+        video_renderer=unavailable_video,
+    )
+    fallback_service = LocalScanJobService(fallback_executor, max_workers=1)
+    fallback_server = build_server("127.0.0.1", 0, fallback_service, static_root=None)
+    fallback_thread = threading.Thread(target=fallback_server.serve_forever, daemon=True)
+    fallback_thread.start()
+    fallback_url = f"http://127.0.0.1:{fallback_server.server_port}"
+    try:
+        fallback_job, status, _retry = fallback_service.submit(
+            "https://gallery.example/",
+            deletion_digest(delete_token),
+        )
+        require(status == 202, "video fallback scan was not accepted")
+        fallback_terminal = wait_for_terminal(fallback_service, fallback_job["jobId"])
+        require(fallback_terminal["state"] == "ready", "video failure discarded the poster result")
+        fallback_result = fallback_terminal["result"]
+        assert isinstance(fallback_result, dict)
+        fallback_bundle_bytes = fallback_service.get_bundle(fallback_result_id)
+        require(fallback_bundle_bytes is not None, "poster-only fallback bundle was not published")
+        fallback_bundle = json.loads(fallback_bundle_bytes[0])
+        require(
+            fallback_bundle["result"]["exports"]["poster"]["state"] == "ready"
+            and fallback_bundle["result"]["exports"]["video"]["state"] == "not-generated",
+            "video renderer failure did not produce the intended poster-only manifest",
+        )
+        require(
+            fallback_service.get_artifact(fallback_result_id, "poster") is not None
+            and fallback_service.get_artifact(fallback_result_id, "video") is None,
+            "poster-only fallback registered the wrong artifact set",
+        )
+        status, _headers, fallback_poster = request(
+            fallback_url,
+            f"/api/results/{fallback_result_id}/poster.png",
+        )
+        require(
+            status == 200 and fallback_poster == poster_payload,
+            "poster-only fallback did not expose its verified poster",
+        )
+        status, _headers, fallback_video = request(
+            fallback_url,
+            f"/api/results/{fallback_result_id}/video.mp4",
+        )
+        require(status == 404 and not fallback_video, "poster-only fallback exposed a video route")
+    finally:
+        fallback_server.shutdown()
+        fallback_server.server_close()
+        fallback_service.shutdown()
+        fallback_thread.join(timeout=2)
+
+    def unavailable_poster(_bundle: dict[str, object]) -> bytes:
+        raise RuntimeError("injected poster failure")
+
+    poster_failure_executor = FixtureScanExecutor(poster_renderer=unavailable_poster)
+    try:
+        poster_failure_executor.execute("https://gallery.example/", lambda _progress: None)
+    except RuntimeError as error:
+        require(str(error) == "injected poster failure", "poster failure identity drifted")
+    else:
+        raise AssertionError("poster renderer failure was silently downgraded")
 
     class WrongTargetExecutor:
         def supports(self, _target_url: str) -> bool:
@@ -652,7 +801,8 @@ def main() -> None:
     print(
         "Verified local no-login HTTP health, bounded submissions, seeded transport admission, "
         f"job polling ({sorted(observed_states)}), browser-held owner capability, no-store ETag "
-        "results and server-rendered posters, byte-identical restart recovery, HMAC deletion after "
+        "results and server-rendered poster/video artifacts, poster-only video-failure fallback, "
+        "byte-identical restart recovery, HMAC deletion after "
         "restart, stale-ETag denial, binary GET/HEAD parity, raw-upload refusal, "
         "exact reuse without ownership transfer, expiry recovery, owner-safe guessing throttles, "
         "target correlation, "
