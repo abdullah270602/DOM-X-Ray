@@ -190,7 +190,10 @@ def main() -> None:
             require(headers.get("Location") == f"/api/scans/{job['jobId']}", "job location drifted")
             validate_job(job)
 
-            deadline = time.monotonic() + 8
+            # The seeded executor crosses the supervised transport boundary and
+            # renders the eligible poster in controlled Chromium. Keep this
+            # bounded, but allow enough time for a cold browser process.
+            deadline = time.monotonic() + 30
             observed_states = {job["state"]}
             while job["state"] in {"queued", "running"} and time.monotonic() < deadline:
                 time.sleep(0.05)
@@ -214,6 +217,91 @@ def main() -> None:
             bundle = json.loads(bundle_payload)
             validate_viewer_bundle(bundle)
             require(bundle["record"]["requestedUrl"] == "https://gallery.example/", "record was relabeled")
+
+            poster_path = f"/api/results/{result['resultId']}/poster.png"
+            status, poster_headers, poster_payload = request(base_url, poster_path)
+            require(status == 200, "poster artifact route failed")
+            poster_descriptor = bundle["result"]["exports"]["poster"]
+            poster_artifact = poster_descriptor["artifact"]
+            poster_sha256 = hashlib.sha256(poster_payload).hexdigest()
+            require(poster_payload.startswith(b"\x89PNG\r\n\x1a\n"), "poster route did not return PNG bytes")
+            require(poster_descriptor["eligible"] is True, "gallery poster was not eligible")
+            require(poster_descriptor["state"] == "ready", "gallery poster was not ready")
+            require(
+                isinstance(poster_artifact, dict)
+                and poster_artifact["sha256"] == poster_sha256
+                and poster_artifact["byteLength"] == len(poster_payload)
+                and poster_artifact["byteLength"] == int(poster_headers["Content-Length"]),
+                "poster manifest descriptor did not match exact route bytes",
+            )
+            require(poster_headers.get("Content-Type") == "image/png", "poster content type drifted")
+            require(
+                poster_headers.get("Cache-Control") == "no-store",
+                "poster artifact was cacheable without a purge path",
+            )
+            require(
+                poster_headers.get("X-Content-Type-Options") == "nosniff",
+                "poster artifact omitted nosniff",
+            )
+            poster_etag = poster_headers.get("ETag")
+            require(
+                poster_etag == f'"{poster_sha256}"' and not poster_etag.startswith("W/"),
+                "poster artifact did not use a strong content ETag",
+            )
+
+            status, poster_head_headers, poster_head_payload = request(
+                base_url,
+                poster_path,
+                method="HEAD",
+            )
+            require(status == 200 and not poster_head_payload, "poster HEAD was not bodyless")
+            for header_name in ("Content-Type", "Content-Length", "Cache-Control", "ETag", "X-Content-Type-Options"):
+                require(
+                    poster_head_headers.get(header_name) == poster_headers.get(header_name),
+                    f"poster HEAD {header_name} did not match GET",
+                )
+
+            status, poster_304_headers, poster_304_payload = request(
+                base_url,
+                poster_path,
+                headers={"If-None-Match": poster_etag},
+            )
+            require(status == 304 and not poster_304_payload, "poster conditional request failed")
+            require(poster_304_headers.get("ETag") == poster_etag, "poster conditional ETag drifted")
+            require(
+                poster_304_headers.get("Cache-Control") == "no-store"
+                and poster_304_headers.get("X-Content-Type-Options") == "nosniff",
+                "poster 304 response omitted cache/security headers",
+            )
+
+            for method in ("POST", "PUT", "PATCH", "DELETE", "OPTIONS"):
+                status, upload_headers, upload_payload = request(
+                    base_url,
+                    poster_path,
+                    method=method,
+                    body=b"raw-upload-attempt",
+                    headers={"Content-Type": "application/octet-stream"},
+                )
+                require(
+                    status == 405
+                    and not upload_payload
+                    and upload_headers.get("Allow") == "GET, HEAD"
+                    and upload_headers.get("Cache-Control") == "no-store",
+                    f"poster {method} upload was not rejected as an empty 405",
+                )
+            status, _headers, unchanged_poster_payload = request(base_url, poster_path)
+            require(
+                status == 200 and unchanged_poster_payload == poster_payload,
+                "raw poster upload attempt altered the immutable artifact",
+            )
+
+            for miss_path in (
+                f"/api/results/r_{'0' * 32}/poster.png",
+                f"/api/results/r_{'0' * 32}%2Fposter.png",
+            ):
+                status, _headers, miss_payload = request(base_url, miss_path)
+                require(status == 404, "wrong or unsafe poster result ID was accepted")
+                require(not miss_payload or json.loads(miss_payload) == {"error": "not-found"}, "poster miss leaked data")
 
             require(delete_token.encode("ascii") not in stable_result_files(result_root), "token reached disk")
             require(
@@ -251,6 +339,41 @@ def main() -> None:
             )
             require(status == 403 and not reused_delete, "reused submission inherited deletion authority")
 
+            status, _headers, clean_submission = json_request(
+                base_url,
+                "/api/scans",
+                method="POST",
+                value={"apiVersion": API_VERSION, "url": "https://clean.example/"},
+                headers=submission_headers(reused_token),
+            )
+            require(status == 202, "neutral clean scan was not accepted")
+            clean_deadline = time.monotonic() + 30
+            while clean_submission["state"] in {"queued", "running"} and time.monotonic() < clean_deadline:
+                time.sleep(0.05)
+                status, _poll_headers, clean_submission = json_request(
+                    base_url,
+                    f"/api/scans/{clean_submission['jobId']}",
+                )
+                require(status == 200, "clean job poll failed")
+                validate_job(clean_submission)
+            require(clean_submission["state"] == "ready", "neutral clean scan did not become ready")
+            clean_result = clean_submission["result"]
+            require(isinstance(clean_result, dict), "clean ready job has no result")
+            status, _headers, clean_bundle_payload = request(base_url, clean_result["bundleUrl"])
+            require(status == 200, "neutral clean bundle route failed")
+            clean_bundle = json.loads(clean_bundle_payload)
+            validate_viewer_bundle(clean_bundle)
+            clean_poster = clean_bundle["result"]["exports"]["poster"]
+            require(
+                clean_poster["eligible"] is False
+                and clean_poster["state"] == "ineligible"
+                and clean_poster["artifact"] is None,
+                "neutral clean result unexpectedly became poster-eligible",
+            )
+            clean_poster_path = f"/api/results/{clean_result['resultId']}/poster.png"
+            status, _headers, clean_poster_payload = request(base_url, clean_poster_path)
+            require(status == 404 and not clean_poster_payload, "neutral clean result exposed a poster")
+
             status, _headers, missing = json_request(base_url, "/api/scans/j_00000000000000000000000000000000")
             require(status == 404 and missing == {"error": "not-found"}, "unknown job leaked data")
         finally:
@@ -279,6 +402,23 @@ def main() -> None:
             require(status == 200, "durable result did not survive API restart")
             require(restarted_payload == bundle_payload, "restart changed immutable bundle bytes")
             require(restarted_headers.get("ETag") == etag, "restart changed immutable ETag")
+
+            status, restarted_poster_headers, restarted_poster_payload = request(
+                restarted_url,
+                poster_path,
+            )
+            require(
+                status == 200
+                and restarted_poster_payload == poster_payload
+                and restarted_poster_headers.get("ETag") == poster_etag
+                and restarted_poster_headers.get("Content-Length") == str(len(poster_payload)),
+                "durable poster did not survive API restart byte-for-byte",
+            )
+            require(
+                restarted_poster_headers.get("Cache-Control") == "no-store"
+                and restarted_poster_headers.get("X-Content-Type-Options") == "nosniff",
+                "restarted poster omitted cache/security headers",
+            )
 
             status, malformed_headers, malformed_delete = request(
                 restarted_url,
@@ -332,6 +472,19 @@ def main() -> None:
             )
             require(status == 404, "deleted result remained reachable")
             require(json.loads(missing_payload) == {"error": "not-found"}, "deleted result leaked data")
+            status, missing_poster_headers, missing_poster_payload = request(
+                deletion_url,
+                poster_path,
+                headers={"If-None-Match": poster_etag},
+            )
+            require(
+                status == 404 and not missing_poster_payload,
+                "deleted result poster remained reachable with a stale ETag",
+            )
+            require(
+                missing_poster_headers.get("Cache-Control") == "no-store",
+                "deleted poster miss was cacheable",
+            )
         finally:
             deletion_server.shutdown()
             deletion_server.server_close()
@@ -497,7 +650,8 @@ def main() -> None:
     print(
         "Verified local no-login HTTP health, bounded submissions, seeded transport admission, "
         f"job polling ({sorted(observed_states)}), browser-held owner capability, no-store ETag "
-        "results, byte-identical restart recovery, HMAC deletion after restart, stale-ETag denial, "
+        "results and server-rendered posters, byte-identical restart recovery, HMAC deletion after "
+        "restart, stale-ETag denial, binary GET/HEAD parity, raw-upload refusal, "
         "exact reuse without ownership transfer, expiry recovery, owner-safe guessing throttles, "
         "target correlation, "
         "admission cooling, active-job bounds, and content-free misses; arbitrary public scanning "

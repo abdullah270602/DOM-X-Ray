@@ -37,6 +37,7 @@ from scanner.api_contract import (
     validate_viewer_bundle,
 )
 from scanner.destination_policy import DestinationPolicy, DestinationPolicyError
+from scanner.poster_renderer import render_poster_png
 from scanner.result_manifest import build_result_manifest
 from scanner.result_store import (
     FilesystemResultStore,
@@ -97,7 +98,13 @@ class ScanExecutor(Protocol):
         self,
         target_url: str,
         progress: Callable[[str], None],
-    ) -> dict[str, Any]: ...
+    ) -> ScanExecution: ...
+
+
+@dataclass(frozen=True)
+class ScanExecution:
+    bundle: dict[str, Any]
+    artifacts: dict[str, bytes]
 
 
 def _canonical_target(url: str) -> str:
@@ -115,12 +122,17 @@ def _canonical_target(url: str) -> str:
 class FixtureScanExecutor:
     """Seed-only executor that still crosses the real supervised transport seam."""
 
-    def __init__(self, result_id_factory: Callable[[], str] | None = None) -> None:
+    def __init__(
+        self,
+        result_id_factory: Callable[[], str] | None = None,
+        poster_renderer: Callable[[dict[str, Any]], bytes] = render_poster_png,
+    ) -> None:
         self._schema_validator = Draft202012Validator(
             SCAN_SCHEMA,
             format_checker=FormatChecker(),
         )
         self._result_id_factory = result_id_factory or (lambda: f"r_{secrets.token_hex(16)}")
+        self._poster_renderer = poster_renderer
 
     def _fixture_name(self, target_url: str) -> str | None:
         try:
@@ -143,7 +155,7 @@ class FixtureScanExecutor:
         self,
         target_url: str,
         progress: Callable[[str], None],
-    ) -> dict[str, Any]:
+    ) -> ScanExecution:
         fixture_name = self._fixture_name(target_url)
         if fixture_name is None:
             raise ScanExecutionError("scanner-disabled")
@@ -208,9 +220,30 @@ class FixtureScanExecutor:
             "runtime": runtime,
             "mapping": MAPPING,
         }
-        progress("publishing")
         validate_viewer_bundle(bundle)
-        return bundle
+        artifacts: dict[str, bytes] = {}
+        progress("publishing")
+        if result["exports"]["poster"]["eligible"]:
+            poster = self._poster_renderer(bundle)
+            result = build_result_manifest(
+                record,
+                result_id=result["resultId"],
+                scene_manifest=scene,
+                mapping_registry=MAPPING,
+                artifact_payloads={"poster": poster},
+            )
+            runtime = build_viewer_runtime(record, scene, result, MAPPING)
+            bundle = {
+                "bundleVersion": BUNDLE_VERSION,
+                "record": record,
+                "scene": scene,
+                "result": result,
+                "runtime": runtime,
+                "mapping": MAPPING,
+            }
+            validate_viewer_bundle(bundle)
+            artifacts["poster"] = poster
+        return ScanExecution(bundle=bundle, artifacts=artifacts)
 
 
 @dataclass
@@ -401,10 +434,18 @@ class LocalScanJobService:
 
     def _run(self, job_id: str, target_url: str) -> None:
         try:
-            bundle = self._scan_executor.execute(
+            executed = self._scan_executor.execute(
                 target_url,
                 lambda progress: self._set_progress(job_id, progress),
             )
+            # Preserve the narrow fake-executor seam used by existing contract
+            # tests while requiring ready artifacts at the storage boundary.
+            execution = (
+                executed
+                if isinstance(executed, ScanExecution)
+                else ScanExecution(bundle=executed, artifacts={})
+            )
+            bundle = execution.bundle
             validate_viewer_bundle(bundle)
             if _canonical_target(bundle["record"]["requestedUrl"]) != _canonical_target(target_url):
                 raise ApiContractError("executor result does not match its requested target")
@@ -413,7 +454,11 @@ class LocalScanJobService:
                 deletion_token_digest = self._jobs[job_id].deletion_token_digest
             if deletion_token_digest is None:
                 raise ResultStoreError("queued scan has no deletion token digest")
-            self._result_store.publish(bundle, deletion_token_digest)
+            self._result_store.publish(
+                bundle,
+                deletion_token_digest,
+                execution.artifacts,
+            )
             self._admission.complete(target_url, result_id)
             with self._lock:
                 job = self._jobs[job_id]
@@ -459,6 +504,13 @@ class LocalScanJobService:
     def get_bundle(self, result_id: str) -> tuple[bytes, str] | None:
         try:
             stored = self._result_store.get(result_id)
+        except (ValueError, ResultStoreError):
+            return None
+        return None if stored is None else (stored.payload, stored.etag)
+
+    def get_artifact(self, result_id: str) -> tuple[bytes, str] | None:
+        try:
+            stored = self._result_store.get_artifact(result_id, "poster")
         except (ValueError, ResultStoreError):
             return None
         return None if stored is None else (stored.payload, stored.etag)
@@ -572,8 +624,20 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
         job = self.server.service.reject_submission()
         self._send_json(status, job, headers={"Cache-Control": "no-store"})
 
+    def _reject_poster_method(self, path: str) -> bool:
+        if re.fullmatch(r"/api/results/r_[0-9a-f]{32}/poster\.png", path) is None:
+            return False
+        self.close_connection = True
+        self._send_empty(
+            HTTPStatus.METHOD_NOT_ALLOWED,
+            headers={"Allow": "GET, HEAD", "Cache-Control": "no-store"},
+        )
+        return True
+
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
+        if self._reject_poster_method(path):
+            return
         if path != "/api/scans":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not-found"})
             return
@@ -610,8 +674,22 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
             headers["Retry-After"] = str(retry_after)
         self._send_json(status, job, headers=headers)
 
+    def do_PUT(self) -> None:  # noqa: N802
+        path = urlsplit(self.path).path
+        if self._reject_poster_method(path):
+            return
+        self._send_empty(HTTPStatus.NOT_FOUND, headers={"Cache-Control": "no-store"})
+
+    def do_PATCH(self) -> None:  # noqa: N802
+        self.do_PUT()
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.do_PUT()
+
     def do_DELETE(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
+        if self._reject_poster_method(path):
+            return
         match = re.fullmatch(r"/api/results/(r_[0-9a-f]{32})", path)
         if match is None:
             self._send_empty(HTTPStatus.NOT_FOUND, headers={"Cache-Control": "no-store"})
@@ -659,6 +737,33 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "not-found"})
             else:
                 self._send_json(HTTPStatus.OK, job, headers={"Cache-Control": "no-store"})
+            return
+        poster_match = re.fullmatch(
+            r"/api/results/(r_[0-9a-f]{32})/poster\.png",
+            path,
+        )
+        if poster_match is not None:
+            found = self.server.service.get_artifact(poster_match.group(1))
+            if found is None:
+                self._send_empty(
+                    HTTPStatus.NOT_FOUND,
+                    headers={"Cache-Control": "no-store"},
+                )
+                return
+            payload, etag = found
+            if self.headers.get("If-None-Match") == etag:
+                self.send_response(HTTPStatus.NOT_MODIFIED)
+                self._security_headers()
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("ETag", etag)
+                self.end_headers()
+                return
+            self._send_bytes(
+                HTTPStatus.OK,
+                payload,
+                "image/png",
+                headers={"Cache-Control": "no-store", "ETag": etag},
+            )
             return
         if path.startswith("/api/results/"):
             result_id = path.removeprefix("/api/results/")

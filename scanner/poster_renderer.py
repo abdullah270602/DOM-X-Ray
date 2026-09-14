@@ -21,7 +21,7 @@ from .worker_supervisor import run_worker_command
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKER_DEADLINE_SECONDS = 8.0
+WORKER_DEADLINE_SECONDS = 10.0
 POSTER_SIZE = 1080
 MAX_PNG_BYTES = 5_000_000
 MAX_RENDER_BUNDLE_BYTES = 8 * 1024 * 1024

@@ -15,13 +15,14 @@ import os
 import re
 import secrets
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from scanner.api_contract import stable_json_bytes, validate_viewer_bundle
+from scanner.png_validation import PngValidationError, validate_poster_png
 
 
 STORE_VERSION = "result-store-v0.1.0"
@@ -33,6 +34,7 @@ SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 KEY_ID_PATTERN = re.compile(r"^[0-9a-f]{16}$")
 
 DeleteOutcome = Literal["deleted", "not-found", "forbidden", "malformed"]
+ArtifactKind = Literal["poster"]
 
 
 class ResultStoreError(RuntimeError):
@@ -53,10 +55,34 @@ class Publication(StoredResult):
     created: bool
 
 
+@dataclass(frozen=True)
+class StoredArtifact:
+    result_id: str
+    kind: ArtifactKind
+    payload: bytes
+    media_type: Literal["image/png"]
+    sha256: str
+    byte_length: int
+    etag: str
+    published_at: str
+    expires_at: str | None
+
+
 class ResultStore(Protocol):
-    def publish(self, bundle: dict[str, Any], deletion_token_digest: str) -> Publication: ...
+    def publish(
+        self,
+        bundle: dict[str, Any],
+        deletion_token_digest: str,
+        artifacts: Mapping[str, bytes] | None = None,
+    ) -> Publication: ...
 
     def get(self, result_id: str) -> StoredResult | None: ...
+
+    def get_artifact(
+        self,
+        result_id: str,
+        kind: ArtifactKind,
+    ) -> StoredArtifact | None: ...
 
     def delete(self, result_id: str, deletion_token: str) -> DeleteOutcome: ...
 
@@ -111,6 +137,75 @@ def _bundle_identity(bundle: dict[str, Any]) -> tuple[str, bytes, str]:
     return result_id, payload, digest
 
 
+def _validated_artifacts(
+    bundle: dict[str, Any],
+    artifacts: Mapping[str, bytes] | None,
+) -> dict[ArtifactKind, bytes]:
+    if artifacts is not None and not isinstance(artifacts, Mapping):
+        raise ValueError("result artifacts must be a mapping")
+    supplied = dict(artifacts or {})
+    exports = bundle["result"]["exports"]
+    ready = {kind for kind, target in exports.items() if target["state"] == "ready"}
+    if ready - {"poster"}:
+        raise ResultStoreError("result contains an unsupported ready artifact")
+    if set(supplied) != ready:
+        raise ResultStoreError("ready artifact bytes do not match the result manifest")
+    if not supplied:
+        return {}
+
+    payload = supplied["poster"]
+    try:
+        metadata = validate_poster_png(payload)
+    except PngValidationError as error:
+        raise ResultStoreError("poster artifact failed media validation") from error
+    target = exports["poster"]
+    descriptor = target["artifact"]
+    if (
+        not isinstance(descriptor, dict)
+        or descriptor.get("sha256") != metadata.sha256
+        or descriptor.get("byteLength") != metadata.byte_length
+        or target["mediaType"] != metadata.media_type
+        or target["width"] != metadata.width
+        or target["height"] != metadata.height
+        or target["maxByteLength"] < metadata.byte_length
+    ):
+        raise ResultStoreError("poster bytes do not match the immutable result manifest")
+    return {"poster": payload}
+
+
+def _stored_artifact(
+    *,
+    bundle: dict[str, Any],
+    stored: StoredResult,
+    kind: ArtifactKind,
+    payload: bytes,
+) -> StoredArtifact:
+    target = bundle["result"]["exports"][kind]
+    descriptor = target["artifact"]
+    try:
+        metadata = validate_poster_png(payload)
+    except PngValidationError as error:
+        raise ResultStoreError("stored poster failed media validation") from error
+    if (
+        target["state"] != "ready"
+        or not isinstance(descriptor, dict)
+        or descriptor.get("sha256") != metadata.sha256
+        or descriptor.get("byteLength") != metadata.byte_length
+    ):
+        raise ResultStoreError("stored poster failed its content identity check")
+    return StoredArtifact(
+        result_id=stored.result_id,
+        kind=kind,
+        payload=payload,
+        media_type="image/png",
+        sha256=metadata.sha256,
+        byte_length=metadata.byte_length,
+        etag=f'"{metadata.sha256}"',
+        published_at=stored.published_at,
+        expires_at=stored.expires_at,
+    )
+
+
 class _StoreCore:
     def __init__(
         self,
@@ -141,10 +236,12 @@ class _StoreCore:
         self,
         bundle: dict[str, Any],
         deletion_token_digest: str,
-    ) -> tuple[dict[str, Any], bytes]:
+        artifacts: Mapping[str, bytes] | None,
+    ) -> tuple[dict[str, Any], bytes, dict[ArtifactKind, bytes]]:
         if SHA256_PATTERN.fullmatch(deletion_token_digest) is None:
             raise ValueError("deletion token digest must be a lowercase SHA-256 value")
         result_id, payload, bundle_digest = _bundle_identity(bundle)
+        validated_artifacts = _validated_artifacts(bundle, artifacts)
         now = self._now()
         expires_at = (
             None
@@ -167,7 +264,7 @@ class _StoreCore:
             "deletionDigestHmacSha256": protected_digest,
             "bundle": bundle,
         }
-        return envelope, payload
+        return envelope, payload, validated_artifacts
 
     def _decode_envelope(
         self,
@@ -260,10 +357,43 @@ class MemoryResultStore(_StoreCore):
             clock=clock,
         )
         self._entries: dict[str, dict[str, Any]] = {}
+        self._artifacts: dict[tuple[str, ArtifactKind], bytes] = {}
         self._retired: set[str] = set()
 
-    def publish(self, bundle: dict[str, Any], deletion_token_digest: str) -> Publication:
-        envelope, payload = self._new_envelope(bundle, deletion_token_digest)
+    def _remove(self, result_id: str) -> None:
+        self._entries.pop(result_id, None)
+        self._artifacts.pop((result_id, "poster"), None)
+
+    def _validate_artifact_state(
+        self,
+        envelope: dict[str, Any],
+        stored: StoredResult,
+    ) -> None:
+        target = envelope["bundle"]["result"]["exports"]["poster"]
+        payload = self._artifacts.get((stored.result_id, "poster"))
+        if target["state"] == "ready":
+            if payload is None:
+                raise ResultStoreError("stored result is missing its poster artifact")
+            _stored_artifact(
+                bundle=envelope["bundle"],
+                stored=stored,
+                kind="poster",
+                payload=payload,
+            )
+        elif payload is not None:
+            raise ResultStoreError("stored result has an unregistered poster artifact")
+
+    def publish(
+        self,
+        bundle: dict[str, Any],
+        deletion_token_digest: str,
+        artifacts: Mapping[str, bytes] | None = None,
+    ) -> Publication:
+        envelope, payload, validated_artifacts = self._new_envelope(
+            bundle,
+            deletion_token_digest,
+            artifacts,
+        )
         result_id = envelope["resultId"]
         with self._lock:
             if result_id in self._retired:
@@ -272,9 +402,20 @@ class MemoryResultStore(_StoreCore):
             if existing is not None:
                 if existing.payload != payload:
                     raise ResultStoreError("immutable result ID collision")
+                existing_poster = self.get_artifact(result_id, "poster")
+                supplied_poster = validated_artifacts.get("poster")
+                if (existing_poster is None) != (supplied_poster is None) or (
+                    existing_poster is not None
+                    and supplied_poster is not None
+                    and existing_poster.payload != supplied_poster
+                ):
+                    raise ResultStoreError("immutable poster artifact collision")
                 return _publication(existing, created=False)
             if result_id in self._retired:
                 raise ResultStoreError("expired result ID cannot be reused")
+            poster = validated_artifacts.get("poster")
+            if poster is not None:
+                self._artifacts[(result_id, "poster")] = poster
             self._entries[result_id] = envelope
             stored = self.get(result_id)
             if stored is None:
@@ -289,10 +430,36 @@ class MemoryResultStore(_StoreCore):
                 return None
             _value, stored = self._decode_envelope(envelope, expected_result_id=result_id)
             if self._is_expired(stored):
-                del self._entries[result_id]
+                self._remove(result_id)
                 self._retired.add(result_id)
                 return None
+            self._validate_artifact_state(envelope, stored)
             return stored
+
+    def get_artifact(
+        self,
+        result_id: str,
+        kind: ArtifactKind,
+    ) -> StoredArtifact | None:
+        _validate_result_id(result_id)
+        if kind != "poster":
+            raise ValueError("invalid artifact kind")
+        with self._lock:
+            stored = self.get(result_id)
+            if stored is None:
+                return None
+            envelope = self._entries[result_id]
+            if envelope["bundle"]["result"]["exports"][kind]["state"] != "ready":
+                return None
+            payload = self._artifacts.get((result_id, kind))
+            if payload is None:
+                raise ResultStoreError("stored result is missing its poster artifact")
+            return _stored_artifact(
+                bundle=envelope["bundle"],
+                stored=stored,
+                kind=kind,
+                payload=payload,
+            )
 
     def delete(self, result_id: str, deletion_token: str) -> DeleteOutcome:
         try:
@@ -306,12 +473,12 @@ class MemoryResultStore(_StoreCore):
                 return "not-found"
             value, stored = self._decode_envelope(envelope, expected_result_id=result_id)
             if self._is_expired(stored):
-                del self._entries[result_id]
+                self._remove(result_id)
                 self._retired.add(result_id)
                 return "not-found"
             if not self._token_matches(value, deletion_token):
                 return "forbidden"
-            del self._entries[result_id]
+            self._remove(result_id)
             self._retired.add(result_id)
             return "deleted"
 
@@ -356,10 +523,32 @@ class FilesystemResultStore(_StoreCore):
             raise ResultStoreError("tombstone path escaped its store root")
         return path
 
+    def _artifact_path(self, result_id: str, kind: ArtifactKind) -> Path:
+        _validate_result_id(result_id)
+        if kind != "poster":
+            raise ValueError("invalid artifact kind")
+        path = self._root / f"{result_id}.poster.png"
+        if path.parent != self._root:
+            raise ResultStoreError("artifact path escaped its store root")
+        return path
+
     def _cleanup_staging(self) -> None:
         for path in self._root.glob(".staging-*"):
             if path.is_file() and not path.is_symlink():
                 path.unlink()
+
+    def _cleanup_orphan_artifacts(self) -> None:
+        for path in self._root.iterdir():
+            match = re.fullmatch(r"(r_[0-9a-f]{32})\.poster\.png", path.name)
+            if match is None:
+                continue
+            result_id = match.group(1)
+            if self._path(result_id).is_file() and not self._is_retired(result_id):
+                continue
+            if path.is_symlink() or not path.is_file():
+                raise ResultStoreError("stored artifact path is not a regular file")
+            path.unlink()
+            self._fsync_root()
 
     def _fsync_root(self) -> None:
         try:
@@ -386,14 +575,55 @@ class FilesystemResultStore(_StoreCore):
             value = json.loads(path.read_text(encoding="utf-8"))
         except (UnicodeError, json.JSONDecodeError, OSError) as error:
             raise ResultStoreError("stored result envelope is unreadable") from error
-        return self._decode_envelope(value, expected_result_id=result_id)
+        envelope, stored = self._decode_envelope(value, expected_result_id=result_id)
+        target = envelope["bundle"]["result"]["exports"]["poster"]
+        artifact_path = self._artifact_path(result_id, "poster")
+        if target["state"] == "ready":
+            if not artifact_path.exists():
+                raise ResultStoreError("stored result is missing its poster artifact")
+            self._read_artifact(envelope["bundle"], stored, "poster")
+        elif artifact_path.exists():
+            raise ResultStoreError("stored result has an unregistered poster artifact")
+        return envelope, stored
+
+    def _read_artifact(
+        self,
+        bundle: dict[str, Any],
+        stored: StoredResult,
+        kind: ArtifactKind,
+    ) -> StoredArtifact:
+        path = self._artifact_path(stored.result_id, kind)
+        if not path.exists():
+            raise ResultStoreError("stored result is missing its poster artifact")
+        if path.is_symlink() or not path.is_file():
+            raise ResultStoreError("stored artifact path is not a regular file")
+        size = path.stat().st_size
+        if size <= 0 or size > bundle["result"]["exports"][kind]["maxByteLength"]:
+            raise ResultStoreError("stored poster exceeds its size limit")
+        try:
+            payload = path.read_bytes()
+        except OSError as error:
+            raise ResultStoreError("stored poster is unreadable") from error
+        return _stored_artifact(
+            bundle=bundle,
+            stored=stored,
+            kind=kind,
+            payload=payload,
+        )
 
     def _remove(self, result_id: str) -> None:
-        path = self._path(result_id)
-        if path.exists():
+        removed = False
+        for path, label in (
+            (self._path(result_id), "result"),
+            (self._artifact_path(result_id, "poster"), "artifact"),
+        ):
+            if not path.exists():
+                continue
             if path.is_symlink() or not path.is_file():
-                raise ResultStoreError("stored result path is not a regular file")
+                raise ResultStoreError(f"stored {label} path is not a regular file")
             path.unlink()
+            removed = True
+        if removed:
             self._fsync_root()
 
     def _is_retired(self, result_id: str) -> bool:
@@ -437,6 +667,28 @@ class FilesystemResultStore(_StoreCore):
             if temporary.exists():
                 temporary.unlink()
 
+    def _write_bytes_atomic(
+        self,
+        destination: Path,
+        payload: bytes,
+        *,
+        result_id: str,
+    ) -> None:
+        temporary = self._root / f".staging-{result_id}-poster-{secrets.token_hex(8)}"
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb", closefd=True) as output:
+                output.write(payload)
+                output.flush()
+                os.fsync(output.fileno())
+            if destination.exists():
+                raise ResultStoreError("immutable poster appeared during publication")
+            os.replace(temporary, destination)
+            self._fsync_root()
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+
     def _retire(self, result_id: str) -> None:
         if not self._is_retired(result_id):
             self._write_atomic(
@@ -449,8 +701,17 @@ class FilesystemResultStore(_StoreCore):
             )
         self._remove(result_id)
 
-    def publish(self, bundle: dict[str, Any], deletion_token_digest: str) -> Publication:
-        envelope, payload = self._new_envelope(bundle, deletion_token_digest)
+    def publish(
+        self,
+        bundle: dict[str, Any],
+        deletion_token_digest: str,
+        artifacts: Mapping[str, bytes] | None = None,
+    ) -> Publication:
+        envelope, payload, validated_artifacts = self._new_envelope(
+            bundle,
+            deletion_token_digest,
+            artifacts,
+        )
         result_id = envelope["resultId"]
         with self._lock:
             if self._is_retired(result_id):
@@ -464,8 +725,37 @@ class FilesystemResultStore(_StoreCore):
                 else:
                     if existing.payload != payload:
                         raise ResultStoreError("immutable result ID collision")
+                    existing_poster = self.get_artifact(result_id, "poster")
+                    supplied_poster = validated_artifacts.get("poster")
+                    if (existing_poster is None) != (supplied_poster is None) or (
+                        existing_poster is not None
+                        and supplied_poster is not None
+                        and existing_poster.payload != supplied_poster
+                    ):
+                        raise ResultStoreError("immutable poster artifact collision")
                     return _publication(existing, created=False)
-            self._write_atomic(self._path(result_id), envelope)
+            poster = validated_artifacts.get("poster")
+            artifact_path = self._artifact_path(result_id, "poster")
+            if poster is None and artifact_path.exists():
+                raise ResultStoreError("uncommitted poster blocks result publication")
+            artifact_committed = False
+            try:
+                if poster is not None:
+                    self._write_bytes_atomic(
+                        artifact_path,
+                        poster,
+                        result_id=result_id,
+                    )
+                    artifact_committed = True
+                # The envelope is the sole visibility marker. It is committed
+                # only after every registered artifact is durable.
+                self._write_atomic(self._path(result_id), envelope)
+            except Exception:
+                if artifact_committed and not self._path(result_id).exists():
+                    if artifact_path.exists() and artifact_path.is_file() and not artifact_path.is_symlink():
+                        artifact_path.unlink()
+                        self._fsync_root()
+                raise
             stored_pair = self._read(result_id)
             if stored_pair is None:
                 raise ResultStoreError("published result disappeared")
@@ -486,6 +776,29 @@ class FilesystemResultStore(_StoreCore):
                 self._retire(result_id)
                 return None
             return stored
+
+    def get_artifact(
+        self,
+        result_id: str,
+        kind: ArtifactKind,
+    ) -> StoredArtifact | None:
+        _validate_result_id(result_id)
+        if kind != "poster":
+            raise ValueError("invalid artifact kind")
+        with self._lock:
+            if self._is_retired(result_id):
+                self._remove(result_id)
+                return None
+            pair = self._read(result_id)
+            if pair is None:
+                return None
+            envelope, stored = pair
+            if self._is_expired(stored):
+                self._retire(result_id)
+                return None
+            if envelope["bundle"]["result"]["exports"][kind]["state"] != "ready":
+                return None
+            return self._read_artifact(envelope["bundle"], stored, kind)
 
     def delete(self, result_id: str, deletion_token: str) -> DeleteOutcome:
         try:
@@ -524,10 +837,19 @@ class FilesystemResultStore(_StoreCore):
                         continue
                     pair = self._read(result_id)
                 except ResultStoreError:
+                    # A corrupt envelope/artifact pair can never become live
+                    # again under this immutable ID. Retire it so both files
+                    # are cleaned and an invalid artifact cannot leak disk.
+                    try:
+                        self._retire(result_id)
+                    except ResultStoreError:
+                        continue
+                    removed += 1
                     continue
                 if pair is not None and self._is_expired(pair[1]):
                     self._retire(result_id)
                     removed += 1
+            self._cleanup_orphan_artifacts()
         return removed
 
 
