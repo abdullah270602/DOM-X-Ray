@@ -26,6 +26,7 @@ from scanner.result_store import (  # noqa: E402
     load_or_create_store_key,
 )
 from scanner.viewer_runtime import build_viewer_runtime  # noqa: E402
+from scripts.verify_mp4_validation import valid_fixture as video_mp4  # noqa: E402
 
 
 def require(condition: bool, message: str) -> None:
@@ -112,18 +113,22 @@ def poster_png(pixel: bytes = b"\x00\x00\x00\xff") -> bytes:
 def eligible_bundle(
     result_id: str,
     poster: bytes,
+    video: bytes | None = None,
 ) -> dict[str, object]:
     source = fixture_bundle("image-heavy")
     record = source["record"]
     scene = source["scene"]
     mapping = source["mapping"]
     assert isinstance(record, dict) and isinstance(scene, dict) and isinstance(mapping, dict)
+    artifact_payloads = {"poster": poster}
+    if video is not None:
+        artifact_payloads["video"] = video
     result = build_result_manifest(
         record,
         result_id=result_id,
         scene_manifest=scene,
         mapping_registry=mapping,
-        artifact_payloads={"poster": poster},
+        artifact_payloads=artifact_payloads,
     )
     runtime = build_viewer_runtime(record, scene, result, mapping)
     value: dict[str, object] = {
@@ -267,22 +272,32 @@ def main() -> None:
         else:
             raise AssertionError("unsafe result identifier reached storage")
 
-    # Poster artifacts cross a separate immutable byte boundary.  Keep this
-    # fixture local to the verifier so the artifact checks do not depend on a
-    # renderer, Pillow, or any other optional package.
+    # Share artifacts cross separate immutable byte boundaries.  The compact
+    # fixtures exercise the exact media validators without invoking either
+    # production renderer.
     poster = poster_png()
     different_poster = poster_png(b"\x10\x20\x30\xff")
+    video = video_mp4()
+    different_video = video_mp4("#20251f")
     artifact_id = "r_" + "e" * 32
-    artifact_bundle = eligible_bundle(artifact_id, poster)
+    artifact_bundle = eligible_bundle(artifact_id, poster, video)
     artifact_result = artifact_bundle["result"]
     assert isinstance(artifact_result, dict)
     poster_target = artifact_result["exports"]["poster"]
+    video_target = artifact_result["exports"]["video"]
     expected_poster_hash = hashlib.sha256(poster).hexdigest()
+    expected_video_hash = hashlib.sha256(video).hexdigest()
     require(poster_target["state"] == "ready", "eligible poster was not ready")
     require(
         poster_target["artifact"]
         == {"sha256": expected_poster_hash, "byteLength": len(poster)},
         "poster manifest did not register exact bytes",
+    )
+    require(video_target["state"] == "ready", "eligible video was not ready")
+    require(
+        video_target["artifact"]
+        == {"sha256": expected_video_hash, "byteLength": len(video)},
+        "video manifest did not register exact bytes",
     )
     artifact_token = f"dxrd_{'1' * 64}"
     artifact_digest = digest_for(artifact_token)
@@ -291,7 +306,7 @@ def main() -> None:
     artifact_publication = artifact_memory.publish(
         artifact_bundle,
         artifact_digest,
-        {"poster": poster},
+        {"poster": poster, "video": video},
     )
     require(artifact_publication.created, "first poster publication was not created")
     memory_poster = artifact_memory.get_artifact(artifact_id, "poster")
@@ -301,10 +316,17 @@ def main() -> None:
     require(memory_poster.byte_length == len(poster), "memory poster length drifted")
     require(memory_poster.etag == f'"{expected_poster_hash}"', "memory poster ETag drifted")
     require(memory_poster.media_type == "image/png", "memory poster media type drifted")
+    memory_video = artifact_memory.get_artifact(artifact_id, "video")
+    require(memory_video is not None, "memory video was not reachable")
+    require(memory_video.payload == video, "memory video bytes changed")
+    require(memory_video.sha256 == expected_video_hash, "memory video hash drifted")
+    require(memory_video.byte_length == len(video), "memory video length drifted")
+    require(memory_video.etag == f'"{expected_video_hash}"', "memory video ETag drifted")
+    require(memory_video.media_type == "video/mp4", "memory video media type drifted")
     repeated_artifact = artifact_memory.publish(
         artifact_bundle,
         digest_for(f"dxrd_{'2' * 64}"),
-        {"poster": poster},
+        {"poster": poster, "video": video},
     )
     require(not repeated_artifact.created, "identical poster republish created twice")
     require(
@@ -316,15 +338,31 @@ def main() -> None:
         lambda: artifact_memory.publish(
             artifact_bundle,
             artifact_digest,
-            {"poster": different_poster},
+            {"poster": different_poster, "video": video},
         ),
         "different poster bytes crossed the registered-byte boundary",
     )
+    expect_store_error(
+        lambda: artifact_memory.publish(
+            artifact_bundle,
+            artifact_digest,
+            {"poster": poster, "video": different_video},
+        ),
+        "different video bytes crossed the registered-byte boundary",
+    )
     missing_id = "r_" + "f" * 32
-    missing_bundle = eligible_bundle(missing_id, poster)
+    missing_bundle = eligible_bundle(missing_id, poster, video)
     expect_store_error(
         lambda: artifact_memory.publish(missing_bundle, artifact_digest),
-        "ready-manifest publication without poster bytes succeeded",
+        "ready-manifest publication without artifact bytes succeeded",
+    )
+    expect_store_error(
+        lambda: artifact_memory.publish(
+            missing_bundle,
+            artifact_digest,
+            {"poster": poster},
+        ),
+        "ready-manifest publication without video bytes succeeded",
     )
     expect_store_error(
         lambda: artifact_memory.publish(
@@ -333,6 +371,14 @@ def main() -> None:
             {"poster": b"not-a-poster"},
         ),
         "invalid poster bytes were accepted",
+    )
+    expect_store_error(
+        lambda: artifact_memory.publish(
+            eligible_bundle("r_" + "4" * 32, poster, b"not-a-video"),
+            artifact_digest,
+            {"poster": poster, "video": b"not-a-video"},
+        ),
+        "invalid video bytes were accepted",
     )
     link_only = with_result_id(clean, "r_" + "2" * 32)
     expect_store_error(
@@ -343,6 +389,20 @@ def main() -> None:
         ),
         "unregistered poster bytes were accepted",
     )
+    expect_store_error(
+        lambda: artifact_memory.publish(
+            link_only,
+            artifact_digest,
+            {"video": video},
+        ),
+        "unregistered video bytes were accepted",
+    )
+    try:
+        artifact_memory.get_artifact(artifact_id, "audio")  # type: ignore[arg-type]
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid artifact kind reached memory storage")
     artifact_memory._artifacts[(artifact_id, "poster")] = poster[:-1]
     expect_store_error(
         lambda: artifact_memory.get_artifact(artifact_id, "poster"),
@@ -367,23 +427,18 @@ def main() -> None:
         "concurrent poster publish was not single-create",
     )
     try:
-        artifact_memory.get_artifact(artifact_id, "video")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("invalid artifact kind reached memory storage")
-    try:
         artifact_memory.get_artifact("../escape", "poster")
     except ValueError:
         pass
     else:
         raise AssertionError("unsafe artifact result ID reached memory storage")
 
-    with tempfile.TemporaryDirectory(prefix="dom-xray-poster-store-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="dom-xray-artifact-store-") as temporary:
         artifact_root = Path(temporary)
-        (artifact_root / ".staging-abandoned-poster").write_bytes(b"partial")
+        (artifact_root / ".staging-abandoned-artifact").write_bytes(b"partial")
         orphan_id = "r_" + "5" * 32
         (artifact_root / f"{orphan_id}.poster.png").write_bytes(poster)
+        (artifact_root / f"{orphan_id}.video.mp4").write_bytes(video)
         filesystem_artifacts = FilesystemResultStore(
             artifact_root,
             keys=(key_one,),
@@ -392,11 +447,15 @@ def main() -> None:
         )
         require(
             not list(artifact_root.glob(".staging-*")),
-            "poster staging file survived startup cleanup",
+            "artifact staging file survived startup cleanup",
         )
         require(
             not (artifact_root / f"{orphan_id}.poster.png").exists(),
             "orphan poster survived startup cleanup",
+        )
+        require(
+            not (artifact_root / f"{orphan_id}.video.mp4").exists(),
+            "orphan video survived startup cleanup",
         )
 
         class FailingEnvelopeStore(FilesystemResultStore):
@@ -412,23 +471,28 @@ def main() -> None:
             clock=lambda: now[0],
         )
         failing_id = "r_" + "9" * 32
-        failing_bundle = eligible_bundle(failing_id, poster)
+        failing_bundle = eligible_bundle(failing_id, poster, video)
         expect_store_error(
             lambda: failing_store.publish(
                 failing_bundle,
                 artifact_digest,
-                {"poster": poster},
+                {"poster": poster, "video": video},
             ),
             "result envelope failure left a publication reachable",
         )
         require(
             not (failure_root / f"{failing_id}.json").exists()
             and not (failure_root / f"{failing_id}.poster.png").exists()
+            and not (failure_root / f"{failing_id}.video.mp4").exists()
             and not list(failure_root.glob(".staging-*")),
-            "failed final commit left a bundle, poster, or staging file",
+            "failed final commit left a bundle, artifact, or staging file",
         )
 
-        filesystem_artifacts.publish(artifact_bundle, artifact_digest, {"poster": poster})
+        filesystem_artifacts.publish(
+            artifact_bundle,
+            artifact_digest,
+            {"poster": poster, "video": video},
+        )
         filesystem_poster = filesystem_artifacts.get_artifact(artifact_id, "poster")
         require(filesystem_poster is not None, "filesystem poster was not reachable")
         require(filesystem_poster.payload == poster, "filesystem poster bytes changed")
@@ -436,6 +500,13 @@ def main() -> None:
         require(filesystem_poster.byte_length == len(poster), "filesystem poster length drifted")
         require(filesystem_poster.etag == f'"{expected_poster_hash}"', "filesystem poster ETag drifted")
         require(filesystem_poster.media_type == "image/png", "filesystem poster media type drifted")
+        filesystem_video = filesystem_artifacts.get_artifact(artifact_id, "video")
+        require(filesystem_video is not None, "filesystem video was not reachable")
+        require(filesystem_video.payload == video, "filesystem video bytes changed")
+        require(filesystem_video.sha256 == expected_video_hash, "filesystem video hash drifted")
+        require(filesystem_video.byte_length == len(video), "filesystem video length drifted")
+        require(filesystem_video.etag == f'"{expected_video_hash}"', "filesystem video ETag drifted")
+        require(filesystem_video.media_type == "video/mp4", "filesystem video media type drifted")
         restarted_artifacts = FilesystemResultStore(
             artifact_root,
             keys=(key_one,),
@@ -443,11 +514,17 @@ def main() -> None:
             clock=lambda: now[0],
         )
         recovered_poster = restarted_artifacts.get_artifact(artifact_id, "poster")
+        recovered_video = restarted_artifacts.get_artifact(artifact_id, "video")
         require(
             recovered_poster is not None and recovered_poster.payload == poster,
             "poster did not survive filesystem restart",
         )
+        require(
+            recovered_video is not None and recovered_video.payload == video,
+            "video did not survive filesystem restart",
+        )
         artifact_path = artifact_root / f"{artifact_id}.poster.png"
+        video_path = artifact_root / f"{artifact_id}.video.mp4"
         artifact_path.write_bytes(poster[:-1])
         expect_store_error(
             lambda: restarted_artifacts.get(artifact_id),
@@ -467,8 +544,9 @@ def main() -> None:
         require(
             not (artifact_root / f"{artifact_id}.json").exists()
             and not artifact_path.exists()
+            and not video_path.exists()
             and (artifact_root / f"{artifact_id}.deleted").is_file(),
-            "startup did not retire and clean a corrupt poster publication",
+            "startup did not retire and clean a corrupt artifact publication",
         )
 
         unregistered_id = "r_" + "6" * 32
@@ -483,35 +561,56 @@ def main() -> None:
         unregistered_path.unlink()
 
         deleted_id = "r_" + "7" * 32
-        deleted_bundle = eligible_bundle(deleted_id, poster)
-        filesystem_artifacts.publish(deleted_bundle, artifact_digest, {"poster": poster})
+        deleted_bundle = eligible_bundle(deleted_id, poster, video)
+        filesystem_artifacts.publish(
+            deleted_bundle,
+            artifact_digest,
+            {"poster": poster, "video": video},
+        )
         deleted_result_path = artifact_root / f"{deleted_id}.json"
         deleted_envelope = deleted_result_path.read_bytes()
         deleted_artifact_path = artifact_root / f"{deleted_id}.poster.png"
+        deleted_video_path = artifact_root / f"{deleted_id}.video.mp4"
         require(
             filesystem_artifacts.delete(deleted_id, artifact_token) == "deleted",
             "poster owner token failed deletion",
         )
         require(filesystem_artifacts.get_artifact(deleted_id, "poster") is None, "deleted poster remained reachable")
-        require(not deleted_result_path.exists() and not deleted_artifact_path.exists(), "deletion left poster files")
-        require((artifact_root / f"{deleted_id}.deleted").is_file(), "poster deletion tombstone missing")
+        require(filesystem_artifacts.get_artifact(deleted_id, "video") is None, "deleted video remained reachable")
+        require(
+            not deleted_result_path.exists()
+            and not deleted_artifact_path.exists()
+            and not deleted_video_path.exists(),
+            "deletion left artifact files",
+        )
+        require((artifact_root / f"{deleted_id}.deleted").is_file(), "artifact deletion tombstone missing")
         deleted_result_path.write_bytes(deleted_envelope)
         deleted_artifact_path.write_bytes(poster)
+        deleted_video_path.write_bytes(video)
         restarted_after_delete = FilesystemResultStore(
             artifact_root,
             keys=(key_one,),
             retention_seconds=3_600,
             clock=lambda: now[0],
         )
-        require(restarted_after_delete.get(deleted_id) is None, "tombstone restored deleted poster")
-        require(not deleted_result_path.exists() and not deleted_artifact_path.exists(), "tombstone restart left restored poster files")
+        require(restarted_after_delete.get(deleted_id) is None, "tombstone restored deleted artifacts")
+        require(
+            not deleted_result_path.exists()
+            and not deleted_artifact_path.exists()
+            and not deleted_video_path.exists(),
+            "tombstone restart left restored artifact files",
+        )
         expect_store_error(
-            lambda: restarted_after_delete.publish(deleted_bundle, artifact_digest, {"poster": poster}),
-            "deleted poster result ID was reused",
+            lambda: restarted_after_delete.publish(
+                deleted_bundle,
+                artifact_digest,
+                {"poster": poster, "video": video},
+            ),
+            "deleted artifact result ID was reused",
         )
 
         expiry_id = "r_" + "8" * 32
-        expiry_bundle = eligible_bundle(expiry_id, poster)
+        expiry_bundle = eligible_bundle(expiry_id, poster, video)
         expiry_now = [datetime(2026, 9, 10, 12, tzinfo=UTC)]
         expiring_filesystem = FilesystemResultStore(
             artifact_root,
@@ -519,38 +618,45 @@ def main() -> None:
             retention_seconds=2,
             clock=lambda: expiry_now[0],
         )
-        expiring_filesystem.publish(expiry_bundle, artifact_digest, {"poster": poster})
+        expiring_filesystem.publish(
+            expiry_bundle,
+            artifact_digest,
+            {"poster": poster, "video": video},
+        )
         expiry_envelope = (artifact_root / f"{expiry_id}.json").read_bytes()
         expiry_now[0] += timedelta(seconds=3)
-        require(expiring_filesystem.get(expiry_id) is None, "expired poster remained reachable")
+        require(expiring_filesystem.get(expiry_id) is None, "expired artifacts remained reachable")
         require(
             not (artifact_root / f"{expiry_id}.json").exists()
-            and not (artifact_root / f"{expiry_id}.poster.png").exists(),
-            "expiry left poster files behind",
+            and not (artifact_root / f"{expiry_id}.poster.png").exists()
+            and not (artifact_root / f"{expiry_id}.video.mp4").exists(),
+            "expiry left artifact files behind",
         )
         require((artifact_root / f"{expiry_id}.deleted").is_file(), "expiry tombstone missing")
         # Restore both visibility markers after expiry to model a crash or
         # stale replica; the tombstone must still win on the next startup.
         (artifact_root / f"{expiry_id}.json").write_bytes(expiry_envelope)
         (artifact_root / f"{expiry_id}.poster.png").write_bytes(poster)
+        (artifact_root / f"{expiry_id}.video.mp4").write_bytes(video)
         restarted_after_expiry = FilesystemResultStore(
             artifact_root,
             keys=(key_one,),
             retention_seconds=2,
             clock=lambda: expiry_now[0],
         )
-        require(restarted_after_expiry.get(expiry_id) is None, "expiry tombstone restored poster")
+        require(restarted_after_expiry.get(expiry_id) is None, "expiry tombstone restored artifacts")
         require(
             not (artifact_root / f"{expiry_id}.json").exists()
-            and not (artifact_root / f"{expiry_id}.poster.png").exists(),
-            "expiry tombstone left restored poster files",
+            and not (artifact_root / f"{expiry_id}.poster.png").exists()
+            and not (artifact_root / f"{expiry_id}.video.mp4").exists(),
+            "expiry tombstone left restored artifact files",
         )
 
     print(
         "Verified atomic storage, restart recovery, bounded retention, browser-minted HMAC "
         "deletion capabilities, key rotation, tombstoned non-reuse, corruption rejection, "
         "concurrent single-create behavior, traversal-safe result IDs, and exact registered "
-        "poster bytes across publication, restart, deletion, expiry, and tamper failures."
+        "poster/video bytes across publication, restart, deletion, expiry, and tamper failures."
     )
 
 

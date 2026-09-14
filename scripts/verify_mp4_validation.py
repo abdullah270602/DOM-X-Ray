@@ -21,7 +21,7 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-def valid_fixture() -> bytes:
+def valid_fixture(color: str = "#e9e1d2") -> bytes:
     with tempfile.TemporaryDirectory(prefix="dom-x-ray-mp4-validation-") as temporary:
         output = Path(temporary) / "valid.mp4"
         command = [
@@ -33,7 +33,7 @@ def valid_fixture() -> bytes:
             "-f",
             "lavfi",
             "-i",
-            "color=c=#e9e1d2:s=1080x1080:r=30:d=5",
+            f"color=c={color}:s=1080x1080:r=30:d=5",
             "-frames:v",
             "150",
             "-r",
@@ -136,6 +136,11 @@ def main() -> None:
     expect_rejection(mutate(valid, top[0].content_start, b"zzzz"), "mp4-signature", "wrong major brand")
     free = next(box for box in top if box.kind == b"free")
     expect_rejection(mutate(valid, free.start + 4, b"uuid"), "mp4-topology", "unsupported top-level box")
+    slow_start = b"".join(
+        valid[box.start : box.end]
+        for box in sorted(top, key=lambda box: box.kind == b"moov")
+    )
+    expect_rejection(slow_start, "mp4-faststart", "movie metadata after media data")
     expect_rejection(
         mutate(valid, mvhd.content_start + 16, struct.pack(">I", 4_999)),
         "mp4-duration",
@@ -158,9 +163,34 @@ def main() -> None:
     )
     expect_rejection(mutate(valid, entry.start + 4, b"hvc1"), "mp4-codec", "wrong codec")
     expect_rejection(
+        mutate(valid, entry.content_start + 24, struct.pack(">H", 1_079)),
+        "mp4-dimensions",
+        "sample-entry and SPS dimensions disagree",
+    )
+    expect_rejection(
         mutate(valid, avcc.content_start + 1, b"\x4d"),
         "mp4-codec",
         "wrong AVC profile",
+    )
+    sequence_length = int.from_bytes(
+        valid[avcc.content_start + 6 : avcc.content_start + 8],
+        "big",
+    )
+    pps_start = avcc.content_start + 6 + 2 + sequence_length + 1 + 2
+    expect_rejection(
+        mutate(valid, pps_start + 1, b"\xe5"),
+        "mp4-codec",
+        "PPS slice groups",
+    )
+    expect_rejection(
+        mutate(valid, pps_start + 1, b"\xab"),
+        "mp4-codec",
+        "PPS references an unknown SPS",
+    )
+    expect_rejection(
+        mutate(valid, stts.content_start + 4, struct.pack(">I", 2)),
+        "mp4-frame-rate",
+        "variable decoding-time entries",
     )
     timing_delta_offset = stts.content_start + 12
     expect_rejection(

@@ -86,6 +86,11 @@ class _BitReader:
         suffix = self.read(leading_zeroes) if leading_zeroes else 0
         return (1 << leading_zeroes) - 1 + suffix
 
+    def signed_exp_golomb(self) -> int:
+        value = self.unsigned_exp_golomb()
+        magnitude = (value + 1) // 2
+        return magnitude if value & 1 else -magnitude
+
 
 def _reject(code: str, message: str) -> None:
     raise Mp4ValidationError(code, message)
@@ -179,8 +184,13 @@ def _full_box(payload: bytes, box: _Box) -> tuple[int, bytes]:
 def _rbsp(payload: bytes) -> bytes:
     result = bytearray()
     zeroes = 0
-    for value in payload:
-        if zeroes >= 2 and value == 0x03:
+    for index, value in enumerate(payload):
+        if (
+            zeroes >= 2
+            and value == 0x03
+            and index + 1 < len(payload)
+            and payload[index + 1] <= 0x03
+        ):
             zeroes = 0
             continue
         result.append(value)
@@ -188,14 +198,20 @@ def _rbsp(payload: bytes) -> bytes:
     return bytes(result)
 
 
-def _validate_sps(sps: bytes, expected_profile: int, expected_level: int) -> None:
+def _validate_sps(
+    sps: bytes,
+    expected_profile: int,
+    expected_level: int,
+) -> tuple[int, int, int]:
     if len(sps) < 5 or sps[0] & 0x80 or sps[0] & 0x1F != 7:
         _reject("mp4-codec", "MP4 AVC sequence parameter set is malformed")
     bits = _BitReader(_rbsp(sps[1:]))
     profile = bits.read(8)
     bits.read(8)  # constraint flags and reserved bits
     level = bits.read(8)
-    bits.unsigned_exp_golomb()  # sequence_parameter_set_id
+    sequence_parameter_set_id = bits.unsigned_exp_golomb()
+    if sequence_parameter_set_id > 31:
+        _reject("mp4-codec", "MP4 AVC sequence parameter-set ID is out of range")
     if profile != expected_profile or level != expected_level:
         _reject("mp4-codec", "MP4 AVC profile metadata disagrees with its SPS")
     if profile not in {100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135}:
@@ -214,6 +230,58 @@ def _validate_sps(sps: bytes, expected_profile: int, expected_level: int) -> Non
         or scaling_matrix_present != 0
     ):
         _reject("mp4-pixel-format", "MP4 AVC stream is not the approved 8-bit 4:2:0 profile")
+    bits.unsigned_exp_golomb()  # log2_max_frame_num_minus4
+    picture_order_count_type = bits.unsigned_exp_golomb()
+    if picture_order_count_type == 0:
+        bits.unsigned_exp_golomb()  # log2_max_pic_order_cnt_lsb_minus4
+    elif picture_order_count_type == 1:
+        bits.read(1)  # delta_pic_order_always_zero_flag
+        bits.signed_exp_golomb()  # offset_for_non_ref_pic
+        bits.signed_exp_golomb()  # offset_for_top_to_bottom_field
+        cycle = bits.unsigned_exp_golomb()
+        if cycle > 255:
+            _reject("mp4-codec", "MP4 AVC picture-order cycle is unbounded")
+        for _ in range(cycle):
+            bits.signed_exp_golomb()
+    elif picture_order_count_type > 2:
+        _reject("mp4-codec", "MP4 AVC picture-order mode is unsupported")
+    bits.unsigned_exp_golomb()  # max_num_ref_frames
+    bits.read(1)  # gaps_in_frame_num_value_allowed_flag
+    width_in_macroblocks_minus1 = bits.unsigned_exp_golomb()
+    height_in_map_units_minus1 = bits.unsigned_exp_golomb()
+    frame_mbs_only = bits.read(1)
+    if not frame_mbs_only:
+        bits.read(1)  # mb_adaptive_frame_field_flag
+    bits.read(1)  # direct_8x8_inference_flag
+    crop_left = crop_right = crop_top = crop_bottom = 0
+    if bits.read(1):
+        crop_left = bits.unsigned_exp_golomb()
+        crop_right = bits.unsigned_exp_golomb()
+        crop_top = bits.unsigned_exp_golomb()
+        crop_bottom = bits.unsigned_exp_golomb()
+    coded_width = (width_in_macroblocks_minus1 + 1) * 16
+    coded_height = (2 - frame_mbs_only) * (height_in_map_units_minus1 + 1) * 16
+    # The accepted profile is 4:2:0 with no separate colour plane.
+    display_width = coded_width - 2 * (crop_left + crop_right)
+    display_height = coded_height - 2 * (2 - frame_mbs_only) * (crop_top + crop_bottom)
+    if display_width <= 0 or display_height <= 0:
+        _reject("mp4-dimensions", "MP4 AVC cropping removes the coded picture")
+    return display_width, display_height, sequence_parameter_set_id
+
+
+def _validate_pps(pps: bytes) -> int:
+    if len(pps) < 2 or pps[0] & 0x80 or pps[0] & 0x1F != 8:
+        _reject("mp4-codec", "MP4 AVC picture parameter set is malformed")
+    bits = _BitReader(_rbsp(pps[1:]))
+    picture_parameter_set_id = bits.unsigned_exp_golomb()
+    sequence_parameter_set_id = bits.unsigned_exp_golomb()
+    if picture_parameter_set_id > 255 or sequence_parameter_set_id > 31:
+        _reject("mp4-codec", "MP4 AVC picture parameter-set IDs are out of range")
+    bits.read(1)  # entropy_coding_mode_flag
+    bits.read(1)  # bottom_field_pic_order_in_frame_present_flag
+    if bits.unsigned_exp_golomb() != 0:
+        _reject("mp4-codec", "MP4 AVC slice groups are outside the approved profile")
+    return sequence_parameter_set_id
 
 
 def _movie_duration(payload: bytes, box: _Box) -> Fraction:
@@ -338,21 +406,25 @@ def _validate_sample_description(payload: bytes, box: _Box) -> tuple[int, int]:
     if picture_length == 0 or cursor + picture_length > len(avcc_payload):
         _reject("mp4-codec", "MP4 AVC picture parameter set is truncated")
     pps = avcc_payload[cursor : cursor + picture_length]
-    if pps[0] & 0x80 or pps[0] & 0x1F != 8:
-        _reject("mp4-codec", "MP4 AVC picture parameter set is malformed")
-    _validate_sps(sps, profile, level)
+    referenced_sequence_id = _validate_pps(pps)
+    coded_width, coded_height, sequence_id = _validate_sps(sps, profile, level)
+    if referenced_sequence_id != sequence_id:
+        _reject("mp4-codec", "MP4 AVC picture parameter set references an unknown sequence")
+    if (coded_width, coded_height) != (width, height):
+        _reject("mp4-dimensions", "MP4 AVC dimensions disagree with its sample entry")
     return width, height
 
 
-def _sample_timing(payload: bytes, box: _Box) -> tuple[int, int]:
+def _sample_timing(payload: bytes, box: _Box) -> tuple[int, int, tuple[int, ...]]:
     version, flags = _full_box(payload, box)
     if version != 0 or flags != b"\x00\x00\x00" or box.content_length < 8:
         _reject("mp4-timing", "MP4 decoding-time table is invalid")
     count = _u32(payload, box.content_start + 4, code="mp4-timing")
-    if count == 0 or count > 1_024 or box.content_length != 8 + count * 8:
-        _reject("mp4-timing", "MP4 decoding-time entry count is invalid")
+    if count != 1 or box.content_length != 16:
+        _reject("mp4-frame-rate", "MP4 must use one constant decoding-time entry")
     sample_count = 0
     total_duration = 0
+    deltas: list[int] = []
     for index in range(count):
         offset = box.content_start + 8 + index * 8
         entries = _u32(payload, offset, code="mp4-timing")
@@ -361,7 +433,8 @@ def _sample_timing(payload: bytes, box: _Box) -> tuple[int, int]:
             _reject("mp4-timing", "MP4 decoding-time entry is empty")
         sample_count += entries
         total_duration += entries * delta
-    return sample_count, total_duration
+        deltas.append(delta)
+    return sample_count, total_duration, tuple(deltas)
 
 
 def _sample_sizes(payload: bytes, box: _Box) -> tuple[int, int, tuple[int, ...]]:
@@ -553,6 +626,8 @@ def validate_mp4(
     ftyp = _one(top, b"ftyp", code="mp4-signature")
     moov = _one(top, b"moov")
     mdat = _one(top, b"mdat")
+    if moov.start > mdat.start:
+        _reject("mp4-faststart", "MP4 movie metadata must precede media data")
     if ftyp.content_length < 12 or ftyp.content_length % 4:
         _reject("mp4-signature", "MP4 file-type box is malformed")
     brands = [payload[offset : offset + 4] for offset in range(ftyp.content_start, ftyp.end, 4)]
@@ -563,7 +638,7 @@ def validate_mp4(
     if any(box.kind not in {b"mvhd", b"trak", b"udta"} for box in movie):
         _reject("mp4-topology", "MP4 movie contains an unsupported box")
     if _movie_duration(payload, _one(movie, b"mvhd")) != Fraction(duration_ms, 1_000):
-        _reject("mp4-duration", "MP4 movie duration is not exactly five seconds")
+        _reject("mp4-duration", f"MP4 movie duration is not exactly {duration_ms} milliseconds")
     tracks = [box for box in movie if box.kind == b"trak"]
     if len(tracks) != 1:
         _reject("mp4-streams", "MP4 must contain exactly one track")
@@ -581,7 +656,7 @@ def validate_mp4(
         _reject("mp4-streams", "MP4 track is not video")
     timescale, media_duration = _media_duration(payload, _one(media, b"mdhd"))
     if Fraction(media_duration, timescale) != Fraction(duration_ms, 1_000):
-        _reject("mp4-duration", "MP4 media duration is not exactly five seconds")
+        _reject("mp4-duration", f"MP4 media duration is not exactly {duration_ms} milliseconds")
 
     minf = _one(media, b"minf")
     media_information = _children(payload, minf)
@@ -594,7 +669,7 @@ def validate_mp4(
     if any(box.kind not in allowed_sample_boxes for box in samples):
         _reject("mp4-topology", "MP4 sample table contains an unsupported box")
     sample_width, sample_height = _validate_sample_description(payload, _one(samples, b"stsd"))
-    timing_count, timing_duration = _sample_timing(payload, _one(samples, b"stts"))
+    timing_count, timing_duration, timing_deltas = _sample_timing(payload, _one(samples, b"stts"))
     size_count, total_sample_bytes, sample_sizes = _sample_sizes(payload, _one(samples, b"stsz"))
     offset_boxes = [box for box in samples if box.kind in {b"stco", b"co64"}]
     if len(offset_boxes) != 1:
@@ -606,9 +681,13 @@ def validate_mp4(
     if (track_width, track_height) != (width, height) or (sample_width, sample_height) != (width, height):
         _reject("mp4-dimensions", "MP4 is not the approved square resolution")
     if timing_count != frame_count or size_count != frame_count:
-        _reject("mp4-frame-count", "MP4 does not contain exactly 150 video frames")
-    if timing_duration != media_duration or Fraction(timing_count * timescale, timing_duration) != frame_rate:
-        _reject("mp4-frame-rate", "MP4 is not constant 30 frames per second")
+        _reject("mp4-frame-count", f"MP4 does not contain exactly {frame_count} video frames")
+    if (
+        timing_duration != media_duration
+        or not timing_deltas
+        or any(delta * frame_rate != timescale for delta in timing_deltas)
+    ):
+        _reject("mp4-frame-rate", f"MP4 is not constant {frame_rate} frames per second")
     if total_sample_bytes <= 0 or total_sample_bytes != mdat.content_length:
         _reject("mp4-samples", "MP4 sample sizes exceed media data")
     _validate_sample_payloads(

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from scanner.api_contract import stable_json_bytes, validate_viewer_bundle
+from scanner.mp4_validation import Mp4ValidationError, validate_share_video_mp4
 from scanner.png_validation import PngValidationError, validate_poster_png
 
 
@@ -34,7 +35,13 @@ SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 KEY_ID_PATTERN = re.compile(r"^[0-9a-f]{16}$")
 
 DeleteOutcome = Literal["deleted", "not-found", "forbidden", "malformed"]
-ArtifactKind = Literal["poster"]
+ArtifactKind = Literal["poster", "video"]
+ArtifactMediaType = Literal["image/png", "video/mp4"]
+ARTIFACT_KINDS: tuple[ArtifactKind, ...] = ("poster", "video")
+ARTIFACT_SUFFIXES: dict[ArtifactKind, str] = {
+    "poster": ".poster.png",
+    "video": ".video.mp4",
+}
 
 
 class ResultStoreError(RuntimeError):
@@ -60,7 +67,7 @@ class StoredArtifact:
     result_id: str
     kind: ArtifactKind
     payload: bytes
-    media_type: Literal["image/png"]
+    media_type: ArtifactMediaType
     sha256: str
     byte_length: int
     etag: str
@@ -146,31 +153,49 @@ def _validated_artifacts(
     supplied = dict(artifacts or {})
     exports = bundle["result"]["exports"]
     ready = {kind for kind, target in exports.items() if target["state"] == "ready"}
-    if ready - {"poster"}:
+    if ready - set(ARTIFACT_KINDS):
         raise ResultStoreError("result contains an unsupported ready artifact")
     if set(supplied) != ready:
         raise ResultStoreError("ready artifact bytes do not match the result manifest")
-    if not supplied:
-        return {}
+    validated: dict[ArtifactKind, bytes] = {}
+    for kind in ARTIFACT_KINDS:
+        if kind not in supplied:
+            continue
+        payload = supplied[kind]
+        metadata = _artifact_metadata(kind, payload, stored=False)
+        target = exports[kind]
+        descriptor = target["artifact"]
+        if (
+            not isinstance(descriptor, dict)
+            or descriptor.get("sha256") != metadata.sha256
+            or descriptor.get("byteLength") != metadata.byte_length
+            or target["mediaType"] != metadata.media_type
+            or target["width"] != metadata.width
+            or target["height"] != metadata.height
+            or target["maxByteLength"] < metadata.byte_length
+            or (kind == "video" and target["durationMs"] != metadata.duration_ms)
+        ):
+            raise ResultStoreError(
+                f"{kind} bytes do not match the immutable result manifest"
+            )
+        validated[kind] = payload
+    return validated
 
-    payload = supplied["poster"]
+
+def _validate_artifact_kind(kind: object) -> ArtifactKind:
+    if kind not in ARTIFACT_KINDS:
+        raise ValueError("invalid artifact kind")
+    return kind  # type: ignore[return-value]
+
+
+def _artifact_metadata(kind: ArtifactKind, payload: bytes, *, stored: bool):
     try:
-        metadata = validate_poster_png(payload)
-    except PngValidationError as error:
-        raise ResultStoreError("poster artifact failed media validation") from error
-    target = exports["poster"]
-    descriptor = target["artifact"]
-    if (
-        not isinstance(descriptor, dict)
-        or descriptor.get("sha256") != metadata.sha256
-        or descriptor.get("byteLength") != metadata.byte_length
-        or target["mediaType"] != metadata.media_type
-        or target["width"] != metadata.width
-        or target["height"] != metadata.height
-        or target["maxByteLength"] < metadata.byte_length
-    ):
-        raise ResultStoreError("poster bytes do not match the immutable result manifest")
-    return {"poster": payload}
+        if kind == "poster":
+            return validate_poster_png(payload)
+        return validate_share_video_mp4(payload)
+    except (PngValidationError, Mp4ValidationError) as error:
+        qualifier = "stored " if stored else ""
+        raise ResultStoreError(f"{qualifier}{kind} artifact failed media validation") from error
 
 
 def _stored_artifact(
@@ -182,22 +207,23 @@ def _stored_artifact(
 ) -> StoredArtifact:
     target = bundle["result"]["exports"][kind]
     descriptor = target["artifact"]
-    try:
-        metadata = validate_poster_png(payload)
-    except PngValidationError as error:
-        raise ResultStoreError("stored poster failed media validation") from error
+    metadata = _artifact_metadata(kind, payload, stored=True)
     if (
         target["state"] != "ready"
         or not isinstance(descriptor, dict)
         or descriptor.get("sha256") != metadata.sha256
         or descriptor.get("byteLength") != metadata.byte_length
+        or target["mediaType"] != metadata.media_type
+        or target["width"] != metadata.width
+        or target["height"] != metadata.height
+        or (kind == "video" and target["durationMs"] != metadata.duration_ms)
     ):
-        raise ResultStoreError("stored poster failed its content identity check")
+        raise ResultStoreError(f"stored {kind} failed its content identity check")
     return StoredArtifact(
         result_id=stored.result_id,
         kind=kind,
         payload=payload,
-        media_type="image/png",
+        media_type=metadata.media_type,
         sha256=metadata.sha256,
         byte_length=metadata.byte_length,
         etag=f'"{metadata.sha256}"',
@@ -362,26 +388,28 @@ class MemoryResultStore(_StoreCore):
 
     def _remove(self, result_id: str) -> None:
         self._entries.pop(result_id, None)
-        self._artifacts.pop((result_id, "poster"), None)
+        for kind in ARTIFACT_KINDS:
+            self._artifacts.pop((result_id, kind), None)
 
     def _validate_artifact_state(
         self,
         envelope: dict[str, Any],
         stored: StoredResult,
     ) -> None:
-        target = envelope["bundle"]["result"]["exports"]["poster"]
-        payload = self._artifacts.get((stored.result_id, "poster"))
-        if target["state"] == "ready":
-            if payload is None:
-                raise ResultStoreError("stored result is missing its poster artifact")
-            _stored_artifact(
-                bundle=envelope["bundle"],
-                stored=stored,
-                kind="poster",
-                payload=payload,
-            )
-        elif payload is not None:
-            raise ResultStoreError("stored result has an unregistered poster artifact")
+        for kind in ARTIFACT_KINDS:
+            target = envelope["bundle"]["result"]["exports"][kind]
+            payload = self._artifacts.get((stored.result_id, kind))
+            if target["state"] == "ready":
+                if payload is None:
+                    raise ResultStoreError(f"stored result is missing its {kind} artifact")
+                _stored_artifact(
+                    bundle=envelope["bundle"],
+                    stored=stored,
+                    kind=kind,
+                    payload=payload,
+                )
+            elif payload is not None:
+                raise ResultStoreError(f"stored result has an unregistered {kind} artifact")
 
     def publish(
         self,
@@ -402,20 +430,20 @@ class MemoryResultStore(_StoreCore):
             if existing is not None:
                 if existing.payload != payload:
                     raise ResultStoreError("immutable result ID collision")
-                existing_poster = self.get_artifact(result_id, "poster")
-                supplied_poster = validated_artifacts.get("poster")
-                if (existing_poster is None) != (supplied_poster is None) or (
-                    existing_poster is not None
-                    and supplied_poster is not None
-                    and existing_poster.payload != supplied_poster
-                ):
-                    raise ResultStoreError("immutable poster artifact collision")
+                for kind in ARTIFACT_KINDS:
+                    existing_artifact = self.get_artifact(result_id, kind)
+                    supplied_artifact = validated_artifacts.get(kind)
+                    if (existing_artifact is None) != (supplied_artifact is None) or (
+                        existing_artifact is not None
+                        and supplied_artifact is not None
+                        and existing_artifact.payload != supplied_artifact
+                    ):
+                        raise ResultStoreError(f"immutable {kind} artifact collision")
                 return _publication(existing, created=False)
             if result_id in self._retired:
                 raise ResultStoreError("expired result ID cannot be reused")
-            poster = validated_artifacts.get("poster")
-            if poster is not None:
-                self._artifacts[(result_id, "poster")] = poster
+            for kind, artifact in validated_artifacts.items():
+                self._artifacts[(result_id, kind)] = artifact
             self._entries[result_id] = envelope
             stored = self.get(result_id)
             if stored is None:
@@ -442,8 +470,7 @@ class MemoryResultStore(_StoreCore):
         kind: ArtifactKind,
     ) -> StoredArtifact | None:
         _validate_result_id(result_id)
-        if kind != "poster":
-            raise ValueError("invalid artifact kind")
+        kind = _validate_artifact_kind(kind)
         with self._lock:
             stored = self.get(result_id)
             if stored is None:
@@ -453,7 +480,7 @@ class MemoryResultStore(_StoreCore):
                 return None
             payload = self._artifacts.get((result_id, kind))
             if payload is None:
-                raise ResultStoreError("stored result is missing its poster artifact")
+                raise ResultStoreError(f"stored result is missing its {kind} artifact")
             return _stored_artifact(
                 bundle=envelope["bundle"],
                 stored=stored,
@@ -525,9 +552,8 @@ class FilesystemResultStore(_StoreCore):
 
     def _artifact_path(self, result_id: str, kind: ArtifactKind) -> Path:
         _validate_result_id(result_id)
-        if kind != "poster":
-            raise ValueError("invalid artifact kind")
-        path = self._root / f"{result_id}.poster.png"
+        kind = _validate_artifact_kind(kind)
+        path = self._root / f"{result_id}{ARTIFACT_SUFFIXES[kind]}"
         if path.parent != self._root:
             raise ResultStoreError("artifact path escaped its store root")
         return path
@@ -539,7 +565,7 @@ class FilesystemResultStore(_StoreCore):
 
     def _cleanup_orphan_artifacts(self) -> None:
         for path in self._root.iterdir():
-            match = re.fullmatch(r"(r_[0-9a-f]{32})\.poster\.png", path.name)
+            match = re.fullmatch(r"(r_[0-9a-f]{32})\.(poster\.png|video\.mp4)", path.name)
             if match is None:
                 continue
             result_id = match.group(1)
@@ -576,14 +602,15 @@ class FilesystemResultStore(_StoreCore):
         except (UnicodeError, json.JSONDecodeError, OSError) as error:
             raise ResultStoreError("stored result envelope is unreadable") from error
         envelope, stored = self._decode_envelope(value, expected_result_id=result_id)
-        target = envelope["bundle"]["result"]["exports"]["poster"]
-        artifact_path = self._artifact_path(result_id, "poster")
-        if target["state"] == "ready":
-            if not artifact_path.exists():
-                raise ResultStoreError("stored result is missing its poster artifact")
-            self._read_artifact(envelope["bundle"], stored, "poster")
-        elif artifact_path.exists():
-            raise ResultStoreError("stored result has an unregistered poster artifact")
+        for kind in ARTIFACT_KINDS:
+            target = envelope["bundle"]["result"]["exports"][kind]
+            artifact_path = self._artifact_path(result_id, kind)
+            if target["state"] == "ready":
+                if not artifact_path.exists():
+                    raise ResultStoreError(f"stored result is missing its {kind} artifact")
+                self._read_artifact(envelope["bundle"], stored, kind)
+            elif artifact_path.exists():
+                raise ResultStoreError(f"stored result has an unregistered {kind} artifact")
         return envelope, stored
 
     def _read_artifact(
@@ -592,18 +619,19 @@ class FilesystemResultStore(_StoreCore):
         stored: StoredResult,
         kind: ArtifactKind,
     ) -> StoredArtifact:
+        kind = _validate_artifact_kind(kind)
         path = self._artifact_path(stored.result_id, kind)
         if not path.exists():
-            raise ResultStoreError("stored result is missing its poster artifact")
+            raise ResultStoreError(f"stored result is missing its {kind} artifact")
         if path.is_symlink() or not path.is_file():
             raise ResultStoreError("stored artifact path is not a regular file")
         size = path.stat().st_size
         if size <= 0 or size > bundle["result"]["exports"][kind]["maxByteLength"]:
-            raise ResultStoreError("stored poster exceeds its size limit")
+            raise ResultStoreError(f"stored {kind} exceeds its size limit")
         try:
             payload = path.read_bytes()
         except OSError as error:
-            raise ResultStoreError("stored poster is unreadable") from error
+            raise ResultStoreError(f"stored {kind} is unreadable") from error
         return _stored_artifact(
             bundle=bundle,
             stored=stored,
@@ -613,10 +641,12 @@ class FilesystemResultStore(_StoreCore):
 
     def _remove(self, result_id: str) -> None:
         removed = False
-        for path, label in (
-            (self._path(result_id), "result"),
-            (self._artifact_path(result_id, "poster"), "artifact"),
-        ):
+        targets = [(self._path(result_id), "result")]
+        targets.extend(
+            (self._artifact_path(result_id, kind), f"{kind} artifact")
+            for kind in ARTIFACT_KINDS
+        )
+        for path, label in targets:
             if not path.exists():
                 continue
             if path.is_symlink() or not path.is_file():
@@ -673,8 +703,10 @@ class FilesystemResultStore(_StoreCore):
         payload: bytes,
         *,
         result_id: str,
+        kind: ArtifactKind,
     ) -> None:
-        temporary = self._root / f".staging-{result_id}-poster-{secrets.token_hex(8)}"
+        kind = _validate_artifact_kind(kind)
+        temporary = self._root / f".staging-{result_id}-{kind}-{secrets.token_hex(8)}"
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(descriptor, "wb", closefd=True) as output:
@@ -682,7 +714,7 @@ class FilesystemResultStore(_StoreCore):
                 output.flush()
                 os.fsync(output.fileno())
             if destination.exists():
-                raise ResultStoreError("immutable poster appeared during publication")
+                raise ResultStoreError(f"immutable {kind} appeared during publication")
             os.replace(temporary, destination)
             self._fsync_root()
         finally:
@@ -725,36 +757,47 @@ class FilesystemResultStore(_StoreCore):
                 else:
                     if existing.payload != payload:
                         raise ResultStoreError("immutable result ID collision")
-                    existing_poster = self.get_artifact(result_id, "poster")
-                    supplied_poster = validated_artifacts.get("poster")
-                    if (existing_poster is None) != (supplied_poster is None) or (
-                        existing_poster is not None
-                        and supplied_poster is not None
-                        and existing_poster.payload != supplied_poster
-                    ):
-                        raise ResultStoreError("immutable poster artifact collision")
+                    for kind in ARTIFACT_KINDS:
+                        existing_artifact = self.get_artifact(result_id, kind)
+                        supplied_artifact = validated_artifacts.get(kind)
+                        if (existing_artifact is None) != (supplied_artifact is None) or (
+                            existing_artifact is not None
+                            and supplied_artifact is not None
+                            and existing_artifact.payload != supplied_artifact
+                        ):
+                            raise ResultStoreError(f"immutable {kind} artifact collision")
                     return _publication(existing, created=False)
-            poster = validated_artifacts.get("poster")
-            artifact_path = self._artifact_path(result_id, "poster")
-            if poster is None and artifact_path.exists():
-                raise ResultStoreError("uncommitted poster blocks result publication")
-            artifact_committed = False
+            artifact_paths = {
+                kind: self._artifact_path(result_id, kind) for kind in ARTIFACT_KINDS
+            }
+            for kind, artifact_path in artifact_paths.items():
+                if kind not in validated_artifacts and artifact_path.exists():
+                    raise ResultStoreError(
+                        f"uncommitted {kind} blocks result publication"
+                    )
+            committed: list[Path] = []
             try:
-                if poster is not None:
+                for kind in ARTIFACT_KINDS:
+                    artifact = validated_artifacts.get(kind)
+                    if artifact is None:
+                        continue
+                    artifact_path = artifact_paths[kind]
                     self._write_bytes_atomic(
                         artifact_path,
-                        poster,
+                        artifact,
                         result_id=result_id,
+                        kind=kind,
                     )
-                    artifact_committed = True
+                    committed.append(artifact_path)
                 # The envelope is the sole visibility marker. It is committed
                 # only after every registered artifact is durable.
                 self._write_atomic(self._path(result_id), envelope)
             except Exception:
-                if artifact_committed and not self._path(result_id).exists():
-                    if artifact_path.exists() and artifact_path.is_file() and not artifact_path.is_symlink():
-                        artifact_path.unlink()
-                        self._fsync_root()
+                if committed and not self._path(result_id).exists():
+                    for artifact_path in committed:
+                        if artifact_path.exists() and artifact_path.is_file() and not artifact_path.is_symlink():
+                            artifact_path.unlink()
+                    self._fsync_root()
                 raise
             stored_pair = self._read(result_id)
             if stored_pair is None:
@@ -783,8 +826,7 @@ class FilesystemResultStore(_StoreCore):
         kind: ArtifactKind,
     ) -> StoredArtifact | None:
         _validate_result_id(result_id)
-        if kind != "poster":
-            raise ValueError("invalid artifact kind")
+        kind = _validate_artifact_kind(kind)
         with self._lock:
             if self._is_retired(result_id):
                 self._remove(result_id)
