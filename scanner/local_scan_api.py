@@ -624,13 +624,34 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
         job = self.server.service.reject_submission()
         self._send_json(status, job, headers={"Cache-Control": "no-store"})
 
+    def _drain_bounded_request_body(self) -> bool:
+        if self.headers.get("Transfer-Encoding") is not None:
+            return False
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            return True
+        try:
+            content_length = int(raw_length)
+        except ValueError:
+            return False
+        if content_length < 0 or content_length > MAX_REQUEST_BODY_BYTES:
+            return False
+        try:
+            return len(self.rfile.read(content_length)) == content_length
+        except OSError:
+            return False
+
     def _reject_poster_method(self, path: str) -> bool:
         if re.fullmatch(r"/api/results/r_[0-9a-f]{32}/poster\.png", path) is None:
             return False
-        self.close_connection = True
+        drained = self._drain_bounded_request_body()
+        headers = {"Allow": "GET, HEAD", "Cache-Control": "no-store"}
+        if not drained:
+            self.close_connection = True
+            headers["Connection"] = "close"
         self._send_empty(
             HTTPStatus.METHOD_NOT_ALLOWED,
-            headers={"Allow": "GET, HEAD", "Cache-Control": "no-store"},
+            headers=headers,
         )
         return True
 
@@ -821,7 +842,7 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
             headers["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self'; style-src 'self'; "
                 "style-src-elem 'self'; style-src-attr 'unsafe-inline'; "
-                "font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+                "font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; "
                 "base-uri 'none'; frame-ancestors 'none'"
             )
         self._send_bytes(HTTPStatus.OK, target.read_bytes(), content_type, headers=headers)

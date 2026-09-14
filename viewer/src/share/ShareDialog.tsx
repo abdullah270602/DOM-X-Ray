@@ -10,6 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ViewerBundle } from "../domain/types";
+import { fetchPublishedPoster } from "./publishedPoster";
 import {
   PosterContractError,
   downloadBlob,
@@ -32,6 +33,12 @@ interface ShareDialogProps {
 type ShareFeedback =
   | { kind: "success" | "error"; message: string }
   | null;
+
+type HostedPosterState =
+  | { kind: "local" }
+  | { kind: "checking"; key: string }
+  | { kind: "ready"; key: string; blob: Blob; previewUrl: string; url: string }
+  | { kind: "unavailable"; key: string };
 
 function shareErrorMessage(error: unknown): string {
   if (error instanceof PosterContractError) {
@@ -57,6 +64,36 @@ export function ShareDialog({
   const feedbackTimerRef = useRef<number | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [feedback, setFeedback] = useState<ShareFeedback>(null);
+  const poster = bundle.result.exports.poster;
+  const hostedPosterKey = poster.state === "ready" && poster.artifact !== null
+    ? [
+        bundle.result.resultId,
+        resultUrl,
+        poster.artifact.sha256,
+        poster.artifact.byteLength,
+        poster.eligible,
+        poster.mediaType,
+        poster.width,
+        poster.height,
+        poster.maxByteLength,
+        poster.sourceResultBindingSha256,
+        poster.sourceSceneSha256,
+        poster.sourceHeroSha256,
+        bundle.result.shareState,
+        bundle.result.hero?.shareEligible,
+      ].join("|")
+    : null;
+  const hasHostedPoster = hostedPosterKey !== null;
+  const [hostedPoster, setHostedPoster] = useState<HostedPosterState>(
+    hostedPosterKey === null
+      ? { kind: "local" }
+      : { kind: "checking", key: hostedPosterKey },
+  );
+  const currentHostedPoster: HostedPosterState = hostedPosterKey === null
+    ? { kind: "local" }
+    : hostedPoster.kind !== "local" && hostedPoster.key === hostedPosterKey
+      ? hostedPoster
+      : { kind: "checking", key: hostedPosterKey };
 
   const prepared = useMemo(() => {
     let link: string | null = null;
@@ -94,6 +131,34 @@ export function ShareDialog({
       };
     }
   }, [bundle, resultUrl]);
+
+  useEffect(() => {
+    if (hostedPosterKey === null) {
+      setHostedPoster({ kind: "local" });
+      return;
+    }
+    const controller = new AbortController();
+    let previewUrl: string | null = null;
+    setHostedPoster({ kind: "checking", key: hostedPosterKey });
+    void fetchPublishedPoster(
+      bundle,
+      resultUrl,
+      window.location.origin,
+      controller.signal,
+    ).then(({ blob, url }) => {
+      if (controller.signal.aborted) return;
+      previewUrl = URL.createObjectURL(blob);
+      setHostedPoster({ kind: "ready", key: hostedPosterKey, blob, previewUrl, url });
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setHostedPoster({ kind: "unavailable", key: hostedPosterKey });
+      }
+    });
+    return () => {
+      controller.abort();
+      if (previewUrl !== null) URL.revokeObjectURL(previewUrl);
+    };
+  }, [bundle, hostedPosterKey, resultUrl]);
 
   useEffect(() => {
     const originalOverflow = document.body.style.overflow;
@@ -154,12 +219,19 @@ export function ShareDialog({
     setDownloading(true);
     setFeedback(null);
     try {
-      const blob = await rasterizePosterSvg(
-        prepared.svg,
-        prepared.model.posterMaxByteLength,
-      );
+      const blob = currentHostedPoster.kind === "ready"
+        ? currentHostedPoster.blob
+        : await rasterizePosterSvg(
+            prepared.svg,
+            prepared.model.posterMaxByteLength,
+          );
       downloadBlob(blob, posterFilename(prepared.model.pageLabel));
-      report({ kind: "success", message: "1080 × 1080 PNG · DOWNLOAD STARTED" });
+      report({
+        kind: "success",
+        message: currentHostedPoster.kind === "ready"
+          ? "VERIFIED HOSTED PNG · DOWNLOAD STARTED"
+          : "1080 × 1080 PNG · DOWNLOAD STARTED",
+      });
     } catch (error) {
       report({ kind: "error", message: shareErrorMessage(error) });
     } finally {
@@ -169,6 +241,9 @@ export function ShareDialog({
 
   const pageLabel = bundle.result.pageIdentity.label;
   const statusLabel = bundle.result.statusPresentation.label;
+  const previewUrl = currentHostedPoster.kind === "ready"
+    ? currentHostedPoster.previewUrl
+    : prepared.previewUrl;
 
   return (
     <div
@@ -199,14 +274,20 @@ export function ShareDialog({
           </button>
         </header>
 
-        {prepared.previewUrl && prepared.model ? (
+        {previewUrl && prepared.model ? (
           <figure className="share-preview">
             <img
-              src={prepared.previewUrl}
+              src={previewUrl}
               alt={`${prepared.model.pageLabel} DOM X-Ray poster preview. ${prepared.model.statusLabel}. ${prepared.model.headline}. ${prepared.model.statement}`}
             />
             <figcaption>
-              1080 × 1080 PNG · LOCAL EXPORT · MAX {prepared.model.posterMaxByteLength / 1_000_000} MB
+              {currentHostedPoster.kind === "ready"
+                ? `1080 × 1080 PNG · VERIFIED HOSTED ARTIFACT · ${Math.ceil(currentHostedPoster.blob.size / 1_000)} KB`
+                : currentHostedPoster.kind === "checking"
+                  ? "1080 × 1080 PNG · VERIFYING HOSTED ARTIFACT"
+                  : currentHostedPoster.kind === "unavailable"
+                    ? "1080 × 1080 PNG · LOCAL FALLBACK · HOSTED COPY UNAVAILABLE"
+                    : `1080 × 1080 PNG · LOCAL EXPORT · MAX ${prepared.model.posterMaxByteLength / 1_000_000} MB`}
             </figcaption>
           </figure>
         ) : (
@@ -214,6 +295,40 @@ export function ShareDialog({
             <WarningCircle size={28} weight="regular" aria-hidden="true" />
             <strong>POSTER CONTRACT COULD NOT BE VERIFIED</strong>
             <span>{prepared.link ? "The stable result link is still available." : "No share output is available."}</span>
+          </div>
+        )}
+
+        {hasHostedPoster && (
+          <div
+            className={`share-publication share-publication-${currentHostedPoster.kind}`}
+          >
+            <span role="status" aria-live="polite">
+              {currentHostedPoster.kind === "checking" && (
+                <SpinnerGap className="job-spinner" size={17} weight="bold" aria-hidden="true" />
+              )}
+              {currentHostedPoster.kind === "ready" && (
+                <Check size={17} weight="bold" aria-hidden="true" />
+              )}
+              {currentHostedPoster.kind === "unavailable" && (
+                <WarningCircle size={17} aria-hidden="true" />
+              )}
+              {currentHostedPoster.kind === "checking"
+                ? "VERIFYING SERVER COPY"
+                : currentHostedPoster.kind === "ready"
+                  ? "SERVER COPY MATCHES IMMUTABLE MANIFEST"
+                  : currentHostedPoster.kind === "unavailable"
+                    ? "SERVER COPY UNAVAILABLE · LOCAL EXPORT STILL WORKS"
+                    : "LOCAL EXPORT"}
+            </span>
+            {currentHostedPoster.kind === "ready" && (
+              <button
+                type="button"
+                onClick={() => copy(currentHostedPoster.url, "PNG LINK COPIED")}
+              >
+                <LinkSimple size={17} aria-hidden="true" />
+                COPY PNG LINK
+              </button>
+            )}
           </div>
         )}
 

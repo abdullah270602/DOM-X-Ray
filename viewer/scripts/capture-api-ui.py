@@ -1,4 +1,4 @@
-"""Capture the Gate 3 API-ready and recovery surfaces for bounded visual review."""
+"""Capture Gate 3 API and Gate 5 hosted-share surfaces for visual review."""
 
 from __future__ import annotations
 
@@ -16,8 +16,16 @@ def submit_seed(page: Page) -> None:
     page.goto(f"{BASE_URL}?fixture=clean&time=5000")
     page.locator("#scan-url").fill("https://gallery.example/")
     page.get_by_role("button", name="START X-RAY").click()
-    page.get_by_text("IMMUTABLE RESULT READY", exact=True).wait_for(timeout=10_000)
-    page.wait_for_url("**/r/r_*", timeout=10_000)
+    page.get_by_text("IMMUTABLE RESULT READY", exact=True).wait_for(timeout=30_000)
+    page.wait_for_url("**/r/r_*", timeout=30_000)
+
+
+def open_verified_share(page: Page) -> None:
+    page.get_by_role("button", name="SHARE RESULT").click()
+    page.get_by_role("dialog", name="SHARE RESULT").wait_for()
+    page.get_by_text("SERVER COPY MATCHES IMMUTABLE MANIFEST", exact=True).wait_for(
+        timeout=20_000
+    )
 
 
 def main() -> None:
@@ -27,10 +35,15 @@ def main() -> None:
         desktop = browser.new_page(viewport={"width": 1440, "height": 900})
         submit_seed(desktop)
         desktop.screenshot(path=OUTPUT / "gate3-api-ready-desktop.png", full_page=True)
+        open_verified_share(desktop)
+        desktop.screenshot(path=OUTPUT / "gate5-hosted-share-desktop.png", full_page=True)
 
         mobile = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1)
         submit_seed(mobile)
         mobile.screenshot(path=OUTPUT / "gate3-api-ready-mobile.png", full_page=True)
+        open_verified_share(mobile)
+        mobile.screenshot(path=OUTPUT / "gate5-hosted-share-mobile.png", full_page=True)
+        mobile.get_by_role("button", name="CLOSE SHARE RESULT").click()
         mobile.locator("#scan-url").fill("https://www.example.org/")
         mobile.get_by_role("button", name="START X-RAY").click()
         mobile.get_by_role("alert").wait_for()

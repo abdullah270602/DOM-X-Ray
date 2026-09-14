@@ -23,4 +23,4 @@ Instrument Panorama renders the page as a warm-paper architectural section on a 
 
 ## Unresolved decisions
 
-Production public egress, durable storage and retention, abuse controls, hosting, production artifact publication, and video generation remain later gated decisions. Local pollable jobs, immutable bundles, stable in-process result routes, a deterministic local PNG poster export, an exact caption, and a stable share link are now implemented.
+Production public egress, durable storage and retention, abuse controls, production hosting/cache purge, and video generation remain later gated decisions. Local pollable jobs, immutable bundles, stable in-process result routes, a trusted no-network Chromium poster sidecar (strict 1080 × 1080 RGBA non-interlaced PNG) with exact manifest SHA/length binding, same-origin response verification with safe local-export fallback, an exact caption, and a stable share link are now implemented. Client pixel uploads remain unsupported and arbitrary public scanning remains disabled.

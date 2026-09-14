@@ -91,13 +91,18 @@ or prove that rendered pixels match the claim. Those require the selected
 renderer/encoder, golden visual comparison, and current X upload/recompression
 testing before Gate 5 can pass.
 
-The current viewer supplies the first local renderer proof for the poster target:
-it derives a fail-closed SVG preview from the admitted record/scene/result bundle,
-rasterizes that exact source to a 1080 × 1080 PNG in Chromium, enforces the poster
-byte ceiling, and exposes no poster path for a link-only result. Browser evidence
-decodes both complete and honestly partial outputs and compares repeat pixel
-digests. The PNG remains a browser-local download; its bytes are not registered
-in the result manifest or durably published.
+The current implementation supplies a trusted server-side renderer for the
+poster target. It derives the product-owned source from the admitted
+record/scene/result bundle, renders it in supervised no-network Chromium, and
+accepts only a strict 1080 × 1080, 8-bit RGBA, non-interlaced PNG. The poster
+sidecar is published before the JSON commit envelope; its exact SHA-256 and
+byte length are registered in `exports.poster.artifact`. The route exposes only
+the bound sidecar, with strong SHA ETag and no-store semantics. The browser
+verifies same-origin route, status, final URL, `image/png` type, ETag, length,
+and body SHA before preview/copy/download, then safely falls back to the local
+export path if hosted verification fails. No client pixel upload is accepted.
+The browser-local SVG rasterizer remains available as that fallback; link-only
+results expose no poster route.
 
 ## Deterministic fixtures
 
@@ -127,7 +132,7 @@ invalidated-hero, route-identity, schema, and cross-source tampering.
 This contract itself does not provide storage, route availability, deletion,
 retention, publication/privacy state, moderation, takedown, Open Graph delivery,
 rendering, encoding, or social-platform compatibility. Local implementations now
-prove result storage/deletion and browser poster rendering around the contract;
-durable public artifact publication, video, and platform compatibility remain
-open. Nothing here authorizes a public launch or settles an open product/legal
-policy.
+prove result storage/deletion, trusted poster rendering, and local poster-route
+publication around the contract; production hosting/cache purge, video, and
+platform compatibility remain open. Nothing here authorizes a public launch or
+settles an open product/legal policy.

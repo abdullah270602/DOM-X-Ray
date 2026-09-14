@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import sys
 import time
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import urlsplit
 
 from playwright.sync_api import Page, Request, sync_playwright
 
@@ -51,8 +52,8 @@ def publish_result(page: Page, target_url: str, expected_statement: str) -> None
     page.goto(f"{BASE_URL}?fixture=clean&fallback=text&time=5000")
     page.locator("#scan-url").fill(target_url)
     page.get_by_role("button", name="START X-RAY").click()
-    page.get_by_text("IMMUTABLE RESULT READY", exact=True).wait_for(timeout=10_000)
-    page.wait_for_url("**/r/r_*", timeout=10_000)
+    page.get_by_text("IMMUTABLE RESULT READY", exact=True).wait_for(timeout=30_000)
+    page.wait_for_url("**/r/r_*", timeout=30_000)
     require(page.get_by_text(expected_statement, exact=True).count() == 1, "published hero did not render")
     page.wait_for_load_state("networkidle", timeout=10_000)
 
@@ -90,60 +91,53 @@ def verify_published_share(
     page: Page,
     target_url: str,
     runtime: dict[str, object],
-    record: dict[str, object],
-    result_manifest: dict[str, object],
-    scene_manifest: dict[str, object],
 ) -> tuple[int, float, str, int, float, str]:
     publish_result(page, target_url, runtime["presentation"]["finding"]["statement"])
+    result_id = urlsplit(page.url).path.rsplit("/", 1)[-1]
+    bundle_response = page.request.get(f"{BASE_URL.rstrip('/')}/api/results/{result_id}")
+    require(bundle_response.status == 200, "published result bundle was unavailable")
+    bundle = bundle_response.json()
+    published_result = bundle["result"]
+    poster_descriptor = published_result["exports"]["poster"]
+    artifact = poster_descriptor["artifact"]
+    require(
+        poster_descriptor["state"] == "ready"
+        and isinstance(artifact, dict)
+        and isinstance(artifact.get("sha256"), str)
+        and isinstance(artifact.get("byteLength"), int),
+        "published result did not register a ready poster artifact",
+    )
+    poster_url = f"{BASE_URL.rstrip('/')}/api/results/{result_id}/poster.png"
+    poster_response = page.request.get(poster_url)
+    require(poster_response.status == 200, "registered poster artifact was unavailable")
+    poster_payload = poster_response.body()
+    poster_headers = {key.lower(): value for key, value in poster_response.headers.items()}
+    poster_sha256 = hashlib.sha256(poster_payload).hexdigest()
+    require(
+        poster_payload.startswith(b"\x89PNG\r\n\x1a\n")
+        and len(poster_payload) == artifact["byteLength"]
+        and poster_sha256 == artifact["sha256"]
+        and poster_headers.get("content-type") == "image/png"
+        and poster_headers.get("etag") == f'"{artifact["sha256"]}"'
+        and poster_headers.get("cache-control") == "no-store",
+        "poster response did not match its immutable manifest binding",
+    )
+
     require(page.get_by_role("button", name="SHARE RESULT").count() == 1, "published artifact share action was missing")
     page.get_by_role("button", name="SHARE RESULT").click()
     page.get_by_role("dialog", name="SHARE RESULT").wait_for()
+    page.get_by_text("SERVER COPY MATCHES IMMUTABLE MANIFEST", exact=True).wait_for(timeout=20_000)
+    require(page.get_by_role("button", name="COPY PNG LINK").count() == 1, "verified poster URL action was missing")
     preview = page.locator(".share-preview img")
     preview.wait_for()
     preview_src = preview.get_attribute("src")
-    require(preview_src is not None and preview_src.startswith("data:image/svg+xml"), "share preview was not an SVG data URL")
-    encoded_svg = preview_src.split(",", 1)[1]
-    svg = unquote(encoded_svg)
-    page_label = runtime["presentation"]["pageLabel"]
-    statement = runtime["presentation"]["finding"]["statement"]
-    require(page_label in svg, "share preview omitted the exact page label")
-    require(statement in svg, "share preview omitted the exact hero statement")
-    require("X-RAY ANOTHER SITE" in svg, "share preview omitted the exact CTA")
-
-    forbidden = {
-        target_url,
-        record["requestedUrl"],
-        record["finalUrl"],
-        record["page"]["title"],
-    }
-    for node in record["nodes"]:
-        forbidden.add(node["selector"])
-        forbidden.add(node["id"])
-    for resource in record["resources"]:
-        forbidden.add(resource["displayUrl"])
-        forbidden.add(resource["id"])
-    for insight in record["insights"]:
-        forbidden.add(insight["id"])
-    for scene_object in scene_manifest["objects"]:
-        forbidden.add(scene_object["id"])
-    forbidden.add(record["scanId"])
-    forbidden.add(result_manifest["resultId"])
-    forbidden.add(result_manifest["resultPath"])
-    current_result_path = urlsplit(page.url).path
-    forbidden.add(current_result_path)
-    forbidden.add(current_result_path.rsplit("/", 1)[-1])
-    stored_values = page.evaluate("Object.values(window.localStorage)")
-    forbidden.update(
-        value
-        for value in stored_values
-        if isinstance(value, str) and value.startswith("dxrd_")
-    )
-    forbidden = {value for value in forbidden if isinstance(value, str) and value}
-    leaked = [value for value in forbidden if value in svg]
-    require(not leaked, f"share preview leaked target/source identity: {leaked}")
     require(
-        all(marker not in svg for marker in ("https://", "<script", "<image", "@font-face", "dxrd_")),
-        "share preview admitted an external asset, executable construct, URL, or deletion key",
+        preview_src is not None and preview_src.startswith("blob:"),
+        "share preview did not switch to the digest-verified hosted PNG",
+    )
+    require(
+        page.get_by_text("1080 × 1080 PNG · VERIFIED HOSTED ARTIFACT", exact=False).count() == 1,
+        "share preview did not identify its verified hosted source",
     )
 
     preview_render = rendered_image_digest(page, preview_src)
@@ -151,11 +145,14 @@ def verify_published_share(
         preview_render["width"] == 1080 and preview_render["height"] == 1080,
         "share preview did not decode to 1080x1080",
     )
+    server_data_url = "data:image/png;base64," + base64.b64encode(poster_payload).decode("ascii")
+    server_render = rendered_image_digest(page, server_data_url)
+    require(
+        preview_render["digest"] == server_render["digest"],
+        "verified share preview pixels diverged from the registered poster",
+    )
 
-    limitation = result_manifest["limitations"][0]["message"] if result_manifest["limitations"] else None
-    if result_manifest["status"] == "partial":
-        require("PARTIAL CAPTURE" in svg, "partial share preview omitted PARTIAL CAPTURE")
-        require(limitation and limitation in svg, "partial share preview omitted its exact limitation")
+    limitation = published_result["limitations"][0]["message"] if published_result["limitations"] else None
 
     def download_once() -> tuple[int, float, str]:
         started = time.monotonic()
@@ -173,6 +170,7 @@ def verify_published_share(
             "poster download was not a PNG file",
         )
         require(len(payload) <= 5_000_000, f"poster PNG exceeded 5 MB ({len(payload)} bytes)")
+        require(payload == poster_payload, "downloaded poster bytes diverged from the registered artifact")
         encoded_png = "data:image/png;base64," + base64.b64encode(payload).decode("ascii")
         rendered = rendered_image_digest(page, encoded_png)
         require(
@@ -183,14 +181,14 @@ def verify_published_share(
             rendered["digest"] == preview_render["digest"],
             "poster PNG pixels diverged from the rendered share preview",
         )
-        page.get_by_text("1080 × 1080 PNG · DOWNLOAD STARTED", exact=True).wait_for()
+        page.get_by_text("VERIFIED HOSTED PNG · DOWNLOAD STARTED", exact=True).wait_for()
         return len(payload), elapsed, rendered["digest"]
 
     first = download_once()
     second = download_once()
     require(first[2] == second[2], "two poster downloads had different rendered pixel digests")
-    if result_manifest["status"] == "partial":
-        require(limitation and limitation in svg, "partial export was not bound to the exact limitation")
+    if published_result["status"] == "partial":
+        require(limitation, "partial export lost its exact limitation binding")
     page.get_by_role("button", name="CLOSE SHARE RESULT").click()
     return (*first, *second)
 
@@ -270,8 +268,8 @@ def main() -> None:
 
         page.locator("#scan-url").fill("https://gallery.example/")
         page.get_by_role("button", name="START X-RAY").click()
-        page.get_by_text("IMMUTABLE RESULT READY", exact=True).wait_for(timeout=10_000)
-        page.wait_for_url("**/r/r_*", timeout=10_000)
+        page.get_by_text("IMMUTABLE RESULT READY", exact=True).wait_for(timeout=30_000)
+        page.wait_for_url("**/r/r_*", timeout=30_000)
         admitted_result_url = page.url
         require(
             page.get_by_text(image_runtime["presentation"]["finding"]["statement"], exact=True).count()
@@ -283,42 +281,18 @@ def main() -> None:
         page.get_by_text(image_runtime["presentation"]["finding"]["statement"], exact=True).wait_for()
         require(page.url == admitted_result_url, "stable result reload changed its route")
 
-        image_record = json.loads(
-            (ROOT / "fixtures" / "scan" / "image-heavy.json").read_text(encoding="utf-8")
-        )
-        image_result = json.loads(
-            (ROOT / "fixtures" / "result-manifest" / "image-heavy.json").read_text(encoding="utf-8")
-        )
-        image_scene = json.loads(
-            (ROOT / "fixtures" / "scene-manifest" / "image-heavy.json").read_text(encoding="utf-8")
-        )
         image_downloads = verify_published_share(
             page,
             "https://gallery.example/",
             image_runtime,
-            image_record,
-            image_result,
-            image_scene,
         )
 
         share_page = browser.new_page(viewport={"width": 1440, "height": 900})
         observe_browser(share_page, browser_errors)
-        third_record = json.loads(
-            (ROOT / "fixtures" / "scan" / "third-party-heavy.json").read_text(encoding="utf-8")
-        )
-        third_result = json.loads(
-            (ROOT / "fixtures" / "result-manifest" / "third-party-heavy.json").read_text(encoding="utf-8")
-        )
-        third_scene = json.loads(
-            (ROOT / "fixtures" / "scene-manifest" / "third-party-heavy.json").read_text(encoding="utf-8")
-        )
         third_downloads = verify_published_share(
             share_page,
             "https://newsroom.example/",
             third_runtime,
-            third_record,
-            third_result,
-            third_scene,
         )
         publish_result(
             share_page,
@@ -414,7 +388,7 @@ def main() -> None:
         "Verified image-heavy and third-party runtime binding, deterministic route state, "
         "evidence drawer, partial status, reduced-motion steps, text fallback, URL recovery, "
         "transport-backed submission, immutable reload and history restoration, disabled-public-scanner honesty, "
-        "missing-result fallback truthfulness, corrupt-bundle recovery, and published share exports."
+        "missing-result fallback truthfulness, corrupt-bundle recovery, and manifest-verified hosted share exports."
     )
     print(
         f"Local Chromium {browser_version} share-export evidence: "

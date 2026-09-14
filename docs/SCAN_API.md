@@ -55,6 +55,23 @@ endpoints, and evidence pointers before rendering. While deletion is supported,
 responses use `Cache-Control: no-store`; a public immutable cache is forbidden
 until the deployment has a proven purge path.
 
+### `GET, HEAD /api/results/{resultId}/poster.png`
+
+Serve the published poster sidecar only when the result is artifact-eligible
+and its manifest's poster metadata exactly matches the stored bytes. The route
+returns `image/png`, `Cache-Control: no-store`, `X-Content-Type-Options:
+nosniff`, a strong ETag equal to the quoted poster SHA-256, and the exact
+`Content-Length`. `HEAD` has the same status and headers with no body. A
+matching `If-None-Match` returns bodyless `304 Not Modified` with the same
+strong ETag and no-store policy.
+
+The server-controlled renderer accepts only a strict 1080 × 1080, 8-bit RGBA,
+non-interlaced PNG and publishes the sidecar before committing the JSON result
+envelope. `POST`, `PUT`, `PATCH`, `DELETE`, and `OPTIONS` on this exact route
+return empty `405 Method Not Allowed` with `Allow: GET, HEAD`.
+Missing, ineligible, deleted, expired, or corrupt results/artifacts all return
+content-free `404` responses. The API never accepts client pixel uploads.
+
 ### `DELETE /api/results/{resultId}`
 
 Require the separate 256-bit `X-Deletion-Token` capability. A correct token

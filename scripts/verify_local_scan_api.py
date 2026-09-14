@@ -319,7 +319,9 @@ def main() -> None:
 
             status, shell_headers, shell = request(base_url, result["resultPath"])
             require(status == 200 and b"DOM X-Ray shell" in shell, "stable result shell failed")
-            require("default-src 'self'" in shell_headers.get("Content-Security-Policy", ""), "shell CSP missing")
+            shell_csp = shell_headers.get("Content-Security-Policy", "")
+            require("default-src 'self'" in shell_csp, "shell CSP missing")
+            require("img-src 'self' data: blob:" in shell_csp, "shell CSP blocks verified poster previews")
 
             status, _headers, reused = json_request(
                 base_url,
