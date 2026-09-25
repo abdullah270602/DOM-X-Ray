@@ -837,6 +837,7 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
             if self.headers.get("If-None-Match") == etag:
                 self.send_response(HTTPStatus.NOT_MODIFIED)
                 self._security_headers()
+                self.send_header("Cache-Control", "no-store")
                 self.send_header("ETag", etag)
                 self.end_headers()
                 return

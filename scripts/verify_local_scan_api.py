@@ -357,7 +357,12 @@ def main() -> None:
                 headers={"If-None-Match": etag},
             )
             require(status == 304 and not etag_payload, "bundle conditional request failed")
-            require(etag_headers.get("ETag") == etag, "bundle ETag drifted")
+            require(
+                etag_headers.get("ETag") == etag
+                and etag_headers.get("Cache-Control") == "no-store"
+                and etag_headers.get("X-Content-Type-Options") == "nosniff",
+                "bundle 304 omitted identity, cache, or security headers",
+            )
 
             status, shell_headers, shell = request(base_url, result["resultPath"])
             require(status == 200 and b"DOM X-Ray shell" in shell, "stable result shell failed")
