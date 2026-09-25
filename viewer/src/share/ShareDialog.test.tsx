@@ -29,11 +29,37 @@ async function readyBundle(bytes: Uint8Array): Promise<ViewerBundle> {
   return bundle;
 }
 
+async function readyBundleWithVideo(
+  posterBytes: Uint8Array,
+  videoBytes: Uint8Array,
+): Promise<ViewerBundle> {
+  const bundle = await readyBundle(posterBytes);
+  bundle.result.exports.video.state = "ready";
+  bundle.result.exports.video.artifact = {
+    sha256: hexadecimal(await crypto.subtle.digest("SHA-256", ownedArrayBuffer(videoBytes))),
+    byteLength: videoBytes.byteLength,
+  };
+  return bundle;
+}
+
 function posterResponse(bytes: Uint8Array, url: string, sha256: string): Response {
   const response = new Response(ownedArrayBuffer(bytes), {
     status: 200,
     headers: {
       "Content-Type": "image/png",
+      "Content-Length": String(bytes.byteLength),
+      ETag: `"${sha256}"`,
+    },
+  });
+  Object.defineProperty(response, "url", { value: url });
+  return response;
+}
+
+function videoResponse(bytes: Uint8Array, url: string, sha256: string): Response {
+  const response = new Response(ownedArrayBuffer(bytes), {
+    status: 200,
+    headers: {
+      "Content-Type": "video/mp4",
       "Content-Length": String(bytes.byteLength),
       ETag: `"${sha256}"`,
     },
@@ -177,5 +203,61 @@ describe("ShareDialog hosted poster", () => {
 
     resolveSecond?.(posterResponse(bytes, secondPosterUrl, artifact.sha256));
     await screen.findByText("SERVER COPY MATCHES IMMUTABLE MANIFEST");
+  });
+
+  it("unlocks an interactive motion preview and MP4 actions only after verification", async () => {
+    const posterBytes = new TextEncoder().encode("trusted hosted poster");
+    const videoBytes = new Uint8Array([
+      0, 0, 0, 20,
+      ...new TextEncoder().encode("ftypisomtrusted motion"),
+    ]);
+    const bundle = await readyBundleWithVideo(posterBytes, videoBytes);
+    const resultUrl = `${window.location.origin}${bundle.result.resultPath}`;
+    const posterUrl = `${window.location.origin}/api/results/${bundle.result.resultId}/poster.png`;
+    const videoUrl = `${window.location.origin}/api/results/${bundle.result.resultId}/video.mp4`;
+    const posterArtifact = bundle.result.exports.poster.artifact!;
+    const videoArtifact = bundle.result.exports.video.artifact!;
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input);
+      if (url === posterUrl) {
+        return Promise.resolve(posterResponse(posterBytes, posterUrl, posterArtifact.sha256));
+      }
+      if (url === videoUrl) {
+        return Promise.resolve(videoResponse(videoBytes, videoUrl, videoArtifact.sha256));
+      }
+      return Promise.reject(new Error("unexpected route"));
+    });
+    vi.mocked(URL.createObjectURL)
+      .mockReturnValueOnce("blob:verified-poster")
+      .mockReturnValueOnce("blob:verified-video");
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    const canvasContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext");
+    const user = userEvent.setup();
+
+    render(
+      <ShareDialog
+        bundle={bundle}
+        resultUrl={resultUrl}
+        onClose={vi.fn()}
+        onNewScan={vi.fn()}
+      />,
+    );
+    const dialog = screen.getByRole("dialog", { name: "SHARE RESULT" });
+    await within(dialog).findByText("MOTION COPY MATCHES IMMUTABLE MANIFEST");
+    const motion = within(dialog).getByRole("button", { name: "5 SEC MOTION" });
+    expect((motion as HTMLButtonElement).disabled).toBe(false);
+    await user.click(motion);
+    const video = within(dialog).getByLabelText(/five-second cinematic reveal/u) as HTMLVideoElement;
+    expect(video.getAttribute("src")).toBe("blob:verified-video");
+    expect(video.controls).toBe(true);
+    expect(video.loop).toBe(true);
+
+    await user.click(within(dialog).getByRole("button", { name: "COPY MP4 LINK" }));
+    await within(dialog).findByText("MP4 LINK COPIED");
+    expect(writeText).toHaveBeenCalledWith(videoUrl);
+
+    await user.click(within(dialog).getByRole("button", { name: "DOWNLOAD 5 SEC VIDEO" }));
+    await within(dialog).findByText("VERIFIED 5 SEC MP4 · DOWNLOAD STARTED");
+    expect(canvasContext).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,8 @@ import {
   Check,
   Copy,
   DownloadSimple,
+  FilmStrip,
+  ImageSquare,
   LinkSimple,
   SpinnerGap,
   WarningCircle,
@@ -11,6 +13,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ViewerBundle } from "../domain/types";
 import { fetchPublishedPoster } from "./publishedPoster";
+import { fetchPublishedVideo, videoFilename } from "./publishedVideo";
 import {
   PosterContractError,
   downloadBlob,
@@ -40,6 +43,12 @@ type HostedPosterState =
   | { kind: "ready"; key: string; blob: Blob; previewUrl: string; url: string }
   | { kind: "unavailable"; key: string };
 
+type HostedVideoState =
+  | { kind: "absent" }
+  | { kind: "checking"; key: string }
+  | { kind: "ready"; key: string; blob: Blob; previewUrl: string; url: string }
+  | { kind: "unavailable"; key: string };
+
 function shareErrorMessage(error: unknown): string {
   if (error instanceof PosterContractError) {
     if (error.code === "png-size") return "POSTER EXCEEDS 5 MB · COPY THE RESULT LINK INSTEAD";
@@ -63,6 +72,8 @@ export function ShareDialog({
   const closeRef = useRef<HTMLButtonElement>(null);
   const feedbackTimerRef = useRef<number | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [videoDownloading, setVideoDownloading] = useState(false);
+  const [previewFormat, setPreviewFormat] = useState<"poster" | "video">("poster");
   const [feedback, setFeedback] = useState<ShareFeedback>(null);
   const poster = bundle.result.exports.poster;
   const hostedPosterKey = poster.state === "ready" && poster.artifact !== null
@@ -94,6 +105,37 @@ export function ShareDialog({
     : hostedPoster.kind !== "local" && hostedPoster.key === hostedPosterKey
       ? hostedPoster
       : { kind: "checking", key: hostedPosterKey };
+  const video = bundle.result.exports.video;
+  const hostedVideoKey = video.state === "ready" && video.artifact !== null
+    ? [
+        bundle.result.resultId,
+        resultUrl,
+        video.artifact.sha256,
+        video.artifact.byteLength,
+        video.eligible,
+        video.mediaType,
+        video.width,
+        video.height,
+        video.durationMs,
+        video.maxByteLength,
+        video.sourceResultBindingSha256,
+        video.sourceSceneSha256,
+        video.sourceHeroSha256,
+        bundle.result.shareState,
+        bundle.result.hero?.shareEligible,
+      ].join("|")
+    : null;
+  const hasHostedVideo = hostedVideoKey !== null;
+  const [hostedVideo, setHostedVideo] = useState<HostedVideoState>(
+    hostedVideoKey === null
+      ? { kind: "absent" }
+      : { kind: "checking", key: hostedVideoKey },
+  );
+  const currentHostedVideo: HostedVideoState = hostedVideoKey === null
+    ? { kind: "absent" }
+    : hostedVideo.kind !== "absent" && hostedVideo.key === hostedVideoKey
+      ? hostedVideo
+      : { kind: "checking", key: hostedVideoKey };
 
   const prepared = useMemo(() => {
     let link: string | null = null;
@@ -159,6 +201,36 @@ export function ShareDialog({
       if (previewUrl !== null) URL.revokeObjectURL(previewUrl);
     };
   }, [bundle, hostedPosterKey, resultUrl]);
+
+  useEffect(() => {
+    if (hostedVideoKey === null) {
+      setHostedVideo({ kind: "absent" });
+      setPreviewFormat("poster");
+      return;
+    }
+    const controller = new AbortController();
+    let previewUrl: string | null = null;
+    setHostedVideo({ kind: "checking", key: hostedVideoKey });
+    void fetchPublishedVideo(
+      bundle,
+      resultUrl,
+      window.location.origin,
+      controller.signal,
+    ).then(({ blob, url }) => {
+      if (controller.signal.aborted) return;
+      previewUrl = URL.createObjectURL(blob);
+      setHostedVideo({ kind: "ready", key: hostedVideoKey, blob, previewUrl, url });
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setHostedVideo({ kind: "unavailable", key: hostedVideoKey });
+        setPreviewFormat("poster");
+      }
+    });
+    return () => {
+      controller.abort();
+      if (previewUrl !== null) URL.revokeObjectURL(previewUrl);
+    };
+  }, [bundle, hostedVideoKey, resultUrl]);
 
   useEffect(() => {
     const originalOverflow = document.body.style.overflow;
@@ -239,11 +311,26 @@ export function ShareDialog({
     }
   }
 
+  function downloadVideo() {
+    if (currentHostedVideo.kind !== "ready" || videoDownloading) return;
+    setVideoDownloading(true);
+    setFeedback(null);
+    try {
+      downloadBlob(currentHostedVideo.blob, videoFilename(pageLabel));
+      report({ kind: "success", message: "VERIFIED 5 SEC MP4 · DOWNLOAD STARTED" });
+    } catch {
+      report({ kind: "error", message: "VIDEO DOWNLOAD FAILED · COPY THE MP4 LINK INSTEAD" });
+    } finally {
+      setVideoDownloading(false);
+    }
+  }
+
   const pageLabel = bundle.result.pageIdentity.label;
   const statusLabel = bundle.result.statusPresentation.label;
   const previewUrl = currentHostedPoster.kind === "ready"
     ? currentHostedPoster.previewUrl
     : prepared.previewUrl;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
   return (
     <div
@@ -274,7 +361,54 @@ export function ShareDialog({
           </button>
         </header>
 
-        {previewUrl && prepared.model ? (
+        {hasHostedVideo && (
+          <div className="share-format-switch" role="group" aria-label="Preview format">
+            <button
+              type="button"
+              aria-pressed={previewFormat === "poster"}
+              onClick={() => setPreviewFormat("poster")}
+            >
+              <ImageSquare size={17} weight="bold" aria-hidden="true" />
+              STILL · PNG
+            </button>
+            <button
+              type="button"
+              aria-pressed={previewFormat === "video"}
+              onClick={() => setPreviewFormat("video")}
+              disabled={currentHostedVideo.kind !== "ready"}
+            >
+              {currentHostedVideo.kind === "checking" ? (
+                <SpinnerGap className="job-spinner" size={17} weight="bold" aria-hidden="true" />
+              ) : (
+                <FilmStrip size={17} weight="bold" aria-hidden="true" />
+              )}
+              {currentHostedVideo.kind === "checking"
+                ? "5 SEC MOTION · VERIFYING"
+                : currentHostedVideo.kind === "unavailable"
+                  ? "5 SEC MOTION · UNAVAILABLE"
+                  : "5 SEC MOTION"}
+            </button>
+          </div>
+        )}
+
+        {previewFormat === "video" && currentHostedVideo.kind === "ready" && prepared.model ? (
+          <figure className="share-preview share-preview-video">
+            <video
+              src={currentHostedVideo.previewUrl}
+              poster={previewUrl ?? undefined}
+              aria-label={`${prepared.model.pageLabel} DOM X-Ray five-second cinematic reveal`}
+              controls
+              autoPlay={!reduceMotion}
+              loop
+              muted
+              playsInline
+              preload="metadata"
+            />
+            <figcaption>
+              1080 × 1080 MP4 · 5 SEC · VERIFIED HOSTED ARTIFACT · {Math.ceil(currentHostedVideo.blob.size / 1_000)} KB
+            </figcaption>
+          </figure>
+        ) : previewUrl && prepared.model ? (
           <figure className="share-preview">
             <img
               src={previewUrl}
@@ -332,9 +466,59 @@ export function ShareDialog({
           </div>
         )}
 
-        <div className="share-actions" aria-label="Share actions">
+        {hasHostedVideo && (
+          <div
+            className={`share-publication share-publication-video share-publication-${currentHostedVideo.kind}`}
+          >
+            <span role="status" aria-live="polite">
+              {currentHostedVideo.kind === "checking" && (
+                <SpinnerGap className="job-spinner" size={17} weight="bold" aria-hidden="true" />
+              )}
+              {currentHostedVideo.kind === "ready" && (
+                <Check size={17} weight="bold" aria-hidden="true" />
+              )}
+              {currentHostedVideo.kind === "unavailable" && (
+                <WarningCircle size={17} aria-hidden="true" />
+              )}
+              {currentHostedVideo.kind === "checking"
+                ? "VERIFYING 5 SEC MOTION COPY"
+                : currentHostedVideo.kind === "ready"
+                  ? "MOTION COPY MATCHES IMMUTABLE MANIFEST"
+                  : "MOTION COPY UNAVAILABLE · POSTER STILL WORKS"}
+            </span>
+            {currentHostedVideo.kind === "ready" && (
+              <button
+                type="button"
+                onClick={() => copy(currentHostedVideo.url, "MP4 LINK COPIED")}
+              >
+                <LinkSimple size={17} aria-hidden="true" />
+                COPY MP4 LINK
+              </button>
+            )}
+          </div>
+        )}
+
+        <div
+          className={`share-actions${currentHostedVideo.kind === "ready" ? " share-actions-has-video" : ""}`}
+          aria-label="Share actions"
+        >
+          {currentHostedVideo.kind === "ready" && (
+            <button
+              className="share-action share-action-primary"
+              type="button"
+              onClick={downloadVideo}
+              disabled={videoDownloading}
+            >
+              {videoDownloading ? (
+                <SpinnerGap className="job-spinner" size={21} weight="bold" aria-hidden="true" />
+              ) : (
+                <FilmStrip size={22} weight="bold" aria-hidden="true" />
+              )}
+              {videoDownloading ? "PREPARING MP4" : "DOWNLOAD 5 SEC VIDEO"}
+            </button>
+          )}
           <button
-            className="share-action share-action-primary"
+            className={`share-action${currentHostedVideo.kind === "ready" ? "" : " share-action-primary"}`}
             type="button"
             onClick={downloadPoster}
             disabled={!prepared.svg || downloading}

@@ -339,10 +339,25 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 }
 .share-close:hover { color: var(--paper-light); background: var(--graphite); }
 
+.share-format-switch {
+  display: grid; grid-template-columns: 0.82fr 1.18fr; margin: 0 12px 10px;
+  border-top: 1px solid var(--graphite); border-bottom: 1px solid var(--graphite);
+}
+.share-format-switch button {
+  display: flex; min-height: 42px; align-items: center; justify-content: center; gap: 8px;
+  padding: 0 12px; border: 0; color: var(--soft); background: transparent;
+  font-family: "Courier New", monospace; font-size: 0.61rem; font-weight: 700; letter-spacing: 0.09em;
+}
+.share-format-switch button + button { border-inline-start: 1px solid var(--graphite); }
+.share-format-switch button[aria-pressed="true"] { color: var(--paper-light); background: var(--graphite); }
+.share-format-switch button:hover:not(:disabled):not([aria-pressed="true"]) { color: var(--red-dark); }
+.share-format-switch button:disabled { color: rgba(32, 37, 31, 0.45); cursor: wait; }
+
 .share-preview { margin: 0 12px; }
-.share-preview img {
+.share-preview img, .share-preview video {
   display: block; width: 100%; aspect-ratio: 1; border: 1px solid var(--line); background: var(--paper);
 }
+.share-preview video { object-fit: contain; background: var(--graphite); }
 .share-preview figcaption {
   padding: 10px 0 14px; color: var(--soft); font-family: "Courier New", monospace;
   font-size: 0.62rem; letter-spacing: 0.12em; text-align: center;
@@ -373,11 +388,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   font: inherit; letter-spacing: inherit;
 }
 .share-publication button:hover { color: var(--paper-light); background: var(--teal); }
+.share-publication-video { margin-top: 8px; }
+.share-publication-checking { color: var(--soft); }
 
 .share-actions {
   display: grid; grid-template-columns: 1.28fr 1fr 1fr; gap: 12px; padding: 18px 0 0;
   border-top: 1px solid var(--line);
 }
+.share-actions-has-video { grid-template-columns: 1fr 1fr; }
 .share-action {
   display: flex; min-height: 62px; align-items: center; justify-content: center; gap: 10px; padding: 0 13px;
   border: 1px solid var(--graphite); border-radius: 2px; color: var(--graphite); background: transparent;
@@ -419,12 +437,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   .share-header h2 { font-size: 2.55rem; }
   .share-header p { margin: 6px 0 4px; }
   .share-close { margin-top: -7px; }
+  .share-format-switch { margin-right: 8px; margin-bottom: 8px; margin-left: 8px; }
   .share-preview { margin-right: 8px; margin-left: 8px; }
-  .share-preview img {
-    width: min(100%, max(260px, calc(100dvh - 380px))); margin-right: auto; margin-left: auto;
+  .share-preview img, .share-preview video {
+    width: min(100%, max(260px, calc(100dvh - 520px))); margin-right: auto; margin-left: auto;
   }
-  .share-preview figcaption { padding: 7px 0 9px; }
+  .share-preview figcaption { padding: 6px 0 8px; }
   .share-publication { margin-right: 8px; margin-left: 8px; }
+  .share-publication-video { margin-top: 6px; }
   .share-actions { gap: 8px; padding-top: 10px; }
   .share-action { min-height: 50px; padding-right: 10px; padding-left: 10px; }
   .share-feedback { margin-top: 7px; padding-top: 6px; padding-bottom: 6px; }
@@ -459,7 +479,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   .share-backdrop { align-items: flex-end; padding: 0; }
   .share-dialog { width: 100%; max-height: 100dvh; padding: 24px 20px 18px; box-shadow: 0 -18px 42px rgba(44, 35, 24, 0.24); animation-name: share-sheet-in; }
   @keyframes share-sheet-in { from { opacity: 0.76; transform: translateY(42px); } }
-  .share-header, .share-preview { margin-right: 0; margin-left: 0; }
+  .share-header, .share-format-switch, .share-preview { margin-right: 0; margin-left: 0; }
   .share-publication { margin-right: 0; margin-left: 0; }
   .share-actions { grid-template-columns: 1fr; gap: 8px; }
   .share-action { min-height: 54px; }

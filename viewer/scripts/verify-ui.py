@@ -52,8 +52,8 @@ def publish_result(page: Page, target_url: str, expected_statement: str) -> None
     page.goto(f"{BASE_URL}?fixture=clean&fallback=text&time=5000")
     page.locator("#scan-url").fill(target_url)
     page.get_by_role("button", name="START X-RAY").click()
-    page.get_by_text("IMMUTABLE RESULT READY", exact=True).wait_for(timeout=30_000)
-    page.wait_for_url("**/r/r_*", timeout=30_000)
+    page.get_by_text("IMMUTABLE RESULT READY", exact=True).wait_for(timeout=45_000)
+    page.wait_for_url("**/r/r_*", timeout=45_000)
     require(page.get_by_text(expected_statement, exact=True).count() == 1, "published hero did not render")
     page.wait_for_load_state("networkidle", timeout=10_000)
 
@@ -91,7 +91,7 @@ def verify_published_share(
     page: Page,
     target_url: str,
     runtime: dict[str, object],
-) -> tuple[int, float, str, int, float, str]:
+) -> tuple[int, float, str, int, float, str, int, float, str]:
     publish_result(page, target_url, runtime["presentation"]["finding"]["statement"])
     result_id = urlsplit(page.url).path.rsplit("/", 1)[-1]
     bundle_response = page.request.get(f"{BASE_URL.rstrip('/')}/api/results/{result_id}")
@@ -122,11 +122,38 @@ def verify_published_share(
         and poster_headers.get("cache-control") == "no-store",
         "poster response did not match its immutable manifest binding",
     )
+    video_descriptor = published_result["exports"]["video"]
+    video_artifact = video_descriptor["artifact"]
+    require(
+        video_descriptor["state"] == "ready"
+        and video_descriptor["durationMs"] == 5_000
+        and isinstance(video_artifact, dict)
+        and isinstance(video_artifact.get("sha256"), str)
+        and isinstance(video_artifact.get("byteLength"), int),
+        "published result did not register a ready five-second video artifact",
+    )
+    video_url = f"{BASE_URL.rstrip('/')}/api/results/{result_id}/video.mp4"
+    video_response = page.request.get(video_url)
+    require(video_response.status == 200, "registered video artifact was unavailable")
+    video_payload = video_response.body()
+    video_headers = {key.lower(): value for key, value in video_response.headers.items()}
+    video_sha256 = hashlib.sha256(video_payload).hexdigest()
+    require(
+        len(video_payload) >= 12
+        and video_payload[4:8] == b"ftyp"
+        and len(video_payload) == video_artifact["byteLength"]
+        and video_sha256 == video_artifact["sha256"]
+        and video_headers.get("content-type") == "video/mp4"
+        and video_headers.get("etag") == f'"{video_artifact["sha256"]}"'
+        and video_headers.get("cache-control") == "no-store",
+        "video response did not match its immutable manifest binding",
+    )
 
     require(page.get_by_role("button", name="SHARE RESULT").count() == 1, "published artifact share action was missing")
     page.get_by_role("button", name="SHARE RESULT").click()
     page.get_by_role("dialog", name="SHARE RESULT").wait_for()
     page.get_by_text("SERVER COPY MATCHES IMMUTABLE MANIFEST", exact=True).wait_for(timeout=20_000)
+    page.get_by_text("MOTION COPY MATCHES IMMUTABLE MANIFEST", exact=True).wait_for(timeout=20_000)
     require(page.get_by_role("button", name="COPY PNG LINK").count() == 1, "verified poster URL action was missing")
     preview = page.locator(".share-preview img")
     preview.wait_for()
@@ -151,6 +178,34 @@ def verify_published_share(
         preview_render["digest"] == server_render["digest"],
         "verified share preview pixels diverged from the registered poster",
     )
+
+    page.get_by_role("button", name="5 SEC MOTION").click()
+    motion_preview = page.locator(".share-preview video")
+    motion_preview.wait_for()
+    motion_src = motion_preview.get_attribute("src")
+    require(
+        motion_src is not None
+        and motion_src.startswith("blob:")
+        and motion_preview.get_attribute("controls") is not None,
+        "share preview did not expose the verified interactive MP4",
+    )
+
+    video_started = time.monotonic()
+    with page.expect_download(timeout=10_000) as video_download_info:
+        page.get_by_role("button", name="DOWNLOAD 5 SEC VIDEO").click()
+    video_download = video_download_info.value
+    video_path = video_download.path()
+    require(video_path is not None, "video download did not produce a file")
+    downloaded_video = Path(video_path).read_bytes()
+    video_elapsed = time.monotonic() - video_started
+    require(video_elapsed <= 10, f"video download exceeded the local 10 second bound ({video_elapsed:.3f}s)")
+    require(
+        video_download.suggested_filename.endswith(".mp4")
+        and downloaded_video == video_payload
+        and len(downloaded_video) <= 8_000_000,
+        "downloaded video diverged from the registered MP4 artifact",
+    )
+    page.get_by_text("VERIFIED 5 SEC MP4 · DOWNLOAD STARTED", exact=True).wait_for()
 
     limitation = published_result["limitations"][0]["message"] if published_result["limitations"] else None
 
@@ -190,7 +245,7 @@ def verify_published_share(
     if published_result["status"] == "partial":
         require(limitation, "partial export lost its exact limitation binding")
     page.get_by_role("button", name="CLOSE SHARE RESULT").click()
-    return (*first, *second)
+    return (*first, *second, len(downloaded_video), video_elapsed, video_sha256)
 
 
 def main() -> None:
@@ -268,8 +323,8 @@ def main() -> None:
 
         page.locator("#scan-url").fill("https://gallery.example/")
         page.get_by_role("button", name="START X-RAY").click()
-        page.get_by_text("IMMUTABLE RESULT READY", exact=True).wait_for(timeout=30_000)
-        page.wait_for_url("**/r/r_*", timeout=30_000)
+        page.get_by_text("IMMUTABLE RESULT READY", exact=True).wait_for(timeout=45_000)
+        page.wait_for_url("**/r/r_*", timeout=45_000)
         admitted_result_url = page.url
         require(
             page.get_by_text(image_runtime["presentation"]["finding"]["statement"], exact=True).count()
@@ -388,14 +443,16 @@ def main() -> None:
         "Verified image-heavy and third-party runtime binding, deterministic route state, "
         "evidence drawer, partial status, reduced-motion steps, text fallback, URL recovery, "
         "transport-backed submission, immutable reload and history restoration, disabled-public-scanner honesty, "
-        "missing-result fallback truthfulness, corrupt-bundle recovery, and manifest-verified hosted share exports."
+        "missing-result fallback truthfulness, corrupt-bundle recovery, and manifest-verified hosted poster/video exports."
     )
     print(
         f"Local Chromium {browser_version} share-export evidence: "
         f"image-heavy PNGs {image_downloads[0]} bytes/{image_downloads[1]:.3f}s and "
         f"{image_downloads[3]} bytes/{image_downloads[4]:.3f}s, digest {image_downloads[2]}; "
+        f"MP4 {image_downloads[6]} bytes/{image_downloads[7]:.3f}s, digest {image_downloads[8]}; "
         f"third-party-heavy PNGs {third_downloads[0]} bytes/{third_downloads[1]:.3f}s and "
-        f"{third_downloads[3]} bytes/{third_downloads[4]:.3f}s, digest {third_downloads[2]}."
+        f"{third_downloads[3]} bytes/{third_downloads[4]:.3f}s, digest {third_downloads[2]}; "
+        f"MP4 {third_downloads[6]} bytes/{third_downloads[7]:.3f}s, digest {third_downloads[8]}."
     )
 
 
