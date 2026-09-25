@@ -170,7 +170,7 @@ def _encode(ffmpeg: Path, png_paths: tuple[Path, ...], video_path: Path) -> None
         x_expression = "10+4*sin(n/21)" if index % 2 == 0 else "10-4*sin(n/23)"
         y_expression = "10-4*cos(n/25)" if index % 2 == 0 else "10+4*cos(n/27)"
         filters.append(
-            f"[{index}:v]scale=1100:1100:flags=lanczos,"
+            f"[{index}:v]scale=1100:1100:flags=bicubic,"
             f"crop=1080:1080:x='{x_expression}':y='{y_expression}',"
             "setsar=1,setpts=PTS-STARTPTS,fps=30"
             f"[stage{index}]"
@@ -204,7 +204,7 @@ def _encode(ffmpeg: Path, png_paths: tuple[Path, ...], video_path: Path) -> None
             "-c:v",
             "libx264",
             "-preset",
-            "medium",
+            "veryfast",
             "-crf",
             "18",
             "-pix_fmt",

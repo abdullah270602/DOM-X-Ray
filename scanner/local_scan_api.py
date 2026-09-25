@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import mimetypes
 import re
 import secrets
@@ -59,6 +60,7 @@ FIXTURE_WORKER = ROOT / "fixtures" / "worker" / "scan_transport_worker_fixture.p
 FIXTURE_DIR = ROOT / "fixtures" / "scan"
 SCAN_SCHEMA = json.loads((ROOT / "docs" / "SCAN_RECORD.schema.json").read_text(encoding="utf-8"))
 MAPPING = json.loads((ROOT / "docs" / "MAPPING_REGISTRY.v0.1.json").read_text(encoding="utf-8"))
+LOGGER = logging.getLogger(__name__)
 
 MAX_REQUEST_BODY_BYTES = 2_048
 DEFAULT_POLL_AFTER_MS = 350
@@ -257,10 +259,10 @@ class FixtureScanExecutor:
         if result["exports"]["video"]["eligible"]:
             try:
                 video = self._video_renderer(bundle)
-            except VideoRenderError:
+            except VideoRenderError as error:
                 # A result remains useful and shareable as a verified poster if
                 # the optional video runtime is unavailable or fails closed.
-                pass
+                LOGGER.info("trusted video render fell back to poster: %s", error)
             else:
                 artifacts["video"] = video
                 result = build_result_manifest(
@@ -918,6 +920,8 @@ def main() -> None:
     )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO)
     store_key = load_or_create_store_key(args.data_dir / "store.key")
     result_store = FilesystemResultStore(
         args.data_dir / "results",
