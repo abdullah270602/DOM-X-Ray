@@ -21,13 +21,15 @@ object-store transaction boundary.
   never returned through the API.
 - Deletion removes reachability and leaves a private tombstone; it never rewrites
   the public result as “deleted” or allows the result ID to be reused.
-- For an eligible poster, the validated sidecar is committed as
-  `{resultId}.poster.png` before the JSON result envelope. The JSON envelope is
-  the sole visibility marker, so a published result can never point at a
-  missing or partially written poster.
-- The manifest's poster artifact metadata is an exact binding: `image/png`,
-  byte length, and SHA-256 must match the sidecar bytes. Any mismatch makes the
-  result unavailable rather than serving unverified bytes.
+- For every ready export, the validated sidecar is committed before the JSON
+  result envelope: `{resultId}.poster.png` for the poster and
+  `{resultId}.video.mp4` for the video. The JSON envelope is the sole visibility
+  marker, so a published result can never point at a missing or partially
+  written artifact.
+- Manifest artifact metadata is an exact binding: media type, dimensions,
+  duration where applicable, byte length, and SHA-256 must match each sidecar.
+  Any mismatch makes the entire result unavailable rather than serving
+  unverified bytes.
 
 ## Private envelope
 
@@ -56,12 +58,18 @@ bytes.
 
 ## Cache and restart behavior
 
-The strong ETag remains the exact SHA-256 identity of the bundle bytes across a
-restart. Poster responses use the same strong SHA-256 identity for their ETag.
-Bundle and poster responses are nevertheless `no-store`: immediate owner deletion
-cannot coexist honestly with a one-year public cache until the selected hosting
-layer supplies a verified purge mechanism. Static hashed application assets may
-remain immutable-cacheable.
+The strong ETag remains the exact SHA-256 identity of bundle, poster, and video
+bytes across a restart. Their responses are nevertheless `no-store`: immediate
+owner deletion cannot coexist honestly with a long-lived public cache until the
+selected hosting layer supplies a verified purge mechanism. Static hashed
+application assets may remain immutable-cacheable.
+
+`ARTIFACT_DELIVERY.md` defines that separate provider boundary. Its local
+filesystem reference uses private deterministic object keys, commits one live
+visibility marker only after every exact object exists, fences origin reads
+before purge, persists pending retries and confirmed receipts, and lets a
+retired tombstone defeat stale restored state. It does not replace this result
+store's deletion authority and is not a deployed object-store/CDN adapter.
 
 Completed results, tombstones, the store key, and deletion authorization survive
 restart. Jobs, admission cooling, target-to-result reuse indexes, and
@@ -73,9 +81,10 @@ scanning is enabled.
 
 `scripts/verify_result_store.py` proves restart identity, staging cleanup,
 single publication under concurrency, sidecar-before-envelope ordering, exact
-manifest SHA/length binding, HMAC-only durable state, key rotation,
-deletion, retention, tombstoned non-reuse, corruption rejection, and
-traversal-safe identifiers. `scripts/verify_local_scan_api.py` proves the HTTP
-digest, cache, restart, ownership, throttling, expiry-recovery, and deletion
-behavior, poster GET/HEAD/304/405 behavior, content-free misses, and raw-upload
-refusal through a real local server.
+manifest SHA/length binding, HMAC-only durable state, key rotation, deletion,
+retention, tombstoned non-reuse, corruption rejection, and traversal-safe
+identifiers. `scripts/verify_artifact_delivery.py` proves the provider-neutral
+private-object lifecycle and cache-purge state machine. `scripts/verify_local_scan_api.py`
+proves the HTTP digest, cache, restart, ownership, throttling, expiry-recovery,
+and deletion behavior, poster/video GET/HEAD/304/405 behavior, content-free
+misses, and raw-upload refusal through a real local server.

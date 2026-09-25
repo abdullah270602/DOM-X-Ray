@@ -91,18 +91,19 @@ or prove that rendered pixels match the claim. Those require the selected
 renderer/encoder, golden visual comparison, and current X upload/recompression
 testing before Gate 5 can pass.
 
-The current implementation supplies a trusted server-side renderer for the
-poster target. It derives the product-owned source from the admitted
-record/scene/result bundle, renders it in supervised no-network Chromium, and
-accepts only a strict 1080 × 1080, 8-bit RGBA, non-interlaced PNG. The poster
-sidecar is published before the JSON commit envelope; its exact SHA-256 and
-byte length are registered in `exports.poster.artifact`. The route exposes only
-the bound sidecar, with strong SHA ETag and no-store semantics. The browser
-verifies same-origin route, status, final URL, `image/png` type, ETag, length,
-and body SHA before preview/copy/download, then safely falls back to the local
-export path if hosted verification fails. No client pixel upload is accepted.
-The browser-local SVG rasterizer remains available as that fallback; link-only
-results expose no poster route.
+The current implementation supplies trusted server-side renderers for both
+targets. Product-owned poster source is rendered in supervised no-network
+Chromium and accepted only as strict 1080 × 1080, 8-bit RGBA, non-interlaced
+PNG. The deterministic five-stage motion source is rasterized and encoded to a
+validated 1080 × 1080 H.264 (`avc1`) MP4 with exactly five seconds, 30 fps, 150
+frames, and an 8 MB ceiling. Every ready sidecar is committed before the JSON
+result envelope; exact SHA-256 and byte length are registered in its export
+descriptor. Routes expose only bound sidecars with application SHA ETags and
+`no-store` semantics. The browser independently verifies same-origin route,
+status, final URL, type, ETag, length, file signature, and body SHA before
+preview or download. Motion failure falls back to the verified poster; poster
+verification failure retains the bounded browser-local SVG export. No client
+pixel upload is accepted and link-only results expose neither artifact route.
 
 ## Deterministic fixtures
 
@@ -131,8 +132,9 @@ invalidated-hero, route-identity, schema, and cross-source tampering.
 
 This contract itself does not provide storage, route availability, deletion,
 retention, publication/privacy state, moderation, takedown, Open Graph delivery,
-rendering, encoding, or social-platform compatibility. Local implementations now
-prove result storage/deletion, trusted poster rendering, and local poster-route
-publication around the contract; production hosting/cache purge, video, and
-platform compatibility remain open. Nothing here authorizes a public launch or
-settles an open product/legal policy.
+or social-platform compatibility. Local implementations now prove result
+storage/deletion, trusted poster/video rendering, exact local routes, and a
+provider-neutral private-object delivery lifecycle with origin fencing and
+durable purge receipts. A deployed multi-writer object store, real CDN purge
+drill, platform compatibility, and production policy remain open. Nothing here
+authorizes a public launch or settles an open product/legal policy.

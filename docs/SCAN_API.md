@@ -53,7 +53,9 @@ Once published, the bytes for a result ID cannot change. The viewer validates
 all component schemas, identities, versions, source hashes, connection
 endpoints, and evidence pointers before rendering. While deletion is supported,
 responses use `Cache-Control: no-store`; a public immutable cache is forbidden
-until the deployment has a proven purge path.
+until the deployment has a proven purge path. `ARTIFACT_DELIVERY.md` defines the
+private-object and `live → retiring → retired` provider contract that must pass
+before shared caching can be enabled.
 
 ### `GET, HEAD /api/results/{resultId}/poster.png`
 
@@ -72,6 +74,21 @@ return empty `405 Method Not Allowed` with `Allow: GET, HEAD`.
 Missing, ineligible, deleted, expired, or corrupt results/artifacts all return
 content-free `404` responses. The API never accepts client pixel uploads.
 
+### `GET, HEAD /api/results/{resultId}/video.mp4`
+
+Serve the published motion sidecar only when the result is artifact-eligible
+and its manifest metadata exactly matches the stored bytes. The route returns
+`video/mp4`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, a
+strong ETag equal to the quoted video SHA-256, and exact `Content-Length`.
+`HEAD`, conditional `304`, exact-method `405`, content-free miss, and raw-upload
+refusal behavior match the poster route.
+
+The controlled encoder accepts only the validated 1080 × 1080 H.264 (`avc1`)
+contract: exactly five seconds, 30 fps, 150 frames, and no more than 8,000,000
+bytes. A renderer failure publishes the still-verified poster result rather than
+claiming motion exists. Production delivery should add bounded byte-range
+streaming without weakening manifest, ETag, or deletion checks.
+
 ### `DELETE /api/results/{resultId}`
 
 Require the separate 256-bit `X-Deletion-Token` capability. A correct token
@@ -82,6 +99,10 @@ Malformed, wrong, unknown, and rate-limited attempts return empty `400`, `403`,
 digest is stored, token comparison is constant-time, repeated failures are
 bounded without blocking a correct token, and deletion invalidates in-process
 exact-result reuse. Production requires requester-aware distributed throttling.
+If shared edge caching is enabled later, origin reachability must be fenced
+first and `204` may be returned only after a durable confirmed purge receipt;
+pending invalidation requires an explicit non-success/pending response and
+provider-independent retry.
 
 ### `GET /r/{resultId}`
 
@@ -112,18 +133,21 @@ validation, and immutable publication all succeed.
 
 The command-line server writes committed result envelopes beneath
 `.dom-xray-data/results` by default and keeps its HMAC key separately at
-`.dom-xray-data/store.key`; both paths are ignored by Git. Publication writes a
-same-directory staging file, flushes it, atomically replaces the final opaque-ID
-path, and exposes only a fully validated committed envelope. Deletion or expiry
-writes a small durable tombstone before removing the bundle, so an old result ID
-can never resolve to different bytes. Startup removes abandoned staging files,
+`.dom-xray-data/store.key`; both paths are ignored by Git. Publication writes
+validated poster/video sidecars before a same-directory staged envelope,
+flushes it, atomically replaces the final opaque-ID path, and exposes only a
+fully validated committed result. Deletion or expiry writes a small durable
+tombstone before removing the bundle and sidecars, so an old result ID can
+never resolve to different bytes. Startup removes abandoned staging files,
 rejects corrupt or symlinked result files, and sweeps expired entries. Bundle
-bytes, deletion authorization, tombstones, and ETags survive process restart.
+and artifact bytes, deletion authorization, tombstones, and ETags survive
+process restart.
 
 The local server defaults to a 24-hour engineering retention window, adjustable
 with `--retention-hours`. That is not the public product policy. Durable jobs,
-multi-process writers, distributed indexes, cache purge, takedown operations,
-and the approved production retention period remain release gates.
+multi-process writers, distributed indexes, a deployed object-store/CDN adapter
+with a real purge drill, takedown operations, and the approved production
+retention period remain release gates.
 
 ## Public error vocabulary
 

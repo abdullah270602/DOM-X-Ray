@@ -44,6 +44,12 @@ sharing).
 - The share dialog traps focus, closes with Escape, restores the initiating
   control, announces clipboard failures, and routes directly to a selected new
   scan task.
+- The provider-neutral delivery reference binds bundle/poster/video to private
+  result-scoped keys, stages all bytes before one live marker, fences reads
+  before purge, persists pending retries with one operation ID, records exact
+  route/object coverage in confirmed receipts, and lets retirement tombstones
+  defeat stale restored state. Shared caching is rejected when no purger is
+  configured; the actual HTTP service remains `no-store`.
 
 ## Reproducible evidence
 
@@ -58,6 +64,7 @@ python ../scripts/verify_png_validation.py
 python ../scripts/verify_poster_renderer.py
 python ../scripts/verify_mp4_validation.py
 python ../scripts/verify_video_renderer.py --attempts 15
+python ../scripts/verify_artifact_delivery.py
 ```
 
 The unit suite proves deterministic poster/video source binding, exact
@@ -88,6 +95,14 @@ for the image-heavy fixture at 5.317 s p50 and 6.723 s maximum. These timings an
 digests are reproducible single-environment evidence, not the representative
 production success-rate or p90 benchmark.
 
+The local delivery verifier additionally covers object-before-live ordering,
+failed activation, exact-byte collisions, abort cleanup, restart validation,
+single-process concurrent idempotency, retiring-over-live crash recovery,
+simultaneous, pending, and post-confirmation purge retries, exact coverage receipts, root
+symlink rejection where the operating system permits the fixture, and
+fail-closed object tampering. This is state-machine evidence against a scripted
+purger, not a warmed-CDN purge test or multi-writer object-store proof.
+
 The reviewed desktop and mobile surfaces are committed at
 `.impeccable/review/gate5-hosted-share-desktop.png` and
 `.impeccable/review/gate5-hosted-share-mobile.png`; their motion states are at
@@ -101,8 +116,8 @@ performance backlog item, not Gate 5 evidence.
 
 ## Not yet proven
 
-- durable public artifact storage, publication, cache purge, moderation, or
-  takedown;
+- a deployed multi-writer object store and CDN adapter, warmed-cache purge and
+  stale-fill drill, moderation, or takedown workflow;
 - current X web/mobile upload, playback, and recompression behavior;
 - the representative production 99% poster / 95% video benchmark thresholds
   (the current 15-run video sample is local evidence only);
@@ -112,6 +127,7 @@ performance backlog item, not Gate 5 evidence.
 - public arbitrary-page scanning, which remains blocked by the separate scanner
   containment and policy gates.
 
-The next Gate 5 decision is the production artifact-hosting/cache-purge boundary,
-followed by a current X web/mobile upload-and-recompression proof. Neither
-decision relaxes the Gate 0/Gate 3 public scanner blockers.
+The next Gate 5 decision is the concrete object-store/CDN provider adapter and
+deployment purge drill, followed by a current X web/mobile
+upload-and-recompression proof. Neither decision relaxes the Gate 0/Gate 3
+public scanner blockers.
