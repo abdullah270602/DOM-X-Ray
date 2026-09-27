@@ -25,8 +25,8 @@ from scanner.mp4_validation import Mp4ValidationError, validate_share_video_mp4
 from scanner.png_validation import PngValidationError, validate_poster_png
 
 
-DELIVERY_VERSION = "artifact-delivery-v0.1.0"
-PURGE_RECEIPT_VERSION = "artifact-purge-receipt-v0.1.0"
+DELIVERY_VERSION = "artifact-delivery-v0.2.0"
+PURGE_RECEIPT_VERSION = "artifact-purge-receipt-v0.2.0"
 MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 RESULT_ID_PATTERN = re.compile(r"^r_[0-9a-f]{32}$")
 STAGE_ID_PATTERN = re.compile(r"^s_[0-9a-f]{64}$")
@@ -159,6 +159,7 @@ class CachePurgeResult:
     operation_id: str
     state: PurgeState
     coverage_sha256: str
+    provider_target_id: str
     provider_request_id: str | None = None
     confirmed_at: str | None = None
 
@@ -169,6 +170,7 @@ class CachePurgeResult:
             raise ValueError("purge result has an invalid state")
         if SHA256_PATTERN.fullmatch(self.coverage_sha256) is None:
             raise ValueError("purge result has an invalid coverage digest")
+        _validate_provider_target_id(self.provider_target_id)
         if self.provider_request_id is not None and (
             not isinstance(self.provider_request_id, str)
             or not 1 <= len(self.provider_request_id) <= 256
@@ -187,6 +189,7 @@ class CachePurgeResult:
 class PurgeReceipt:
     result_id: str
     operation_id: str
+    provider_target_id: str | None
     provider_request_id: str | None
     confirmed_at: str
     coverage_sha256: str
@@ -196,6 +199,9 @@ class PurgeReceipt:
 
 
 class CachePurger(Protocol):
+    @property
+    def provider_target_id(self) -> str: ...
+
     def purge(
         self,
         *,
@@ -244,6 +250,16 @@ def _parse_timestamp(value: object, label: str) -> str:
     if parsed.tzinfo is None:
         raise ArtifactDeliveryError(f"delivery {label} has no timezone")
     return _timestamp(parsed)
+
+
+def _validate_provider_target_id(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= 256
+        or any(not 0x21 <= ord(character) <= 0x7E for character in value)
+    ):
+        raise ValueError("invalid delivery purge provider target ID")
+    return value
 
 
 def _validate_result_id(result_id: object) -> str:
@@ -418,6 +434,11 @@ class FilesystemArtifactDelivery:
         if self._cache_policy.purge_required and purger is None:
             raise ValueError("shared delivery caching requires a verified purger")
         self._purger = purger
+        self._purge_target_id = (
+            _validate_provider_target_id(purger.provider_target_id)
+            if self._cache_policy.purge_required and purger is not None
+            else None
+        )
         self._clock = clock
         self._lock = threading.RLock()
         self._directories = {
@@ -517,6 +538,7 @@ class FilesystemArtifactDelivery:
         activated_at: str | None = None,
         retired_at: str | None = None,
         purge_operation_id: str | None = None,
+        purge_target_id: str | None = None,
         purge_receipt: dict[str, object] | None = None,
     ) -> dict[str, object]:
         return {
@@ -530,6 +552,7 @@ class FilesystemArtifactDelivery:
             "activatedAt": activated_at,
             "retiredAt": retired_at,
             "purgeOperationId": purge_operation_id,
+            "purgeTargetId": purge_target_id,
             "purgeReceipt": purge_receipt,
             "objects": [_ref_value(reference) for reference, _payload in batch.objects],
             "publicPaths": list(batch.public_paths),
@@ -547,6 +570,7 @@ class FilesystemArtifactDelivery:
             "activatedAt",
             "retiredAt",
             "purgeOperationId",
+            "purgeTargetId",
             "purgeReceipt",
             "objects",
             "publicPaths",
@@ -566,10 +590,10 @@ class FilesystemArtifactDelivery:
             raise ArtifactDeliveryError("delivery control record identity drifted")
         _parse_timestamp(value["createdAt"], "creation time")
         if expected_state == "staged":
-            expected_nullable = (None, None, None, None)
+            expected_nullable = (None, None, None, None, None)
         elif expected_state == "live":
             _parse_timestamp(value["activatedAt"], "activation time")
-            expected_nullable = (value["activatedAt"], None, None, None)
+            expected_nullable = (value["activatedAt"], None, None, None, None)
         elif expected_state == "retiring":
             _parse_timestamp(value["activatedAt"], "activation time")
             _parse_timestamp(value["retiredAt"], "retirement time")
@@ -579,10 +603,23 @@ class FilesystemArtifactDelivery:
                 or PURGE_ID_PATTERN.fullmatch(operation_id) is None
             ):
                 raise ArtifactDeliveryError("retiring delivery has an invalid purge operation")
+            target_id = value["purgeTargetId"]
+            if self._cache_policy.purge_required:
+                try:
+                    target_id = _validate_provider_target_id(target_id)
+                except ValueError as error:
+                    raise ArtifactDeliveryError(
+                        "retiring delivery has an invalid purge target"
+                    ) from error
+                if target_id != self._purge_target_id:
+                    raise ArtifactDeliveryError("retiring delivery purge target drifted")
+            elif target_id is not None:
+                raise ArtifactDeliveryError("no-store retirement has a purge target")
             expected_nullable = (
                 value["activatedAt"],
                 value["retiredAt"],
                 operation_id,
+                target_id,
                 None,
             )
         else:
@@ -599,12 +636,14 @@ class FilesystemArtifactDelivery:
                 value["activatedAt"],
                 value["retiredAt"],
                 operation_id,
+                value["purgeTargetId"],
                 value["purgeReceipt"],
             )
         actual_nullable = (
             value["activatedAt"],
             value["retiredAt"],
             value["purgeOperationId"],
+            value["purgeTargetId"],
             value["purgeReceipt"],
         )
         if actual_nullable != expected_nullable:
@@ -719,6 +758,7 @@ class FilesystemArtifactDelivery:
         if not isinstance(raw, dict) or set(raw) != {
             "receiptVersion",
             "operationId",
+            "providerTargetId",
             "providerRequestId",
             "confirmedAt",
             "coverageSha256",
@@ -727,6 +767,7 @@ class FilesystemArtifactDelivery:
         }:
             raise ArtifactDeliveryError("delivery purge receipt is malformed")
         operation_id = raw["operationId"]
+        target_id = raw["providerTargetId"]
         provider_id = raw["providerRequestId"]
         paths = raw["publicPaths"]
         references = self._references(value)
@@ -743,22 +784,28 @@ class FilesystemArtifactDelivery:
             or (
                 provider_id is not None
                 and (
-                not isinstance(provider_id, str)
-                or not 1 <= len(provider_id) <= 256
-                or any(ord(character) < 0x20 for character in provider_id)
+                    not isinstance(provider_id, str)
+                    or not 1 <= len(provider_id) <= 256
+                    or any(ord(character) < 0x20 for character in provider_id)
                 )
             )
             or not isinstance(paths, list)
             or paths != value["publicPaths"]
             or raw["coverageSha256"] != coverage
             or raw["purgeRequired"] is not self._cache_policy.purge_required
-            or (self._cache_policy.purge_required and provider_id is None)
+            or target_id != value["purgeTargetId"]
+            or (
+                self._cache_policy.purge_required
+                and (target_id != self._purge_target_id or provider_id is None)
+            )
+            or (not self._cache_policy.purge_required and target_id is not None)
         ):
             raise ArtifactDeliveryError("delivery purge receipt identity drifted")
         confirmed_at = _parse_timestamp(raw["confirmedAt"], "purge confirmation time")
         return PurgeReceipt(
             result_id=expected_result_id,
             operation_id=operation_id,
+            provider_target_id=target_id,
             provider_request_id=provider_id,
             confirmed_at=confirmed_at,
             coverage_sha256=coverage,
@@ -1009,12 +1056,14 @@ class FilesystemArtifactDelivery:
                     activated_at=live_value["activatedAt"],
                     retired_at=self._now(),
                     purge_operation_id=f"p_{secrets.token_hex(16)}",
+                    purge_target_id=self._purge_target_id,
                 )
                 self._write_entry(self._state_path("retiring", result_id), value)
                 live_path.unlink()
                 self._fsync(self._directories["live"])
             batch = self._entry_batch(value, expected_state="retiring")
             operation_id = value["purgeOperationId"]
+            purge_target_id = value["purgeTargetId"]
 
         objects = tuple(reference for reference, _payload in batch.objects)
         coverage_sha256 = purge_coverage_sha256(
@@ -1040,6 +1089,7 @@ class FilesystemArtifactDelivery:
             if (
                 result.operation_id != operation_id
                 or result.coverage_sha256 != coverage_sha256
+                or result.provider_target_id != purge_target_id
                 or result.state != "confirmed"
             ):
                 raise PurgePendingError(
@@ -1054,12 +1104,14 @@ class FilesystemArtifactDelivery:
                 "provider purge confirmation time",
             )
         else:
+            purge_target_id = None
             provider_request_id = None
             confirmed_at = self._now()
 
         receipt_value: dict[str, object] = {
             "receiptVersion": PURGE_RECEIPT_VERSION,
             "operationId": operation_id,
+            "providerTargetId": purge_target_id,
             "providerRequestId": provider_request_id,
             "confirmedAt": confirmed_at,
             "coverageSha256": coverage_sha256,
@@ -1089,6 +1141,7 @@ class FilesystemArtifactDelivery:
                 activated_at=current["activatedAt"],
                 retired_at=current["retiredAt"],
                 purge_operation_id=operation_id,
+                purge_target_id=purge_target_id,
                 purge_receipt=receipt_value,
             )
             self._write_entry(self._state_path("retired", result_id), retired_value)

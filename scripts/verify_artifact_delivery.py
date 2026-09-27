@@ -40,8 +40,9 @@ def expect_delivery_error(action, message: str) -> None:
 
 
 class ScriptedPurger:
-    def __init__(self, states: list[str]) -> None:
+    def __init__(self, states: list[str], *, target_id: str = "test:scripted") -> None:
         self.states = states
+        self.provider_target_id = target_id
         self.calls: list[dict[str, object]] = []
         self.delivery: FilesystemArtifactDelivery | None = None
 
@@ -77,6 +78,7 @@ class ScriptedPurger:
                 public_paths,
                 tuple(objects),
             ),
+            provider_target_id=self.provider_target_id,
             provider_request_id=f"provider-{len(self.calls)}",
             confirmed_at=(
                 "2026-09-25T12:31:00.000Z" if state == "confirmed" else None
@@ -85,6 +87,8 @@ class ScriptedPurger:
 
 
 class WrongCoveragePurger:
+    provider_target_id = "test:wrong-coverage"
+
     def purge(
         self,
         *,
@@ -98,6 +102,7 @@ class WrongCoveragePurger:
             operation_id=operation_id,
             state="confirmed",
             coverage_sha256="0" * 64,
+            provider_target_id=self.provider_target_id,
             provider_request_id="provider-wrong-coverage",
             confirmed_at="2026-09-25T12:31:00.000Z",
         )
@@ -105,6 +110,7 @@ class WrongCoveragePurger:
 
 class ConcurrentPurger:
     def __init__(self) -> None:
+        self.provider_target_id = "test:concurrent"
         self.barrier = Barrier(2)
         self.operation_ids: list[str] = []
 
@@ -126,6 +132,7 @@ class ConcurrentPurger:
                 public_paths,
                 tuple(objects),
             ),
+            provider_target_id=self.provider_target_id,
             provider_request_id=f"provider-concurrent-{len(self.operation_ids)}",
             confirmed_at="2026-09-25T12:31:00.000Z",
         )
@@ -234,7 +241,9 @@ def main() -> None:
         require(receipt is not None, "no-store retirement returned no receipt")
         require(receipt.cache_control == "no-store", "retirement cache policy drifted")
         require(
-            not receipt.purge_required and receipt.provider_request_id is None,
+            not receipt.purge_required
+            and receipt.provider_target_id is None
+            and receipt.provider_request_id is None,
             "no-store retirement falsely claimed a provider purge",
         )
         require(restarted.get(result_id, "bundle") is None, "retired bundle remained public")
@@ -416,6 +425,10 @@ def main() -> None:
         require(receipt is not None, "confirmed retry produced no purge receipt")
         require(receipt.operation_id == first_operation, "purge retry changed operation identity")
         require(receipt.provider_request_id == "provider-2", "purge receipt lost provider evidence")
+        require(
+            receipt.provider_target_id == purger.provider_target_id,
+            "purge receipt lost its provider target",
+        )
         require(receipt.purge_required, "shared-cache receipt omitted its purge requirement")
         require(
             len(receipt.coverage_sha256) == 64,
@@ -431,6 +444,34 @@ def main() -> None:
         require(
             purger.calls[0]["operationId"] == purger.calls[1]["operationId"],
             "purge retries were not idempotent",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="dom-xray-delivery-target-drift-") as temporary:
+        drift_id = "r_" + "4" * 32
+        drift_bundle = eligible_bundle(drift_id, poster, video)
+        drift_root = Path(temporary)
+        initial_purger = ScriptedPurger(["pending"], target_id="test:edge-a")
+        delivery = FilesystemArtifactDelivery(
+            drift_root,
+            cache_policy=shared_policy,
+            purger=initial_purger,
+            clock=lambda: fixed_now,
+        )
+        initial_purger.delivery = delivery
+        delivery.activate(delivery.stage(drift_bundle, {"poster": poster, "video": video}))
+        expect_delivery_error(
+            lambda: delivery.retire(drift_id),
+            "pending purge unexpectedly retired during target-drift setup",
+        )
+        changed_purger = ScriptedPurger(["confirmed"], target_id="test:edge-b")
+        expect_delivery_error(
+            lambda: FilesystemArtifactDelivery(
+                drift_root,
+                cache_policy=shared_policy,
+                purger=changed_purger,
+                clock=lambda: fixed_now,
+            ),
+            "restart accepted a different purge provider target",
         )
 
     with tempfile.TemporaryDirectory(prefix="dom-xray-delivery-purge-crash-") as temporary:
