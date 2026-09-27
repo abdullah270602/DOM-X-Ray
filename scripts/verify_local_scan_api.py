@@ -205,6 +205,16 @@ def wait_for_terminal(service: LocalScanJobService, job_id: str) -> dict[str, ob
 
 
 def main() -> None:
+    duplicate_backend = MemoryResultStore(keys=(b"B" * 32,))
+    try:
+        LocalScanJobService(
+            result_backend=duplicate_backend,
+            result_store=duplicate_backend,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("job service accepted two result authorities")
     with tempfile.TemporaryDirectory(prefix="dom-xray-api-shell-") as temporary:
         static_root = Path(temporary)
         (static_root / "index.html").write_text(
@@ -779,7 +789,7 @@ def main() -> None:
     rate_store = MemoryResultStore(keys=(b"R" * 32,))
     rate_token = f"dxrd_{'c' * 64}"
     rate_publication = rate_store.publish(fixture_bundle("clean"), deletion_digest(rate_token))
-    rate_service = LocalScanJobService(result_store=rate_store)
+    rate_service = LocalScanJobService(result_backend=rate_store)
     try:
         for _index in range(4):
             outcome, retry_after = rate_service.delete_result(

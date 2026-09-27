@@ -44,7 +44,7 @@ from scanner.result_store import (
     ArtifactKind,
     FilesystemResultStore,
     MemoryResultStore,
-    ResultStore,
+    ResultBackend,
     ResultStoreError,
     load_or_create_store_key,
 )
@@ -310,17 +310,20 @@ class LocalScanJobService:
         max_workers: int = 2,
         max_active_jobs: int = 8,
         admission_gate: ScanAdmissionGate | None = None,
-        result_store: ResultStore | None = None,
+        result_backend: ResultBackend | None = None,
+        result_store: ResultBackend | None = None,
     ) -> None:
         if max_workers <= 0 or max_active_jobs <= 0:
             raise ValueError("job service limits must be positive")
+        if result_backend is not None and result_store is not None:
+            raise ValueError("configure one result backend")
         self._scan_executor = scan_executor or FixtureScanExecutor()
         self._max_active_jobs = max_active_jobs
         self._admission = admission_gate or ScanAdmissionGate(
             duplicate_window_seconds=60,
             origin_cooling_seconds=10,
         )
-        self._result_store = result_store or MemoryResultStore()
+        self._result_backend = result_backend or result_store or MemoryResultStore()
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="dom-xray-scan")
         self._jobs: dict[str, _Job] = {}
         self._deletion_failures: dict[str, list[float]] = {}
@@ -398,7 +401,7 @@ class LocalScanJobService:
             result_id = admission.reusable_result_id
             with self._lock:
                 try:
-                    stored = self._result_store.get(result_id)
+                    stored = self._result_backend.get(result_id)
                 except (ValueError, ResultStoreError):
                     stored = None
                 if stored is None:
@@ -493,7 +496,7 @@ class LocalScanJobService:
                 deletion_token_digest = self._jobs[job_id].deletion_token_digest
             if deletion_token_digest is None:
                 raise ResultStoreError("queued scan has no deletion token digest")
-            self._result_store.publish(
+            self._result_backend.publish(
                 bundle,
                 deletion_token_digest,
                 execution.artifacts,
@@ -542,7 +545,7 @@ class LocalScanJobService:
 
     def get_bundle(self, result_id: str) -> tuple[bytes, str] | None:
         try:
-            stored = self._result_store.get(result_id)
+            stored = self._result_backend.get(result_id)
         except (ValueError, ResultStoreError):
             return None
         return None if stored is None else (stored.payload, stored.etag)
@@ -553,7 +556,7 @@ class LocalScanJobService:
         kind: ArtifactKind = "poster",
     ) -> tuple[bytes, str] | None:
         try:
-            stored = self._result_store.get_artifact(result_id, kind)
+            stored = self._result_backend.get_artifact(result_id, kind)
         except (ValueError, ResultStoreError):
             return None
         return None if stored is None else (stored.payload, stored.etag)
@@ -562,7 +565,7 @@ class LocalScanJobService:
         now = time.monotonic()
         with self._lock:
             try:
-                outcome = self._result_store.delete(result_id, deletion_token)
+                outcome = self._result_backend.delete(result_id, deletion_token)
             except ResultStoreError:
                 return "not-found", None
             if outcome == "forbidden":
@@ -924,12 +927,12 @@ def main() -> None:
     if args.verbose:
         logging.basicConfig(level=logging.INFO)
     store_key = load_or_create_store_key(args.data_dir / "store.key")
-    result_store = FilesystemResultStore(
+    result_backend = FilesystemResultStore(
         args.data_dir / "results",
         keys=(store_key,),
         retention_seconds=args.retention_hours * 60 * 60,
     )
-    service = LocalScanJobService(result_store=result_store)
+    service = LocalScanJobService(result_backend=result_backend)
     server = build_server(
         args.host,
         args.port,

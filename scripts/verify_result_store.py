@@ -22,6 +22,8 @@ from scanner.result_manifest import build_result_manifest  # noqa: E402
 from scanner.result_store import (  # noqa: E402
     FilesystemResultStore,
     MemoryResultStore,
+    ResultBackend,
+    ResultStore,
     ResultStoreError,
     load_or_create_store_key,
 )
@@ -152,6 +154,7 @@ def expect_store_error(action: Callable[[], object], message: str) -> None:
 
 
 def main() -> None:
+    require(ResultStore is ResultBackend, "ResultStore compatibility alias drifted")
     clean = fixture_bundle("clean")
     result_id = clean["result"]["resultId"]
     key_one = b"A" * 32

@@ -75,7 +75,9 @@ class StoredArtifact:
     expires_at: str | None
 
 
-class ResultStore(Protocol):
+class ResultBackend(Protocol):
+    """Single application-facing authority for result visibility and retirement."""
+
     def publish(
         self,
         bundle: dict[str, Any],
@@ -94,6 +96,11 @@ class ResultStore(Protocol):
     def delete(self, result_id: str, deletion_token: str) -> DeleteOutcome: ...
 
     def sweep(self) -> int: ...
+
+
+# Compatibility name for existing callers. New orchestration code should use
+# ResultBackend so provider storage is never mistaken for a second authority.
+ResultStore = ResultBackend
 
 
 def _utc_now() -> datetime:
