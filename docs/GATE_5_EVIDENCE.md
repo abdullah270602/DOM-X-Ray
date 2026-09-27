@@ -57,6 +57,12 @@ sharing).
   accepts only CloudFront `Completed` as confirmed. Pending state and its final
   receipt are bound to the configured distribution, so target drift fails
   closed across restart.
+- The credential-free S3 adapter requires a private, versioned,
+  bucket-owner-enforced target; conditionally creates only allowlisted keys;
+  verifies checksum, metadata, and complete bytes against the exact returned
+  `VersionId`; and permanently deletes that version while rejecting any
+  residual version or delete marker. It does not make objects public or replace
+  the future transactional visibility record.
 
 ## Reproducible evidence
 
@@ -72,6 +78,7 @@ python ../scripts/verify_poster_renderer.py
 python ../scripts/verify_mp4_validation.py
 python ../scripts/verify_video_renderer.py --attempts 15
 python ../scripts/verify_artifact_delivery.py
+python ../scripts/verify_s3_object_store.py
 python ../scripts/verify_cloudfront_purger.py
 ```
 
@@ -117,6 +124,13 @@ provider coverage, and persists the CloudFront ID into the delivery receipt.
 It uses no credentials and creates no AWS resource, so it is adapter-contract
 evidence rather than a real edge-purge result.
 
+The S3 verifier uses a deterministic injected client to cover privacy,
+versioning, and ownership preflight; `If-None-Match: *`; SHA/checksum and fixed
+identity metadata; exact-version readback; 412 convergence; bounded 409 retry;
+target/version drift; malformed deletion evidence; and exact-version permanent
+deletion. It uses no credentials and creates no AWS resource, so it is adapter
+contract evidence rather than a deployed object-store result.
+
 The reviewed desktop and mobile surfaces are committed at
 `.impeccable/review/gate5-hosted-share-desktop.png` and
 `.impeccable/review/gate5-hosted-share-mobile.png`; their motion states are at
@@ -130,7 +144,7 @@ performance backlog item, not Gate 5 evidence.
 
 ## Not yet proven
 
-- deployed S3 and transactional control adapters, HTTP integration, IAM proof,
+- transactional control adapter, HTTP integration, deployed S3 behavior, IAM proof,
   warmed-cache purge and in-flight stale-fill drill, moderation, or takedown
   workflow;
 - current X web/mobile upload, playback, and recompression behavior;
@@ -142,8 +156,9 @@ performance backlog item, not Gate 5 evidence.
 - public arbitrary-page scanning, which remains blocked by the separate scanner
   containment and policy gates.
 
-The next Gate 5 checkpoint is the conditional S3 object adapter plus
-transactional multi-writer control store and HTTP integration. After that comes
-the deployed CloudFront purge drill, followed by a current X web/mobile
+The next Gate 5 checkpoint is the transactional multi-writer result/control
+store composed as the single visibility authority behind the existing
+ResultStore/HTTP seam. After that comes deployed S3 plus the warmed/in-flight
+CloudFront purge drill, followed by a current X web/mobile
 upload-and-recompression proof. None relaxes the Gate 0/Gate 3 public scanner
 blockers.

@@ -19,9 +19,13 @@ same-origin CloudFront distribution
 The production control store is expected to use conditional, multi-writer-safe
 transitions (DynamoDB is the default implementation target). The application
 origin, not a public bucket URL, authorizes every result read from the durable
-`live → retiring → retired` state. S3 objects remain private and are created
-with `If-None-Match: *`, then read back and checked against the application
-SHA-256 identity before a live control record is committed.
+`live → retiring → retired` state. The S3 bucket is versioned, blocks all public
+access, and uses bucket-owner-enforced ownership. Objects are created with
+`If-None-Match: *`, an application SHA-256 checksum, and fixed identity
+metadata, then read back by the returned S3 `VersionId` before a live control
+record is committed. That exact version binding must be stored in the
+transactional object registry; neither an S3 ETag nor an unversioned key is an
+accepted durable identity.
 
 CloudFront fronts the stable same-origin routes. Retirement fences the
 application origin first, submits one invalidation using the durable purge
@@ -33,13 +37,25 @@ canonical URL, query-string variants, and otherwise invalid route suffixes. The
 locally observed completion time, CloudFront distribution identity, and
 invalidation ID become provider evidence in the receipt.
 
+After confirmed retirement, cleanup permanently deletes every registry-bound
+S3 version and checks `ListObjectVersions` for residual versions or delete
+markers at the exact key. A delete marker alone is not deletion proof. If
+cleanup fails, the control record remains retired and cleanup is retried; no
+object failure can restore public visibility.
+
 Runtime access uses an IAM role with narrow S3, control-store, and CloudFront
-permissions. Static access keys are not an accepted deployment configuration.
+permissions, including exact-version reads/deletes and prefix-bounded version
+listing for deletion proof. Static access keys are not an accepted deployment
+configuration. A deployment selecting SSE-KMS must also grant only the KMS
+checksum-read permissions required by its key policy.
 
 ## Why this provider shape
 
 - S3 supports conditional writes that reject an existing key, matching the
   immutable create-once object contract.
+- S3 version IDs let the control record bind reads and deletion to the exact
+  bytes that passed readback, while permanent exact-version deletion avoids
+  mistaking a versioning delete marker for erasure.
 - CloudFront accepts the caller-supplied `CallerReference` as an idempotency
   key and exposes an inspectable `Completed` state. Repeating the same
   reference and paths returns the prior invalidation instead of creating a new
@@ -52,6 +68,8 @@ permissions. Static access keys are not an accepted deployment configuration.
 Official provider references:
 
 - [S3 conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html)
+- [S3 `PutObject` conditional and checksum parameters](https://docs.aws.amazon.com/boto3/latest/reference/services/s3/bucket/put_object.html)
+- [S3 version deletion behavior](https://docs.aws.amazon.com/AmazonS3/latest/userguide/DeletingObjectVersions.html)
 - [CloudFront `CreateInvalidation` and `CallerReference`](https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_CreateInvalidation.html)
 - [CloudFront invalidation API](https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_GetInvalidation.html)
 - [CloudFront invalidation paths and query variants](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/invalidation-specifying-objects.html)
@@ -85,9 +103,13 @@ edge caching is enabled.
 
 `scanner/cloudfront_purger.py` and its deterministic verifier prove request
 construction, identity validation, idempotent retries, and the rule that only
-`Completed` becomes confirmed. They do not prove AWS credentials, IAM policy,
-multi-writer control storage, S3 object publication, routing, a warmed global
-edge, or deletion during an in-flight origin fill.
+`Completed` becomes confirmed. `scanner/s3_object_store.py` and its
+credential-free verifier prove configuration preflight, conditional
+create-once requests, exact-version readback, collision handling, target
+binding, and permanent exact-version deletion against an injected client. They
+do not prove AWS credentials, IAM policy, transactional multi-writer control
+storage, deployed S3 behavior, bucket policy/OAC correctness, routing, a warmed
+global edge, or deletion during an in-flight origin fill.
 
 Before enabling shared caching, a deployed environment must warm every relevant
 route/variant, pause an origin fill across retirement, wait for the confirmed

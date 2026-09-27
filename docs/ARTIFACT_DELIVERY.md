@@ -1,7 +1,7 @@
 # Artifact Delivery and Purge Contract
 
-Status: durable local lifecycle plus CloudFront adapter contract v0.1; no AWS
-resource or production provider is deployed.
+Status: durable local lifecycle plus credential-free S3 and CloudFront adapter
+contracts v0.2; no AWS resource or production provider is deployed.
 
 ## Purpose
 
@@ -130,8 +130,27 @@ conditional operations and equivalent no-follow/path-isolation controls.
 
 `ADR-002-ARTIFACT-DELIVERY-PROVIDER.md` selects private S3 objects,
 transactional control state, and a same-origin CloudFront distribution for Gate
-5 implementation. `scanner/cloudfront_purger.py` is the first provider-specific
-slice. It:
+5 implementation.
+
+`scanner/s3_object_store.py` supplies the private object slice. It:
+
+- accepts only validated, allowlisted result keys and exact payload identities;
+- requires bucket versioning, all four public-access blocks, and
+  bucket-owner-enforced ownership before use;
+- uses `If-None-Match: *`, SHA-256 checksum headers, `ExpectedBucketOwner`, and
+  fixed delivery-version/result/kind/length/digest metadata;
+- binds successful writes and all later reads to the exact returned S3
+  `VersionId`, with complete byte readback before success;
+- treats a 412 as idempotent only after exact existing-object verification and
+  retries bounded 409 conditional races without falling back to overwrite; and
+- permanently deletes the exact version, then fails closed unless no residual
+  version or delete marker remains at that key.
+
+The future transactional control record must persist each returned target and
+version binding. The adapter alone does not make an object live, authorize a
+route, or own the `live → retiring → retired` transition.
+
+`scanner/cloudfront_purger.py` supplies the purge slice. It:
 
 - derives invalidation coverage only from the already validated result/object
   registry;
@@ -150,9 +169,10 @@ The recorded confirmation time is when DOM X-Ray observed the provider's
 `Completed` status. The adapter intentionally returns `pending` for
 `InProgress`; the delivery lifecycle owns durable retries.
 
-This credential-free verifier does not exercise Boto3 credentials, IAM, S3,
-transactional multi-writer state, real CloudFront edges, or an in-flight stale
-origin fill. Shared caching therefore remains disabled in the HTTP service.
+These credential-free verifiers do not exercise Boto3 credentials, IAM,
+deployed S3, bucket policy/OAC enforcement, transactional multi-writer state,
+real CloudFront edges, or an in-flight stale origin fill. Shared caching
+therefore remains disabled in the HTTP service.
 
 ## Verification
 
@@ -160,6 +180,7 @@ Run:
 
 ```sh
 python scripts/verify_artifact_delivery.py
+python scripts/verify_s3_object_store.py
 python scripts/verify_cloudfront_purger.py
 ```
 
@@ -170,14 +191,23 @@ purge retry and simultaneous retirement convergence with one operation ID,
 provider receipts, tombstone precedence,
 cache-policy gating, unsafe IDs, and fail-closed byte tampering.
 
+The S3 verifier covers bucket privacy/versioning/ownership preflight,
+conditional creation, application and provider checksum metadata,
+exact-version readback, identical 412 convergence, bounded 409 retry, provider
+target binding, malformed-listing rejection, and permanent exact-version
+deletion. It also proves `ExpectedBucketOwner` on bucket preflight and every
+object operation, plus checksum-enabled HEAD/GET calls. It uses a deterministic
+fake S3 client and creates no AWS resources.
+
 The CloudFront verifier covers exact wildcard path construction, one
 `CallerReference` across retries, pending-to-`Completed` status handling,
 provider-response identity checks, environment wiring, and integration with the
 durable retiring state, including fail-closed distribution drift. It uses a
 deterministic fake CloudFront client and creates no AWS resources.
 
-Before production, the chosen provider adapter must pass the same suite plus a
-deployment drill that warms every CDN variant, deletes/expires the result,
-waits for confirmed purge, and proves all old URLs and stale ETags are unable to
-return bytes. Public arbitrary-page scanning remains independently blocked by
-the scanner containment and egress gates.
+Before production, the provider adapters must be composed behind one
+transactional lifecycle authority and pass the same suite against deployed AWS,
+plus a drill that warms every CDN variant, deletes/expires the result, waits for
+confirmed purge, permanently deletes the bound S3 versions, and proves all old
+URLs and stale ETags are unable to return bytes. Public arbitrary-page scanning
+remains independently blocked by the scanner containment and egress gates.
