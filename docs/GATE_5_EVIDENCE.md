@@ -50,6 +50,13 @@ sharing).
   route/object coverage in confirmed receipts, and lets retirement tombstones
   defeat stale restored state. Shared caching is rejected when no purger is
   configured; the actual HTTP service remains `no-store`.
+- ADR-002 selects private S3 plus transactional control state behind the
+  application origin and CloudFront for same-origin edge delivery. The first
+  provider adapter uses one durable operation ID as `CallerReference`, covers
+  canonical and query-string variants, validates echoed provider identity, and
+  accepts only CloudFront `Completed` as confirmed. Pending state and its final
+  receipt are bound to the configured distribution, so target drift fails
+  closed across restart.
 
 ## Reproducible evidence
 
@@ -65,6 +72,7 @@ python ../scripts/verify_poster_renderer.py
 python ../scripts/verify_mp4_validation.py
 python ../scripts/verify_video_renderer.py --attempts 15
 python ../scripts/verify_artifact_delivery.py
+python ../scripts/verify_cloudfront_purger.py
 ```
 
 The unit suite proves deterministic poster/video source binding, exact
@@ -103,6 +111,12 @@ symlink rejection where the operating system permits the fixture, and
 fail-closed object tampering. This is state-machine evidence against a scripted
 purger, not a warmed-CDN purge test or multi-writer object-store proof.
 
+The CloudFront verifier drives `InProgress → Completed` through a deterministic
+client, proves identical retries reuse one invalidation, rejects mismatched
+provider coverage, and persists the CloudFront ID into the delivery receipt.
+It uses no credentials and creates no AWS resource, so it is adapter-contract
+evidence rather than a real edge-purge result.
+
 The reviewed desktop and mobile surfaces are committed at
 `.impeccable/review/gate5-hosted-share-desktop.png` and
 `.impeccable/review/gate5-hosted-share-mobile.png`; their motion states are at
@@ -116,8 +130,9 @@ performance backlog item, not Gate 5 evidence.
 
 ## Not yet proven
 
-- a deployed multi-writer object store and CDN adapter, warmed-cache purge and
-  stale-fill drill, moderation, or takedown workflow;
+- deployed S3 and transactional control adapters, HTTP integration, IAM proof,
+  warmed-cache purge and in-flight stale-fill drill, moderation, or takedown
+  workflow;
 - current X web/mobile upload, playback, and recompression behavior;
 - the representative production 99% poster / 95% video benchmark thresholds
   (the current 15-run video sample is local evidence only);
@@ -127,7 +142,8 @@ performance backlog item, not Gate 5 evidence.
 - public arbitrary-page scanning, which remains blocked by the separate scanner
   containment and policy gates.
 
-The next Gate 5 decision is the concrete object-store/CDN provider adapter and
-deployment purge drill, followed by a current X web/mobile
-upload-and-recompression proof. Neither decision relaxes the Gate 0/Gate 3
-public scanner blockers.
+The next Gate 5 checkpoint is the conditional S3 object adapter plus
+transactional multi-writer control store and HTTP integration. After that comes
+the deployed CloudFront purge drill, followed by a current X web/mobile
+upload-and-recompression proof. None relaxes the Gate 0/Gate 3 public scanner
+blockers.

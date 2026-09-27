@@ -1,6 +1,7 @@
 # Artifact Delivery and Purge Contract
 
-Status: durable local lifecycle proof v0.1; no production provider is deployed.
+Status: durable local lifecycle plus CloudFront adapter contract v0.1; no AWS
+resource or production provider is deployed.
 
 ## Purpose
 
@@ -125,12 +126,41 @@ workflow. Its direct root and state-directory symlink checks assume a trusted
 local parent filesystem; a production adapter must use provider-native
 conditional operations and equivalent no-follow/path-isolation controls.
 
+## Selected provider slice
+
+`ADR-002-ARTIFACT-DELIVERY-PROVIDER.md` selects private S3 objects,
+transactional control state, and a same-origin CloudFront distribution for Gate
+5 implementation. `scanner/cloudfront_purger.py` is the first provider-specific
+slice. It:
+
+- derives invalidation coverage only from the already validated result/object
+  registry;
+- appends a trailing wildcard to every canonical path so the bare path and all
+  query-string cache variants plus otherwise invalid route suffixes are
+  invalidated;
+- uses the durable purge operation ID as CloudFront `CallerReference`, making
+  identical retries resolve to one provider invalidation;
+- persists and validates the configured distribution as the provider target,
+  so a restart cannot confirm an operation against a different distribution;
+- rejects provider responses whose caller reference, path set, quantity, or
+  invalidation ID drifts; and
+- returns `confirmed` only after CloudFront reports `Completed`.
+
+The recorded confirmation time is when DOM X-Ray observed the provider's
+`Completed` status. The adapter intentionally returns `pending` for
+`InProgress`; the delivery lifecycle owns durable retries.
+
+This credential-free verifier does not exercise Boto3 credentials, IAM, S3,
+transactional multi-writer state, real CloudFront edges, or an in-flight stale
+origin fill. Shared caching therefore remains disabled in the HTTP service.
+
 ## Verification
 
 Run:
 
 ```sh
 python scripts/verify_artifact_delivery.py
+python scripts/verify_cloudfront_purger.py
 ```
 
 The verifier covers private key/path binding, object-before-live ordering,
@@ -139,6 +169,12 @@ cleanup, concurrent idempotency, origin fencing before purge, durable pending
 purge retry and simultaneous retirement convergence with one operation ID,
 provider receipts, tombstone precedence,
 cache-policy gating, unsafe IDs, and fail-closed byte tampering.
+
+The CloudFront verifier covers exact wildcard path construction, one
+`CallerReference` across retries, pending-to-`Completed` status handling,
+provider-response identity checks, environment wiring, and integration with the
+durable retiring state, including fail-closed distribution drift. It uses a
+deterministic fake CloudFront client and creates no AWS resources.
 
 Before production, the chosen provider adapter must pass the same suite plus a
 deployment drill that warms every CDN variant, deletes/expires the result,
