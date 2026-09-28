@@ -103,6 +103,90 @@ class ResultBackend(Protocol):
 ResultStore = ResultBackend
 
 
+class DeletionCapabilityKeyring:
+    """Signs public token digests and verifies raw capabilities by stored key ID.
+
+    Key IDs are stable prefixes of each key's SHA-256. Repeated copies of the
+    same key are collapsed; a key-ID collision between different keys fails
+    closed instead of silently replacing a verification key.
+    """
+
+    def __init__(self, keys: Sequence[bytes]) -> None:
+        if isinstance(keys, (bytes, str)) or not isinstance(keys, Sequence):
+            raise ValueError("deletion keyring requires a sequence of keys")
+        if not keys:
+            raise ValueError("deletion keyring requires one or more 256-bit keys")
+
+        normalized: dict[str, bytes] = {}
+        ordered_ids: list[str] = []
+        for key in keys:
+            if not isinstance(key, bytes) or len(key) < 32:
+                raise ValueError("deletion keyring requires one or more 256-bit keys")
+            key_id = hashlib.sha256(key).hexdigest()[:16]
+            if KEY_ID_PATTERN.fullmatch(key_id) is None:
+                raise ValueError("deletion key ID is invalid")
+            existing = normalized.get(key_id)
+            if existing is not None:
+                if existing != key:
+                    raise ValueError("deletion key ID collision")
+                continue
+            normalized[key_id] = key
+            ordered_ids.append(key_id)
+
+        self._keys = normalized
+        self._key_ids = tuple(ordered_ids)
+        self._current_key_id = self._key_ids[0]
+
+    @property
+    def current_key_id(self) -> str:
+        return self._current_key_id
+
+    @property
+    def key_ids(self) -> tuple[str, ...]:
+        """Return configured IDs in rotation order, with duplicates removed."""
+
+        return self._key_ids
+
+    def sign_digest(self, public_digest: str) -> tuple[str, str]:
+        """Return the current key ID and HMAC for a validated public digest."""
+
+        if not isinstance(public_digest, str) or SHA256_PATTERN.fullmatch(public_digest) is None:
+            raise ValueError("deletion token digest must be a lowercase SHA-256 value")
+        key = self._keys[self._current_key_id]
+        protected_digest = hmac.new(
+            key,
+            public_digest.encode("ascii"),
+            hashlib.sha256,
+        ).hexdigest()
+        return self._current_key_id, protected_digest
+
+    def verify_digest(self, key_id: str, public_digest: str, expected_hmac: str) -> bool:
+        """Verify a public digest only with the exact key named by stored state."""
+
+        if (
+            not isinstance(key_id, str)
+            or KEY_ID_PATTERN.fullmatch(key_id) is None
+            or not isinstance(public_digest, str)
+            or SHA256_PATTERN.fullmatch(public_digest) is None
+            or not isinstance(expected_hmac, str)
+            or SHA256_PATTERN.fullmatch(expected_hmac) is None
+        ):
+            return False
+        key = self._keys.get(key_id)
+        if key is None:
+            return False
+        actual = hmac.new(key, public_digest.encode("ascii"), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(actual, expected_hmac)
+
+    def verify_token(self, token: str, key_id: str, expected_hmac: str) -> bool:
+        """Hash a raw capability in memory and verify it against its stored key ID."""
+
+        if not isinstance(token, str) or DELETE_TOKEN_PATTERN.fullmatch(token) is None:
+            return False
+        public_digest = hashlib.sha256(token.encode("ascii")).hexdigest()
+        return self.verify_digest(key_id, public_digest, expected_hmac)
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -247,14 +331,12 @@ class _StoreCore:
         retention_seconds: float | None,
         clock: Callable[[], datetime],
     ) -> None:
-        if not keys or any(not isinstance(key, bytes) or len(key) < 32 for key in keys):
-            raise ValueError("result store requires one or more 256-bit keys")
+        keyring = DeletionCapabilityKeyring(keys)
         if retention_seconds is not None and (
             not math.isfinite(retention_seconds) or retention_seconds <= 0
         ):
             raise ValueError("retention must be a positive finite duration")
-        self._keys = {hashlib.sha256(key).hexdigest()[:16]: key for key in keys}
-        self._current_key_id = hashlib.sha256(keys[0]).hexdigest()[:16]
+        self._keyring = keyring
         self._retention_seconds = retention_seconds
         self._clock = clock
         self._lock = threading.RLock()
@@ -271,8 +353,7 @@ class _StoreCore:
         deletion_token_digest: str,
         artifacts: Mapping[str, bytes] | None,
     ) -> tuple[dict[str, Any], bytes, dict[ArtifactKind, bytes]]:
-        if SHA256_PATTERN.fullmatch(deletion_token_digest) is None:
-            raise ValueError("deletion token digest must be a lowercase SHA-256 value")
+        key_id, protected_digest = self._keyring.sign_digest(deletion_token_digest)
         result_id, payload, bundle_digest = _bundle_identity(bundle)
         validated_artifacts = _validated_artifacts(bundle, artifacts)
         now = self._now()
@@ -281,19 +362,13 @@ class _StoreCore:
             if self._retention_seconds is None
             else _timestamp(now + timedelta(seconds=self._retention_seconds))
         )
-        key = self._keys[self._current_key_id]
-        protected_digest = hmac.new(
-            key,
-            deletion_token_digest.encode("ascii"),
-            hashlib.sha256,
-        ).hexdigest()
         envelope = {
             "storeVersion": STORE_VERSION,
             "resultId": result_id,
             "publishedAt": _timestamp(now),
             "expiresAt": expires_at,
             "bundleSha256": bundle_digest,
-            "keyId": self._current_key_id,
+            "keyId": key_id,
             "deletionDigestHmacSha256": protected_digest,
             "bundle": bundle,
         }
@@ -355,12 +430,11 @@ class _StoreCore:
         ) <= self._now()
 
     def _token_matches(self, envelope: dict[str, Any], token: str) -> bool:
-        key = self._keys.get(envelope["keyId"])
-        if key is None:
-            return False
-        public_digest = hashlib.sha256(token.encode("ascii")).hexdigest()
-        expected = hmac.new(key, public_digest.encode("ascii"), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, envelope["deletionDigestHmacSha256"])
+        return self._keyring.verify_token(
+            token,
+            envelope["keyId"],
+            envelope["deletionDigestHmacSha256"],
+        )
 
 
 def _publication(stored: StoredResult, *, created: bool) -> Publication:

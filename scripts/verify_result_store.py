@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 from scanner.api_contract import BUNDLE_VERSION, stable_json_bytes, validate_viewer_bundle  # noqa: E402
 from scanner.result_manifest import build_result_manifest  # noqa: E402
 from scanner.result_store import (  # noqa: E402
+    DeletionCapabilityKeyring,
     FilesystemResultStore,
     MemoryResultStore,
     ResultBackend,
@@ -161,6 +162,42 @@ def main() -> None:
     key_two = b"B" * 32
     delete_token = f"dxrd_{'a' * 64}"
     delete_digest = digest_for(delete_token)
+    keyring = DeletionCapabilityKeyring((key_one, key_one, key_two))
+    stored_key_id, protected_digest = keyring.sign_digest(delete_digest)
+    require(stored_key_id == keyring.current_key_id, "keyring did not sign with its current key")
+    require(len(keyring.key_ids) == 2, "keyring did not deduplicate a repeated key ID")
+    require(
+        keyring.verify_token(delete_token, stored_key_id, protected_digest),
+        "keyring rejected the matching raw deletion capability",
+    )
+    require(
+        not keyring.verify_token(f"dxrd_{'b' * 64}", stored_key_id, protected_digest),
+        "keyring accepted a different raw deletion capability",
+    )
+    require(
+        not keyring.verify_token(delete_token, "0" * 16, protected_digest),
+        "keyring accepted an unknown stored key ID",
+    )
+    previous_key_id, previous_hmac = DeletionCapabilityKeyring((key_one,)).sign_digest(delete_digest)
+    require(
+        keyring.verify_token(delete_token, previous_key_id, previous_hmac),
+        "keyring did not verify a configured previous key by its exact ID",
+    )
+    require(
+        not keyring.verify_digest(stored_key_id, "bad", protected_digest),
+        "keyring accepted a malformed public digest",
+    )
+    require(
+        not keyring.verify_token("bad", stored_key_id, protected_digest),
+        "keyring accepted a malformed raw deletion capability",
+    )
+    for invalid_keys in ((), (b"short",), (key_one, "not-bytes")):
+        try:
+            DeletionCapabilityKeyring(invalid_keys)  # type: ignore[arg-type]
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("keyring accepted invalid key configuration")
     now = [datetime(2026, 9, 10, 12, tzinfo=UTC)]
 
     with tempfile.TemporaryDirectory(prefix="dom-xray-result-store-") as temporary:
