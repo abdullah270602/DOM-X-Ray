@@ -140,12 +140,17 @@ in-flight origin fill.
 
 `scanner/dynamodb_control_store.py` and its deterministic verifier prove the
 low-level AttributeValue codec, table/GSI/TTL preflight, insert-only staging,
-conditional lifecycle fences, strong conflict rereads, candidate pagination,
-one winning purge operation, confirmed purge evidence, and permanent
-tombstones against an injected client. They do not prove Botocore request-model
-acceptance in the installed deployment, live DynamoDB contention/consistency,
-IAM isolation, or that the future composite backend correctly computes the
-deletion HMAC and owns every HTTP visibility decision.
+conditional lifecycle fences, strong conflict rereads, expiry and pending-work
+pagination, one winning purge operation, confirmed purge evidence, and
+permanent tombstones against an injected client. The composite backend and its
+fake-provider verifier now compose deletion-HMAC verification, exact-version
+object operations, control transitions, and purge/cleanup retries behind the
+`ResultBackend` interface. The runtime verifier also covers explicit composite
+selection and fail-closed provider preflight, with fixed no-store policy and no
+purger. These do not prove Botocore request-model acceptance in the installed
+deployment, live DynamoDB contention/consistency, or IAM isolation. A read
+authorized before retirement may finish after the fence. Staged publication
+abandonment and discovery remain unimplemented.
 
 Before enabling shared caching, a deployed environment must warm every relevant
 route/variant, pause an origin fill across retirement, wait for the confirmed

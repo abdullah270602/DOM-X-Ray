@@ -1,6 +1,7 @@
 # Durable Result Storage
 
-Status: local single-process proof v0.1
+Status: local single-process proof v0.1; composite backend selectable by the
+HTTP runtime, with provider deployment proof still open
 
 The local filesystem root is a trusted, operator-owned engineering directory.
 This proof rejects direct symlink entries but is not a hostile multi-user
@@ -71,6 +72,47 @@ before purge, persists pending retries and confirmed receipts, and lets a
 retired tombstone defeat stale restored state. It does not replace this result
 store's deletion authority and is not a deployed object-store/CDN adapter.
 
+`scanner/composite_result_backend.py` now implements the application-facing
+`ResultBackend` over the private object store, durable control store, and
+deletion keyring. The control record is the sole visibility authority: reads
+resolve the live record first and fetch the exact registered object versions;
+deletion verifies the raw capability, fences visibility, completes required
+purge work, and then removes the bound versions. The composite defaults to
+`no-store`. The local HTTP service can select this backend explicitly using
+`--result-backend composite` or `DOM_XRAY_RESULT_BACKEND=composite`; the
+filesystem backend remains the default. Composite mode requires either
+`--retention-hours` or `DOM_XRAY_RETENTION_HOURS` and
+`DOM_XRAY_DELETION_KEYS_B64`, a comma-separated list of one to four canonical,
+unpadded base64url-encoded 32-byte keys. Provider settings include
+`DOM_XRAY_S3_BUCKET`,
+`DOM_XRAY_AWS_ACCOUNT_ID`, `DOM_XRAY_DYNAMODB_TABLE`,
+`DOM_XRAY_DYNAMODB_EXPIRY_INDEX`,
+`DOM_XRAY_DYNAMODB_TTL_DISABLED_AT_EPOCH`. The CloudFront adapter separately
+uses `DOM_XRAY_CLOUDFRONT_DISTRIBUTION_ID`, but the composite runtime does not
+construct that adapter or configure a purger. Startup preflights the S3 and DynamoDB
+adapters and fails closed with no filesystem fallback if configuration fails.
+The current runtime fixes cache policy to `no-store` and supplies no CloudFront
+purger, so shared caching is not enabled even if the distribution setting is
+present.
+
+Key order is the rotation contract: the first key signs new publications and
+the remaining keys verify records created under older key IDs. An old key must
+remain configured through the maximum live-result retention plus every staged,
+retiring, and cleanup-pending horizon; removing it earlier intentionally fails
+closed and prevents owner deletion or staged retry for those records.
+
+The DynamoDB expiry index discovers live expiry candidates, while its lifecycle
+work partition discovers retiring records and retired records whose exact
+object cleanup remains incomplete. The composite sweeper retries both classes
+after restart. Staged publication retries can resume when the caller retries,
+but staged controls have no indexed abandonment/recovery workflow yet; orphan
+staged records therefore need an explicit operational policy before deployment.
+An HTTP read authorized by the live control record before retirement begins may
+finish fetching its exact object version after the retirement fence; the fence
+blocks new origin authorizations but does not cancel already-authorized reads.
+These local contract proofs do not demonstrate provider deployment or
+multi-writer safety.
+
 Completed results, tombstones, the store key, and deletion authorization survive
 restart. Jobs, admission cooling, target-to-result reuse indexes, and
 deletion-attempt counters remain in process. Production must replace those
@@ -88,3 +130,10 @@ private-object lifecycle and cache-purge state machine. `scripts/verify_local_sc
 proves the HTTP digest, cache, restart, ownership, throttling, expiry-recovery,
 and deletion behavior, poster/video GET/HEAD/304/405 behavior, content-free
 misses, and raw-upload refusal through a real local server.
+`scripts/verify_composite_result_backend.py` proves the fake-provider composite
+contract, including HMAC authority, exact object-version binding, publication
+ordering, deletion/expiry, and retryable lifecycle work. It does not test live
+AWS services. `scripts/verify_composite_runtime.py` proves HTTP backend
+selection, strict key/retention handling, injected AWS-client construction,
+fail-closed startup without filesystem fallback, and the runtime's fixed
+no-store/no-purger policy; it does not prove deployed AWS or IAM behavior.

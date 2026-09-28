@@ -187,12 +187,23 @@ CloudFront is the selected delivery shape. Credential-free adapters prove
 private conditional S3 creation with exact-version readback/permanent deletion,
 DynamoDB table/TTL preflight and full-identity conditional lifecycle state with
 exact-millisecond visibility/permanent tombstones, and exact CloudFront variant
-coverage with idempotent `Completed`-only confirmation. The live API remains
-honestly `no-store`: these are local state-machine and adapter-contract proofs,
-not deployed AWS/CDN or live multi-writer evidence. Local validators, renderer
+coverage with idempotent `Completed`-only confirmation. The composite
+`ResultBackend` now coordinates deletion HMACs, exact-version S3 objects, and
+DynamoDB control transitions; the DynamoDB GSI also discovers retiring and
+retired cleanup work for retries after restart. Its fake-provider verifier is
+local contract evidence. The live API remains honestly `no-store`, and the
+composite is now selectable with `--result-backend composite` or
+`DOM_XRAY_RESULT_BACKEND=composite`. Startup requires the strict deletion
+keyring and explicit retention, and fails closed rather than falling back to
+filesystem storage. The runtime fixes cache policy to `no-store` and configures
+no CloudFront purger. These proofs do not establish deployed AWS/IAM behavior,
+live multi-writer contention, or warmed-edge and in-flight stale-fill purge
+behavior. A read authorized before the retirement fence may finish after it;
+staged publication abandonment and discovery remain an operational gap. Local
+validators, renderer
 supervision, a 15/15 deterministic video run (5.317 s p50, 6.723 s max), and
 real-browser exact-byte downloads prove the current controlled path. The
-composite `ResultBackend`/HMAC/HTTP integration, deployed S3/DynamoDB behavior,
+deployed S3/DynamoDB behavior,
 a warmed-cache and in-flight-fill purge drill, current X web/mobile upload and
 recompression, representative production benchmarks, and share instrumentation
 remain unfinished.

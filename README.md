@@ -32,9 +32,19 @@ and CloudFront is the selected Gate 5 delivery shape. Credential-free adapters
 now prove private conditional S3 creation with exact-version readback/permanent
 deletion, DynamoDB full-identity conditional lifecycle state with exact
 millisecond visibility and permanent tombstones, and idempotent CloudFront
-invalidation accepted only at provider `Completed`. The HTTP surface remains
-`no-store` until one composite `ResultBackend` owns HMAC authority and integrates
-those adapters, and a deployed warmed-edge purge drill passes the contract.
+invalidation accepted only at provider `Completed`. The HTTP runtime can
+explicitly select the composite with `--result-backend composite` or
+`DOM_XRAY_RESULT_BACKEND=composite`. It owns deletion-HMAC verification,
+version-bound S3 reads/writes, and DynamoDB visibility transitions; the DynamoDB
+GSI also indexes retiring and retired-but-incomplete cleanup work for restartable
+retries. Composite startup requires strict `DOM_XRAY_DELETION_KEYS_B64` and
+retention via `--retention-hours` or `DOM_XRAY_RETENTION_HOURS`; provider setup
+fails closed without falling back to filesystem storage. The HTTP runtime uses
+`no-store` and no CloudFront purger. These local fake-provider/runtime proofs do
+not establish live AWS/IAM behavior, multi-writer contention, or warmed-edge and
+stale-fill purge behavior. Reads authorized before the retirement fence may
+finish afterward, and staged publications still lack indexed
+abandonment/recovery.
 Partial captures disclose their exact limitation and neutral captures remain
 link-only. Arbitrary public scanning remains honestly disabled. This is
 executable product progress, not a production-scanner claim: public egress,
@@ -89,6 +99,8 @@ python scripts/verify_artifact_delivery.py
 python scripts/verify_s3_object_store.py
 python scripts/verify_dynamodb_control_store.py
 python scripts/verify_cloudfront_purger.py
+python scripts/verify_composite_result_backend.py
+python scripts/verify_composite_runtime.py
 python scripts/verify_local_scan_api.py
 python scripts/verify_png_validation.py
 python scripts/verify_poster_renderer.py
@@ -121,8 +133,13 @@ bounded expiry cursors, one winning purge operation, persisted
 confirmation/cleanup evidence, and permanent tombstones against a deterministic
 client. The CloudFront verifier adds exact canonical/query-variant invalidation
 coverage, operation-ID idempotency, provider-response validation, and pending-
-to-`Completed` retry integration against a deterministic client. These are
-local contract proofs, not deployed AWS/CDN evidence. The local HTTP verifier
+to-`Completed` retry integration against a deterministic client. The composite
+verifier composes fake object, control, and purge providers to prove centralized
+HMAC checks, exact-version binding, publication ordering, and retryable
+retirement/cleanup. The runtime verifier checks selector/key/retention
+validation, injected S3/DynamoDB initialization, fail-closed startup, and the
+fixed no-store/no-purger policy. These are local contract proofs, not deployed
+AWS/CDN evidence. The local HTTP verifier
 then exercises bounded JSON submission, browser-minted deletion digests,
 queued/running/ready states, the existing supervised transport,
 schema-plus-semantic admission, no-store ETags, restart recovery and owner

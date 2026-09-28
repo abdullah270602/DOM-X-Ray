@@ -91,6 +91,8 @@ python ../scripts/verify_artifact_delivery.py
 python ../scripts/verify_s3_object_store.py
 python ../scripts/verify_dynamodb_control_store.py
 python ../scripts/verify_cloudfront_purger.py
+python ../scripts/verify_composite_result_backend.py
+python ../scripts/verify_composite_runtime.py
 ```
 
 The unit suite proves deterministic poster/video source binding, exact
@@ -149,7 +151,17 @@ reads, bounded expiry pagination, conditional lifecycle fencing, operation-ID
 convergence, persisted purge evidence, cleanup receipts, and tombstone
 non-reuse. It uses no credentials and creates no AWS resource. It therefore
 does not prove Botocore model validation, real DynamoDB contention, IAM
-isolation, truthful deployment timestamps, or composite HMAC ownership.
+isolation, or truthful deployment timestamps. The composite-backend verifier
+now separately proves fake-provider composition, centralized HMAC checks,
+version-bound object operations, publication visibility ordering, and retryable
+retirement/cleanup discovery. The runtime verifier proves explicit selection
+with `--result-backend composite` or `DOM_XRAY_RESULT_BACKEND=composite`, strict
+deletion-key and retention validation, provider setup using injected clients,
+fail-closed startup without filesystem fallback, and the fixed `no-store`/no
+purger configuration. These local proofs do not establish deployed AWS or IAM
+behavior, live multi-writer contention, or a warmed-edge and in-flight
+stale-fill purge drill. A read authorized before retirement may finish after
+the fence. Staged publication abandonment and discovery remain unimplemented.
 Production additionally requires a dedicated table on which TTL has never been
 enabled and a runtime role without `dynamodb:UpdateTimeToLive`.
 
@@ -166,8 +178,8 @@ performance backlog item, not Gate 5 evidence.
 
 ## Not yet proven
 
-- composite `ResultBackend`/HMAC/HTTP integration, deployed S3 and DynamoDB
-  behavior, IAM proof, warmed-cache purge and in-flight stale-fill drill,
+- deployed S3 and DynamoDB behavior, IAM proof, warmed-cache purge and
+  in-flight stale-fill drill,
   moderation, or takedown workflow;
 - current X web/mobile upload, playback, and recompression behavior;
 - the representative production 99% poster / 95% video benchmark thresholds
@@ -178,10 +190,10 @@ performance backlog item, not Gate 5 evidence.
 - public arbitrary-page scanning, which remains blocked by the separate scanner
   containment and policy gates.
 
-The next Gate 5 checkpoint is the composite `ResultBackend`: it must calculate
-and verify deletion HMACs, coordinate exact-version S3 objects, DynamoDB
-control transitions, and CloudFront purge as the single visibility authority
-behind the existing HTTP seam. After that comes deployed S3/DynamoDB plus the
-warmed/in-flight CloudFront purge drill, followed by a current X web/mobile
-upload-and-recompression proof. None relaxes the Gate 0/Gate 3 public scanner
-blockers.
+The composite backend, its credential-free contract verifier, explicit
+fail-closed HTTP selection, and DynamoDB discovery for retirement/incomplete
+cleanup work are now in place. Next, verify deployed S3/DynamoDB and IAM
+behavior and run the warmed/in-flight CloudFront purge drill. Staged-publication
+abandonment/recovery also needs an operational design. Follow with a current X
+web/mobile upload-and-recompression proof.
+None relaxes the Gate 0/Gate 3 public scanner blockers.

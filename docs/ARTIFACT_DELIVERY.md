@@ -169,14 +169,27 @@ route, or own the `live → retiring → retired` transition.
 - stores the exact epoch-millisecond expiry in the sparse GSI, fences
   activation before it, hides visibility at or after it, then treats the GSI as
   candidate discovery only before a strong base-item reread and conditional
-  retirement; and
+  retirement;
+- reuses the sparse GSI's `DELIVERY_WORK` partition to discover retiring
+  records and retired records whose cleanup is incomplete, so purge and exact
+  object deletion can resume after process restart; and
 - keeps one winning purge operation ID, requires persisted provider completion
   before retirement, and records cleanup without deleting the tombstone.
 
-The adapter validates only the deletion key/HMAC representation. The future
-composite `ResultBackend` must calculate and verify that capability centrally,
-coordinate S3/control/purge work as the sole authority, and fence reads against
-the control adapter's exact visibility read.
+The adapter validates only the deletion key/HMAC representation.
+`scanner/composite_result_backend.py` now calculates/verifies the capability
+through its injected keyring, coordinates S3/control/purge work, and uses the
+control adapter's exact visibility read as the sole authority. It is exercised
+against deterministic fake providers by
+`scripts/verify_composite_result_backend.py` and can be selected in the HTTP
+runtime using `--result-backend composite` or
+`DOM_XRAY_RESULT_BACKEND=composite`. Startup requires validated deletion keys,
+explicit retention, and successful S3/DynamoDB preflight; failure does not fall
+back to filesystem storage. Current runtime policy is fixed to `no-store` with
+no CloudFront purger. Staged publications can be retried by their caller, but
+there is no indexed staged-abandonment/recovery workflow yet. A read authorized
+before a retirement fence may finish fetching its exact object version after
+the fence.
 
 `scanner/cloudfront_purger.py` supplies the purge slice. It:
 
@@ -217,6 +230,8 @@ python scripts/verify_artifact_delivery.py
 python scripts/verify_s3_object_store.py
 python scripts/verify_dynamodb_control_store.py
 python scripts/verify_cloudfront_purger.py
+python scripts/verify_composite_result_backend.py
+python scripts/verify_composite_runtime.py
 ```
 
 The verifier covers private key/path binding, object-before-live ordering,
@@ -249,9 +264,11 @@ provider-response identity checks, environment wiring, and integration with the
 durable retiring state, including fail-closed distribution drift. It uses a
 deterministic fake CloudFront client and creates no AWS resources.
 
-Before production, the provider adapters must be composed behind one
-transactional lifecycle authority and pass the same suite against deployed AWS,
-plus a drill that warms every CDN variant, deletes/expires the result, waits for
-confirmed purge, permanently deletes the bound S3 versions, and proves all old
-URLs and stale ETags are unable to return bytes. Public arbitrary-page scanning
-remains independently blocked by the scanner containment and egress gates.
+Before production, exercise the composite selection against deployed AWS with
+the intended IAM role. The current HTTP wiring does not prove the deployed
+service identity or policies. Then run a drill that warms
+every CDN variant, deletes/expires the result, waits for confirmed purge,
+permanently deletes the bound S3 versions, and proves all old URLs and stale
+ETags are unable to return bytes, including across an in-flight origin fill.
+Public arbitrary-page scanning remains independently blocked by the scanner
+containment and egress gates.

@@ -1,6 +1,6 @@
 # Anonymous Scan API Contract
 
-Status: local integration proof v0.1
+Status: local integration proof v0.1 with an explicit no-store composite backend mode
 
 ## Purpose
 
@@ -55,7 +55,9 @@ endpoints, and evidence pointers before rendering. While deletion is supported,
 responses use `Cache-Control: no-store`; a public immutable cache is forbidden
 until the deployment has a proven purge path. `ARTIFACT_DELIVERY.md` defines the
 private-object and `live → retiring → retired` provider contract that must pass
-before shared caching can be enabled.
+before shared caching can be enabled. Missing/non-live results also return
+`Cache-Control: no-store`. A retryable provider failure returns an empty `503`
+with `Retry-After`; it is not cached or misreported as a permanent miss.
 
 ### `GET, HEAD /api/results/{resultId}/poster.png`
 
@@ -72,7 +74,9 @@ non-interlaced PNG and publishes the sidecar before committing the JSON result
 envelope. `POST`, `PUT`, `PATCH`, `DELETE`, and `OPTIONS` on this exact route
 return empty `405 Method Not Allowed` with `Allow: GET, HEAD`.
 Missing, ineligible, deleted, expired, or corrupt results/artifacts all return
-content-free `404` responses. The API never accepts client pixel uploads.
+content-free `404` responses with `Cache-Control: no-store`. Retryable provider
+failures return an empty no-store `503` with `Retry-After`. The API never accepts
+client pixel uploads.
 
 ### `GET, HEAD /api/results/{resultId}/video.mp4`
 
@@ -92,17 +96,20 @@ streaming without weakening manifest, ETag, or deletion checks.
 ### `DELETE /api/results/{resultId}`
 
 Require the separate 256-bit `X-Deletion-Token` capability. A correct token
-retires the result ID, removes the durable bundle, and returns an empty `204`.
+retires the result ID, removes the durable bundle, and returns an empty `204`
+only after required lifecycle work is durable and exact-version cleanup has
+completed.
 Malformed, wrong, unknown, and rate-limited attempts return empty `400`, `403`,
 `404`, and `429` responses respectively, all with `Cache-Control: no-store`;
 `429` also includes `Retry-After`. Only a keyed HMAC of the browser-supplied
 digest is stored, token comparison is constant-time, repeated failures are
 bounded without blocking a correct token, and deletion invalidates in-process
 exact-result reuse. Production requires requester-aware distributed throttling.
-If shared edge caching is enabled later, origin reachability must be fenced
-first and `204` may be returned only after a durable confirmed purge receipt;
-pending invalidation requires an explicit non-success/pending response and
-provider-independent retry.
+`202 Accepted` plus `Retry-After` means visibility is already fenced but purge
+or exact cleanup remains pending. `503 Service Unavailable` plus `Retry-After`
+means the backend could not yet establish or complete the transition. If shared
+edge caching is enabled later, origin reachability must be fenced first and
+`204` may be returned only after a durable confirmed purge receipt.
 
 ### `GET /r/{resultId}`
 
@@ -143,11 +150,25 @@ rejects corrupt or symlinked result files, and sweeps expired entries. Bundle
 and artifact bytes, deletion authorization, tombstones, and ETags survive
 process restart.
 
-The local server defaults to a 24-hour engineering retention window, adjustable
-with `--retention-hours`. That is not the public product policy. Durable jobs,
-multi-process writers, distributed indexes, a deployed object-store/CDN adapter
-with a real purge drill, takedown operations, and the approved production
-retention period remain release gates.
+The filesystem backend remains the default and keeps a 24-hour engineering
+retention window unless `--retention-hours` is supplied. The server can instead
+select the provider composition explicitly with `--result-backend composite`
+or `DOM_XRAY_RESULT_BACKEND=composite`. Composite mode requires one to four
+canonical unpadded base64url 32-byte deletion keys in
+`DOM_XRAY_DELETION_KEYS_B64` (current signer first), explicit retention via the
+CLI or `DOM_XRAY_RETENTION_HOURS`, and the documented S3/DynamoDB settings. It
+preflights both providers and fails startup without falling back to filesystem
+storage. Current runtime policy is fixed to `no-store` and creates no
+CloudFront purger even if a distribution setting exists.
+
+This is credential-free runtime/adapter contract evidence, not deployed AWS or
+IAM proof. Old HMAC keys must remain configured through the longest live result
+retention plus staged/pending cleanup horizon. Reads authorized while a control
+record is live may finish after a concurrent retirement fence; the fence blocks
+new authorizations but does not cancel in-flight responses. Durable jobs,
+deployed multi-writer behavior, a warmed-cache/in-flight-fill purge drill,
+takedown operations, staged-publication abandonment, and the approved
+production retention period remain release gates.
 
 ## Public error vocabulary
 
