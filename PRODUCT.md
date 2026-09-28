@@ -79,9 +79,12 @@ The Three.js Concept Atlas established the visual world. The user has now approv
 
 ## Evidence on Hand
 
-- Approved interactive concept atlas: `C:\Users\Abdullah Naseem\.codex\visualizations\2026\09\04\01a06e25-99f2-77a3-a31c-f0ab8fd7e502\threejs-concept-atlas.html`
-- Approved first-viewport composition: `C:\Users\Abdullah Naseem\Documents\ChatGPT\DOM-X-Ray\.impeccable\mocks\decision\architectural-section.png` (**Instrument Panorama**, approved 2026-09-06).
-- Approved viewer contract: `C:\Users\Abdullah Naseem\Documents\ChatGPT\DOM-X-Ray\docs\VIEWER_CONTRACT.md`.
+- Approved interactive concept atlas: original local ideation artifact (not
+  committed to this repository).
+- Approved first-viewport composition:
+  `.impeccable/mocks/decision/architectural-section.png` (**Instrument
+  Panorama**, approved 2026-09-06).
+- Approved viewer contract: `docs/VIEWER_CONTRACT.md`.
 - Confirmed product choice: a public website-exploration toy, not a developer-first diagnostic workspace.
 - Confirmed interaction preference: an interactive viewer rather than static boards alone.
 - No production scanner, representative scan dataset, usability findings, performance benchmark, testimonials, or public traction evidence exists yet. Future work must not fabricate them.

@@ -5,7 +5,7 @@ Status: approved composition contract for Gate 1
 ## Approved reference
 
 - Composition: **Instrument Panorama**
-- Artifact: `C:\Users\Abdullah Naseem\Documents\ChatGPT\DOM-X-Ray\.impeccable\mocks\decision\architectural-section.png`
+- Artifact: `.impeccable/mocks/decision/architectural-section.png`
 - Approval date: 2026-09-06
 - Reference viewport: 1440 × 900 CSS pixels
 - Mapping version: `mapping-v0.1.0`
