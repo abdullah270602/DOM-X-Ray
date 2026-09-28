@@ -16,10 +16,14 @@ same-origin CloudFront distribution
                           └─ private S3 artifact objects
 ```
 
-The production control store is expected to use conditional, multi-writer-safe
-transitions (DynamoDB is the default implementation target). The application
-origin, not a public bucket URL, authorizes every result read from the durable
-`live → retiring → retired` state. The S3 bucket is versioned, blocks all public
+The production control store uses one conditionally updated DynamoDB item per
+result. The application origin, not a public bucket URL, authorizes every
+result read from the durable `staged → live → retiring → retired` state. The
+item binds the immutable publication digest, exact S3 target/version registry,
+retention boundary, deletion-capability digest, cache policy, purge operation,
+and cleanup evidence. Exact retries converge; changed retention, deletion
+capability, object version, or publication identity collides instead of
+silently transferring authority. The S3 bucket is versioned, blocks all public
 access, and uses bucket-owner-enforced ownership. Objects are created with
 `If-None-Match: *`, an application SHA-256 checksum, and fixed identity
 metadata, then read back by the returned S3 `VersionId` before a live control
@@ -43,11 +47,26 @@ markers at the exact key. A delete marker alone is not deletion proof. If
 cleanup fails, the control record remains retired and cleanup is retried; no
 object failure can restore public visibility.
 
+A sparse DynamoDB GSI discovers live expiry candidates at an exact epoch-
+millisecond boundary, followed by a strongly consistent base-table read and a
+conditional `live → retiring` fence. Visibility reads independently reject a
+live record at or after that exact boundary, and activation conditionally
+requires expiry to remain in the future. DynamoDB native TTL remains disabled:
+retired items are permanent non-reuse tombstones, not expiring data. Production
+uses a dedicated table on which TTL has never been enabled. As defense in
+depth, startup rejects any reported TTL attribute, requires an operator-supplied
+TTL-disabled timestamp, and applies a conservative one-hour quarantine—twice
+AWS's approximate 30-minute post-disable deletion period.
+
 Runtime access uses an IAM role with narrow S3, control-store, and CloudFront
 permissions, including exact-version reads/deletes and prefix-bounded version
-listing for deletion proof. Static access keys are not an accepted deployment
-configuration. A deployment selecting SSE-KMS must also grant only the KMS
-checksum-read permissions required by its key policy.
+listing for deletion proof. Only the lifecycle service may write the control
+table; the control identity is a consistency digest, not authentication against
+a privileged table writer. The runtime role may describe TTL but may not call
+`UpdateTimeToLive`; that setting remains infrastructure-owned. Static access
+keys are not an accepted deployment configuration. A deployment selecting
+SSE-KMS must also grant only the KMS checksum-read permissions required by its
+key policy.
 
 ## Why this provider shape
 
@@ -64,6 +83,9 @@ checksum-read permissions required by its key policy.
   bucket remains private and application state continues to gate visibility.
 - The provider APIs map directly to durable retry rather than requiring a
   browser session to stay open during deletion.
+- DynamoDB conditional writes fence every lifecycle transition while strong
+  base-table rereads resolve retries without treating the eventually
+  consistent expiry index as authority.
 
 Official provider references:
 
@@ -74,6 +96,11 @@ Official provider references:
 - [CloudFront invalidation API](https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_GetInvalidation.html)
 - [CloudFront invalidation paths and query variants](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/invalidation-specifying-objects.html)
 - [CloudFront private S3 origins with OAC](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html)
+- [DynamoDB conditional writes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/WorkingWithItems.html)
+- [DynamoDB read consistency](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadConsistency.html)
+- [DynamoDB `DescribeTable`](https://docs.aws.amazon.com/boto3/latest/reference/services/dynamodb/client/describe_table.html)
+- [DynamoDB `DescribeTimeToLive`](https://docs.aws.amazon.com/boto3/latest/reference/services/dynamodb/client/describe_time_to_live.html)
+- [DynamoDB TTL disable drain window](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/time-to-live-ttl-how-to.html)
 
 ## Alternatives
 
@@ -107,9 +134,18 @@ construction, identity validation, idempotent retries, and the rule that only
 credential-free verifier prove configuration preflight, conditional
 create-once requests, exact-version readback, collision handling, target
 binding, and permanent exact-version deletion against an injected client. They
-do not prove AWS credentials, IAM policy, transactional multi-writer control
-storage, deployed S3 behavior, bucket policy/OAC correctness, routing, a warmed
-global edge, or deletion during an in-flight origin fill.
+do not prove AWS credentials, IAM policy, deployed S3 behavior, bucket
+policy/OAC correctness, routing, a warmed global edge, or deletion during an
+in-flight origin fill.
+
+`scanner/dynamodb_control_store.py` and its deterministic verifier prove the
+low-level AttributeValue codec, table/GSI/TTL preflight, insert-only staging,
+conditional lifecycle fences, strong conflict rereads, candidate pagination,
+one winning purge operation, confirmed purge evidence, and permanent
+tombstones against an injected client. They do not prove Botocore request-model
+acceptance in the installed deployment, live DynamoDB contention/consistency,
+IAM isolation, or that the future composite backend correctly computes the
+deletion HMAC and owns every HTTP visibility decision.
 
 Before enabling shared caching, a deployed environment must warm every relevant
 route/variant, pause an origin fill across retirement, wait for the confirmed

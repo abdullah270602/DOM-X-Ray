@@ -10,7 +10,37 @@ The first release is deliberately not a full developer dashboard, a Lighthouse r
 
 ## Current status
 
-Gate 0's local extraction, policy, supervision, and transport proofs are implemented, while production egress and containment remain open release gates. Gate 1 now has a shipped React/Three.js viewer for all three immutable fixtures, and the authored Gate 2 reveal runs through the shared five-stage runtime. The Gate 3 local API adds anonymous pollable jobs, transport-backed seeded scans, restart-stable immutable result bundles, strong ETags, bounded retention, and a separate HMAC-backed no-login deletion capability. Published eligible results now have a fail-closed dual-format share preview, stable caption/link controls, and server-controlled poster and video sidecars: a strict 1080 × 1080 RGBA PNG plus a deterministic five-stage, five-second 1080 × 1080 H.264 MP4. Their exact SHA-256 digests, byte lengths, and source-result bindings are committed with the immutable manifest. The viewer independently verifies each same-origin route, response status/final URL/type/ETag/length/signature/SHA before preview or download; video failure falls back safely to the verified poster, while poster failure retains the bounded local-export path. A durable local delivery reference now proves private immutable keys, object-before-live publication, origin fencing, `live → retiring → retired`, idempotent purge retries, confirmed receipts, and tombstoned non-reuse. AWS S3 plus transactional control state and CloudFront is the selected Gate 5 delivery shape. Credential-free adapters now prove private conditional S3 creation with exact-version readback/permanent deletion and idempotent CloudFront invalidation accepted only at provider `Completed`. The HTTP surface deliberately remains `no-store` until one transactional control authority integrates those adapters and a deployed warmed-edge purge drill passes the contract. Partial captures disclose their exact limitation and neutral captures remain link-only. Arbitrary public scanning remains honestly disabled. This is executable product progress, not a production-scanner claim: public egress, distributed queues and abuse controls, an approved retention/takedown policy, deployed AWS delivery evidence, representative production benchmarks, share telemetry, and current X upload/recompression testing remain unfinished.
+Gate 0's local extraction, policy, supervision, and transport proofs are
+implemented, while production egress and containment remain open release gates.
+Gate 1 has a shipped React/Three.js viewer for all three immutable fixtures, and
+the authored Gate 2 reveal runs through the shared five-stage runtime. The Gate
+3 local API adds anonymous pollable jobs, transport-backed seeded scans,
+restart-stable immutable result bundles, strong ETags, bounded retention, and a
+separate HMAC-backed no-login deletion capability. Published eligible results
+have a fail-closed dual-format share preview, stable caption/link controls, and
+server-controlled poster and video sidecars: a strict 1080 × 1080 RGBA PNG plus
+a deterministic five-stage, five-second 1080 × 1080 H.264 MP4. Their exact
+SHA-256 digests, byte lengths, and source-result bindings are committed with the
+immutable manifest. The viewer independently verifies each same-origin route,
+response status/final URL/type/ETag/length/signature/SHA before preview or
+download; video failure falls back safely to the verified poster, while poster
+failure retains the bounded local-export path. A durable local delivery
+reference proves private immutable keys, object-before-live publication,
+origin fencing, `live → retiring → retired`, idempotent purge retries,
+confirmed receipts, and tombstoned non-reuse. AWS S3 plus DynamoDB control state
+and CloudFront is the selected Gate 5 delivery shape. Credential-free adapters
+now prove private conditional S3 creation with exact-version readback/permanent
+deletion, DynamoDB full-identity conditional lifecycle state with exact
+millisecond visibility and permanent tombstones, and idempotent CloudFront
+invalidation accepted only at provider `Completed`. The HTTP surface remains
+`no-store` until one composite `ResultBackend` owns HMAC authority and integrates
+those adapters, and a deployed warmed-edge purge drill passes the contract.
+Partial captures disclose their exact limitation and neutral captures remain
+link-only. Arbitrary public scanning remains honestly disabled. This is
+executable product progress, not a production-scanner claim: public egress,
+distributed queues and abuse controls, an approved retention/takedown policy,
+deployed AWS delivery evidence, representative production benchmarks, share
+telemetry, and current X upload/recompression testing remain unfinished.
 
 ## Project documents
 
@@ -57,6 +87,7 @@ python scripts/verify_scan_api_contract.py
 python scripts/verify_result_store.py
 python scripts/verify_artifact_delivery.py
 python scripts/verify_s3_object_store.py
+python scripts/verify_dynamodb_control_store.py
 python scripts/verify_cloudfront_purger.py
 python scripts/verify_local_scan_api.py
 python scripts/verify_png_validation.py
@@ -71,7 +102,43 @@ The tenth command is network-free: it exercises the deployment-neutral destinati
 
 The eleventh composes that policy with the supervised worker and record-admission boundary. It proves independent initial/redirect/subresource grants, zero launch on 29 target and seven DNS rejections, rebinding denial, strict worker-envelope admission, scan-schema plus semantic validation, and exact initial-target correlation. No record is publishable after launch/setup failure, crash, timeout, stale nonce, oversized/nonregular artifact, malformed envelope, invalid record, or target mismatch. It is connector-contract evidence, not proof of production address-pinned HTTPS, public egress, a queue, or container containment.
 
-The scan-API verifier proves the separate anonymous job lifecycle and immutable bundle boundary. The result-store verifier proves atomic file publication, byte-identical restart recovery, HMAC-only digest storage, key rotation, retention, tombstoned non-reuse, corruption rejection, deletion, concurrency, and identifier safety. The artifact-delivery verifier separately proves deterministic private keys, object-before-live activation, exact-byte collision rejection, abort cleanup, restart validation, origin fencing before purge, durable pending retries, confirmed receipts, cache-policy gating, and tombstone precedence. The S3 verifier proves private/versioned/owner-enforced target preflight, conditional exact-key creation, checksum and immutable metadata, exact-version readback, idempotent collision handling, and permanent exact-version deletion against a deterministic client. The CloudFront verifier adds exact canonical/query-variant invalidation coverage, operation-ID idempotency, provider-response validation, and pending-to-`Completed` retry integration against a deterministic client. These are local contract proofs, not deployed AWS/CDN evidence. The local HTTP verifier then exercises bounded JSON submission, browser-minted deletion digests, queued/running/ready states, the existing supervised transport, schema-plus-semantic admission, no-store ETags, restart recovery and owner deletion, exact-result reuse without ownership transfer, owner-safe guess throttling, expiry recovery, target correlation, queue and cooling limits, the stable result shell, and content-free misses. It also proves the poster and video GET/HEAD routes, strong SHA ETags and conditional 304s, exact-method 405/Allow behavior, content-free 404s for missing/ineligible/deleted/expired/corrupt artifacts, poster-only video-failure fallback, and raw-upload refusal. The viewer tests and Chromium run prove independent same-origin verification and exact-byte download for both hosted artifacts, with a safe poster/local fallback when motion is absent or rejected. The PNG and MP4 validators plus their trusted renderers prove the exact 1080 × 1080 media boundaries, deterministic controlled output, worker supervision, strict size/duration/cadence limits, and no client pixel upload. An arbitrary public target remains disabled in this local safety proof.
+The scan-API verifier proves the separate anonymous job lifecycle and immutable
+bundle boundary. The result-store verifier proves atomic file publication,
+byte-identical restart recovery, HMAC-only digest storage, key rotation,
+retention, tombstoned non-reuse, corruption rejection, deletion, concurrency,
+and identifier safety. The artifact-delivery verifier separately proves
+deterministic private keys, object-before-live activation, exact-byte collision
+rejection, abort cleanup, restart validation, origin fencing before purge,
+durable pending retries, confirmed receipts, cache-policy gating, and tombstone
+precedence. The S3 verifier proves private/versioned/owner-enforced target
+preflight, conditional exact-key creation, checksum and immutable metadata,
+exact-version readback, idempotent collision handling, and permanent
+exact-version deletion against a deterministic client. The DynamoDB verifier
+proves table/GSI/TTL plus post-disable-drain preflight, metadata-only
+AttributeValue encoding, full-control-identity insert-only staging, exact-
+millisecond visibility, conditional lifecycle fences, strong conflict rereads,
+bounded expiry cursors, one winning purge operation, persisted
+confirmation/cleanup evidence, and permanent tombstones against a deterministic
+client. The CloudFront verifier adds exact canonical/query-variant invalidation
+coverage, operation-ID idempotency, provider-response validation, and pending-
+to-`Completed` retry integration against a deterministic client. These are
+local contract proofs, not deployed AWS/CDN evidence. The local HTTP verifier
+then exercises bounded JSON submission, browser-minted deletion digests,
+queued/running/ready states, the existing supervised transport,
+schema-plus-semantic admission, no-store ETags, restart recovery and owner
+deletion, exact-result reuse without ownership transfer, owner-safe guess
+throttling, expiry recovery, target correlation, queue and cooling limits, the
+stable result shell, and content-free misses. It also proves the poster and
+video GET/HEAD routes, strong SHA ETags and conditional 304s, exact-method
+405/Allow behavior, content-free 404s for missing, ineligible, deleted, expired,
+or corrupt artifacts, poster-only video-failure fallback, and raw-upload
+refusal. The viewer tests and Chromium run prove independent same-origin
+verification and exact-byte download for both hosted artifacts, with a safe
+poster/local fallback when motion is absent or rejected. The PNG and MP4
+validators plus their trusted renderers prove the exact 1080 × 1080 media
+boundaries, deterministic controlled output, worker supervision, strict
+size/duration/cadence limits, and no client pixel upload. An arbitrary public
+target remains disabled in this local safety proof.
 
 ## Product loop
 

@@ -1,7 +1,8 @@
 # Artifact Delivery and Purge Contract
 
-Status: durable local lifecycle plus credential-free S3 and CloudFront adapter
-contracts v0.2; no AWS resource or production provider is deployed.
+Status: durable local lifecycle plus credential-free S3, DynamoDB, and
+CloudFront adapter contracts v0.3; no AWS resource or production provider is
+deployed.
 
 ## Purpose
 
@@ -146,9 +147,36 @@ transactional control state, and a same-origin CloudFront distribution for Gate
 - permanently deletes the exact version, then fails closed unless no residual
   version or delete marker remains at that key.
 
-The future transactional control record must persist each returned target and
-version binding. The adapter alone does not make an object live, authorize a
+The transactional control record persists each returned target and version
+binding. The object adapter alone does not make an object live, authorize a
 route, or own the `live → retiring → retired` transition.
+
+`scanner/dynamodb_control_store.py` supplies the control-state slice. It:
+
+- stores metadata only—never bundle, poster, or video payload bytes—in one
+  result-scoped item below a conservative encoded-size budget;
+- requires an active `PK`/`SK` table, an active configured
+  `GSI1PK`/`GSI1SK` expiry index, and disabled native TTL before use, preserving
+  retired items as permanent result-ID tombstones; it also requires
+  `DOM_XRAY_DYNAMODB_TTL_DISABLED_AT_EPOCH`, rejects any reported TTL attribute,
+  and enforces a conservative one-hour post-disable quarantine before startup;
+- inserts staged controls once and accepts a retry only when the full control
+  identity matches, including exact object versions, retention, key ID, and
+  deletion HMAC digest;
+- uses revision, state, control identity, purge operation, coverage, and target
+  conditions to fence activation, retirement, purge evidence, finalization,
+  and cleanup;
+- stores the exact epoch-millisecond expiry in the sparse GSI, fences
+  activation before it, hides visibility at or after it, then treats the GSI as
+  candidate discovery only before a strong base-item reread and conditional
+  retirement; and
+- keeps one winning purge operation ID, requires persisted provider completion
+  before retirement, and records cleanup without deleting the tombstone.
+
+The adapter validates only the deletion key/HMAC representation. The future
+composite `ResultBackend` must calculate and verify that capability centrally,
+coordinate S3/control/purge work as the sole authority, and fence reads against
+the control adapter's exact visibility read.
 
 `scanner/cloudfront_purger.py` supplies the purge slice. It:
 
@@ -170,9 +198,15 @@ The recorded confirmation time is when DOM X-Ray observed the provider's
 `InProgress`; the delivery lifecycle owns durable retries.
 
 These credential-free verifiers do not exercise Boto3 credentials, IAM,
-deployed S3, bucket policy/OAC enforcement, transactional multi-writer state,
-real CloudFront edges, or an in-flight stale origin fill. Shared caching
-therefore remains disabled in the HTTP service.
+deployed S3 or DynamoDB, bucket policy/OAC enforcement, live multi-writer
+contention, real CloudFront edges, or an in-flight stale origin fill. Shared
+caching therefore remains disabled in the HTTP service.
+
+Production must provision a dedicated control table on which TTL has never
+been enabled, keep `dynamodb:UpdateTimeToLive` out of the runtime role, and set
+the disabled timestamp from trusted deployment state. The quarantine is
+defense in depth around AWS's approximate post-disable behavior, not evidence
+that an arbitrary reused table is safe.
 
 ## Verification
 
@@ -181,6 +215,7 @@ Run:
 ```sh
 python scripts/verify_artifact_delivery.py
 python scripts/verify_s3_object_store.py
+python scripts/verify_dynamodb_control_store.py
 python scripts/verify_cloudfront_purger.py
 ```
 
@@ -198,6 +233,15 @@ target binding, malformed-listing rejection, and permanent exact-version
 deletion. It also proves `ExpectedBucketOwner` on bucket preflight and every
 object operation, plus checksum-enabled HEAD/GET calls. It uses a deterministic
 fake S3 client and creates no AWS resources.
+
+The DynamoDB verifier covers the low-level AttributeValue codec, table/GSI/TTL
+preflight plus post-disable drain, full-identity insert-only retries,
+exact-version registry binding, epoch-millisecond visibility and activation
+fencing, strongly consistent conflict resolution, bounded cursor validation,
+operation-ID convergence, pending-to-confirmed purge evidence, cleanup
+receipts, and permanent tombstones. It uses a
+deterministic fake client and creates no AWS resources; it is not a live SDK or
+multi-writer integration test.
 
 The CloudFront verifier covers exact wildcard path construction, one
 `CallerReference` across retries, pending-to-`Completed` status handling,

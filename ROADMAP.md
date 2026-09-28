@@ -163,7 +163,39 @@ Pivot rule: if visitors watch but do not inspect or rescan, improve the transiti
 
 **Question:** Does the artifact survive outside the product and invite the next scan?
 
-Current status: **trusted local poster/video publication and truthful dual-format share preview implemented; Gate 5 remains open**. `result-manifest-v0.1.0` deterministically binds an opaque result path, scan record, mapping registry, scene manifest, exact hero sentence and numeric evidence, limitation disclosure, and bounded poster/video targets. The seeded API exposes immutable ETag-bound bundles and restart-stable `/r/{resultId}` routes consumed by the viewer; the creating browser can delete through a separate unshared capability, while retired IDs are tombstoned. Published artifact-eligible results now offer a protected still/motion preview, product-owned caption and link controls, a server-controlled no-network Chromium 1080 × 1080 RGBA PNG, and a deterministic five-stage 1080 × 1080 H.264 MP4 with exactly five seconds, 30 fps, 150 frames, and an 8 MB ceiling. The manifest binds each artifact's exact SHA-256, byte length, and source hashes; the browser independently verifies same-origin route, status/final URL/type/ETag/length/signature/SHA before preview or download. Motion failure falls back to the verified poster, and reduced-motion visitors are never forced into autoplay. A durable provider-neutral delivery reference now proves private object keys, object-before-live activation, origin fencing, pending purge recovery, exact coverage receipts, and tombstoned non-reuse while refusing shared caching without a purger. AWS S3 plus transactional control state and CloudFront is now the selected delivery shape. Credential-free adapters prove private conditional S3 creation with exact-version readback/permanent deletion and exact CloudFront variant coverage with idempotent `Completed`-only confirmation. The live API remains honestly `no-store`: these are local state-machine and adapter-contract proofs, not deployed AWS/CDN or multi-writer evidence. Local validators, renderer supervision, a 15/15 deterministic video run (5.317 s p50, 6.723 s max), and real-browser exact-byte downloads prove the current controlled path. The transactional control-store adapter, single-authority HTTP integration, deployed S3 behavior, a warmed-cache and in-flight-fill purge drill, current X web/mobile upload and recompression, representative production benchmarks, and share instrumentation remain unfinished.
+Current status: **trusted local poster/video publication and truthful dual-format
+share preview implemented; Gate 5 remains open**.
+`result-manifest-v0.1.0` deterministically binds an opaque result path, scan
+record, mapping registry, scene manifest, exact hero sentence and numeric
+evidence, limitation disclosure, and bounded poster/video targets. The seeded
+API exposes immutable ETag-bound bundles and restart-stable `/r/{resultId}`
+routes consumed by the viewer; the creating browser can delete through a
+separate unshared capability, while retired IDs are tombstoned. Published
+artifact-eligible results offer a protected still/motion preview, product-owned
+caption and link controls, a server-controlled no-network Chromium 1080 × 1080
+RGBA PNG, and a deterministic five-stage 1080 × 1080 H.264 MP4 with exactly five
+seconds, 30 fps, 150 frames, and an 8 MB ceiling. The manifest binds each
+artifact's exact SHA-256, byte length, and source hashes; the browser
+independently verifies same-origin route,
+status/final URL/type/ETag/length/signature/SHA before preview or download.
+Motion failure falls back to the verified poster, and reduced-motion visitors
+are never forced into autoplay. A durable provider-neutral delivery reference
+proves private object keys, object-before-live activation, origin fencing,
+pending purge recovery, exact coverage receipts, and tombstoned non-reuse while
+refusing shared caching without a purger. AWS S3 plus DynamoDB control state and
+CloudFront is the selected delivery shape. Credential-free adapters prove
+private conditional S3 creation with exact-version readback/permanent deletion,
+DynamoDB table/TTL preflight and full-identity conditional lifecycle state with
+exact-millisecond visibility/permanent tombstones, and exact CloudFront variant
+coverage with idempotent `Completed`-only confirmation. The live API remains
+honestly `no-store`: these are local state-machine and adapter-contract proofs,
+not deployed AWS/CDN or live multi-writer evidence. Local validators, renderer
+supervision, a 15/15 deterministic video run (5.317 s p50, 6.723 s max), and
+real-browser exact-byte downloads prove the current controlled path. The
+composite `ResultBackend`/HMAC/HTTP integration, deployed S3/DynamoDB behavior,
+a warmed-cache and in-flight-fill purge drill, current X web/mobile upload and
+recompression, representative production benchmarks, and share instrumentation
+remain unfinished.
 
 Deliverables:
 

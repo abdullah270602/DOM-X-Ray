@@ -62,7 +62,17 @@ sharing).
   verifies checksum, metadata, and complete bytes against the exact returned
   `VersionId`; and permanently deletes that version while rejecting any
   residual version or delete marker. It does not make objects public or replace
-  the future transactional visibility record.
+  the transactional visibility record.
+- The credential-free DynamoDB adapter binds each result to the exact S3
+  target/version registry, immutable publication, retention boundary, cache
+  policy, and deletion-capability digest. It preflights the table, expiry GSI,
+  cleanly disabled native TTL, and a conservative one-hour post-disable
+  quarantine; accepts only full-identity staging retries; hides results at the
+  exact epoch-millisecond expiry; uses conditional
+  state/revision/identity/expiry fences plus strong conflict rereads; and
+  persists one purge operation through confirmation, retirement, cleanup, and
+  a permanent tombstone. The expiry index is candidate discovery only, not a
+  visibility authority.
 
 ## Reproducible evidence
 
@@ -79,6 +89,7 @@ python ../scripts/verify_mp4_validation.py
 python ../scripts/verify_video_renderer.py --attempts 15
 python ../scripts/verify_artifact_delivery.py
 python ../scripts/verify_s3_object_store.py
+python ../scripts/verify_dynamodb_control_store.py
 python ../scripts/verify_cloudfront_purger.py
 ```
 
@@ -131,6 +142,17 @@ target/version drift; malformed deletion evidence; and exact-version permanent
 deletion. It uses no credentials and creates no AWS resource, so it is adapter
 contract evidence rather than a deployed object-store result.
 
+The DynamoDB verifier uses a deterministic low-level client to cover schema and
+TTL/drain preflight, strict AttributeValue decoding, bounded metadata-only
+items, insert-only full-identity staging, exact millisecond visibility, strong
+reads, bounded expiry pagination, conditional lifecycle fencing, operation-ID
+convergence, persisted purge evidence, cleanup receipts, and tombstone
+non-reuse. It uses no credentials and creates no AWS resource. It therefore
+does not prove Botocore model validation, real DynamoDB contention, IAM
+isolation, truthful deployment timestamps, or composite HMAC ownership.
+Production additionally requires a dedicated table on which TTL has never been
+enabled and a runtime role without `dynamodb:UpdateTimeToLive`.
+
 The reviewed desktop and mobile surfaces are committed at
 `.impeccable/review/gate5-hosted-share-desktop.png` and
 `.impeccable/review/gate5-hosted-share-mobile.png`; their motion states are at
@@ -144,9 +166,9 @@ performance backlog item, not Gate 5 evidence.
 
 ## Not yet proven
 
-- transactional control adapter, HTTP integration, deployed S3 behavior, IAM proof,
-  warmed-cache purge and in-flight stale-fill drill, moderation, or takedown
-  workflow;
+- composite `ResultBackend`/HMAC/HTTP integration, deployed S3 and DynamoDB
+  behavior, IAM proof, warmed-cache purge and in-flight stale-fill drill,
+  moderation, or takedown workflow;
 - current X web/mobile upload, playback, and recompression behavior;
 - the representative production 99% poster / 95% video benchmark thresholds
   (the current 15-run video sample is local evidence only);
@@ -156,9 +178,10 @@ performance backlog item, not Gate 5 evidence.
 - public arbitrary-page scanning, which remains blocked by the separate scanner
   containment and policy gates.
 
-The next Gate 5 checkpoint is the transactional multi-writer result/control
-store composed as the single visibility authority behind the existing
-ResultStore/HTTP seam. After that comes deployed S3 plus the warmed/in-flight
-CloudFront purge drill, followed by a current X web/mobile
+The next Gate 5 checkpoint is the composite `ResultBackend`: it must calculate
+and verify deletion HMACs, coordinate exact-version S3 objects, DynamoDB
+control transitions, and CloudFront purge as the single visibility authority
+behind the existing HTTP seam. After that comes deployed S3/DynamoDB plus the
+warmed/in-flight CloudFront purge drill, followed by a current X web/mobile
 upload-and-recompression proof. None relaxes the Gate 0/Gate 3 public scanner
 blockers.
