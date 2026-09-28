@@ -25,7 +25,7 @@ from scanner.api_contract import (  # noqa: E402
     validate_viewer_bundle,
 )
 from scanner.local_scan_api import FixtureScanExecutor, LocalScanJobService, build_server  # noqa: E402
-from scanner.result_store import FilesystemResultStore, MemoryResultStore  # noqa: E402
+from scanner.result_store import FilesystemResultStore, MemoryResultStore, ResultStoreError  # noqa: E402
 from scanner.video_renderer import VideoRenderError  # noqa: E402
 
 
@@ -812,6 +812,58 @@ def main() -> None:
         )
     finally:
         rate_service.shutdown()
+
+    class DeleteOutcomeBackend:
+        def __init__(self) -> None:
+            self.outcome: str | Exception = "pending"
+
+        def delete(self, _result_id: str, _deletion_token: str) -> str:
+            if isinstance(self.outcome, Exception):
+                raise self.outcome
+            return self.outcome
+
+    delete_backend = DeleteOutcomeBackend()
+    delete_service = LocalScanJobService(result_backend=delete_backend)  # type: ignore[arg-type]
+    delete_server = build_server("127.0.0.1", 0, delete_service, static_root=None)
+    delete_thread = threading.Thread(target=delete_server.serve_forever, daemon=True)
+    delete_thread.start()
+    delete_url = f"http://127.0.0.1:{delete_server.server_port}"
+    delete_path = f"/api/results/{'r_' + 'e' * 32}"
+    try:
+        status, headers, payload = request(delete_url, delete_path, method="DELETE")
+        require(
+            status == 202
+            and not payload
+            and headers.get("Retry-After") == "5"
+            and headers.get("Cache-Control") == "no-store",
+            "pending deletion did not return a cache-free 202 with Retry-After",
+        )
+        delete_backend.outcome = "retryable"
+        status, headers, payload = request(delete_url, delete_path, method="DELETE")
+        require(
+            status == 503
+            and not payload
+            and headers.get("Retry-After") == "5"
+            and headers.get("Cache-Control") == "no-store",
+            "retryable deletion did not return a cache-free 503 with Retry-After",
+        )
+        delete_backend.outcome = ResultStoreError("transient provider outage", retryable=True)
+        status, headers, payload = request(delete_url, delete_path, method="DELETE")
+        require(
+            status == 503 and not payload and headers.get("Retry-After") == "5",
+            "retryable storage exception did not preserve retry semantics",
+        )
+        delete_backend.outcome = ResultStoreError("stored identity is corrupt")
+        status, headers, payload = request(delete_url, delete_path, method="DELETE")
+        require(
+            status == 404 and not payload and headers.get("Retry-After") is None,
+            "nonretryable storage corruption did not remain a content-free 404",
+        )
+    finally:
+        delete_server.shutdown()
+        delete_server.server_close()
+        delete_service.shutdown()
+        delete_thread.join(timeout=2)
 
     print(
         "Verified local no-login HTTP health, bounded submissions, seeded transport admission, "

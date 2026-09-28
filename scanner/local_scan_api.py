@@ -61,6 +61,7 @@ FIXTURE_DIR = ROOT / "fixtures" / "scan"
 SCAN_SCHEMA = json.loads((ROOT / "docs" / "SCAN_RECORD.schema.json").read_text(encoding="utf-8"))
 MAPPING = json.loads((ROOT / "docs" / "MAPPING_REGISTRY.v0.1.json").read_text(encoding="utf-8"))
 LOGGER = logging.getLogger(__name__)
+DELETE_RETRY_AFTER_SECONDS = 5
 
 MAX_REQUEST_BODY_BYTES = 2_048
 DEFAULT_POLL_AFTER_MS = 350
@@ -566,8 +567,12 @@ class LocalScanJobService:
         with self._lock:
             try:
                 outcome = self._result_backend.delete(result_id, deletion_token)
-            except ResultStoreError:
+            except ResultStoreError as error:
+                if error.retryable:
+                    return "retryable", DELETE_RETRY_AFTER_SECONDS
                 return "not-found", None
+            if outcome in {"pending", "retryable"}:
+                return outcome, DELETE_RETRY_AFTER_SECONDS
             if outcome == "forbidden":
                 failures = [
                     attempted_at
@@ -772,6 +777,16 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
         elif outcome == "rate-limited":
             self._send_empty(
                 HTTPStatus.TOO_MANY_REQUESTS,
+                headers={"Cache-Control": "no-store", "Retry-After": str(retry_after)},
+            )
+        elif outcome == "pending":
+            self._send_empty(
+                HTTPStatus.ACCEPTED,
+                headers={"Cache-Control": "no-store", "Retry-After": str(retry_after)},
+            )
+        elif outcome == "retryable":
+            self._send_empty(
+                HTTPStatus.SERVICE_UNAVAILABLE,
                 headers={"Cache-Control": "no-store", "Retry-After": str(retry_after)},
             )
         else:

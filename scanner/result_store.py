@@ -34,7 +34,14 @@ DELETE_TOKEN_PATTERN = re.compile(r"^dxrd_[0-9a-f]{64}$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 KEY_ID_PATTERN = re.compile(r"^[0-9a-f]{16}$")
 
-DeleteOutcome = Literal["deleted", "not-found", "forbidden", "malformed"]
+DeleteOutcome = Literal[
+    "deleted",
+    "not-found",
+    "forbidden",
+    "malformed",
+    "pending",
+    "retryable",
+]
 ArtifactKind = Literal["poster", "video"]
 ArtifactMediaType = Literal["image/png", "video/mp4"]
 ARTIFACT_KINDS: tuple[ArtifactKind, ...] = ("poster", "video")
@@ -45,7 +52,11 @@ ARTIFACT_SUFFIXES: dict[ArtifactKind, str] = {
 
 
 class ResultStoreError(RuntimeError):
-    """Raised when stored state violates an immutable storage boundary."""
+    """Raised for storage failures, optionally marking transient failures retryable."""
+
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
 
 
 @dataclass(frozen=True)
