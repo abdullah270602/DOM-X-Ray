@@ -247,6 +247,11 @@ class FakePurger:
         )
 
 
+class RepeatingCursorControlStore(FakeControlStore):
+    def list_expired(self, now_epoch_ms: int, *, limit: int = 100, next_token=None):
+        return (), {"cursor": "same"}
+
+
 def main() -> None:
     now = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
     token = "dxrd_" + "a" * 64
@@ -437,6 +442,20 @@ def main() -> None:
     require(conflict_controls.strong_rereads > rereads_before,
             "activation conflict did not perform a strong reread")
 
+    looping_controls = RepeatingCursorControlStore()
+    looping_backend = CompositeResultBackend(
+        FakeObjectStore(looping_controls),
+        looping_controls,
+        keyring,
+        clock=lambda: now,
+    )
+    try:
+        looping_backend.sweep()
+    except ResultStoreError:
+        pass
+    else:
+        raise AssertionError("sweep accepted a repeated provider cursor")
+
     print(
         "Verified composite publication and deletion: staged objects remain private, "
         "exact object readback precedes activation, retry adopts the persisted stage, "
@@ -445,8 +464,9 @@ def main() -> None:
         "hidden correctly, invalid live capabilities do not mutate state, pending "
         "purge and cleanup recover through sweep, purge retries keep their operation "
         "ID, target drift is rejected before purge, transient pre-fence lookups are "
-        "retryable, confirmed cache purge precedes retirement, and default cache "
-        "policy is no-store. No cloud resources were used."
+        "retryable, repeated sweep cursors are bounded, confirmed cache purge "
+        "precedes retirement, and default cache policy is no-store. No cloud "
+        "resources were used."
     )
 
 

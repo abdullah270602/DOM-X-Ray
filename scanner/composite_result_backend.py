@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, Sequence
 
+from scanner.api_contract import stable_json_bytes
 from scanner.artifact_delivery import (
     ArtifactDeliveryError,
     CachePurger,
@@ -694,46 +695,61 @@ class CompositeResultBackend:
     def sweep(self) -> int:
         now = self._now()
         now_ms = int(now.timestamp() * 1000)
-        cursor: Mapping[str, Any] | None = None
         completed: set[str] = set()
-        while True:
-            try:
-                records, cursor = self._controls.list_expired(
-                    now_ms,
-                    next_token=cursor,
-                )
-            except Exception as error:
-                raise _backend_error("expired-result discovery failed", error) from error
-            for record in records:
-                if record.state != "live":
-                    continue
-                try:
-                    if self._retire(record, require_expired=True):
-                        completed.add(record.result_id)
-                except ResultStoreError:
-                    continue
-            if cursor is None:
-                break
 
-        cursor = None
-        while True:
-            try:
-                records, cursor = self._controls.list_pending_work(
-                    now_ms,
-                    next_token=cursor,
-                )
-            except Exception as error:
-                raise _backend_error("pending-result discovery failed", error) from error
-            for record in records:
+        def drain(*, pending: bool) -> None:
+            cursor: Mapping[str, Any] | None = None
+            seen_cursors: set[bytes] = set()
+            label = "pending-result" if pending else "expired-result"
+            for _page in range(100):
                 try:
-                    if self._retire(record):
-                        completed.add(record.result_id)
-                except ResultStoreError:
-                    # The result is already origin-fenced. Its durable work
-                    # index keeps the exact operation available to a later run.
-                    continue
-            if cursor is None:
-                break
+                    if pending:
+                        records, next_cursor = self._controls.list_pending_work(
+                            now_ms,
+                            limit=100,
+                            next_token=cursor,
+                        )
+                    else:
+                        records, next_cursor = self._controls.list_expired(
+                            now_ms,
+                            limit=100,
+                            next_token=cursor,
+                        )
+                except Exception as error:
+                    raise _backend_error(f"{label} discovery failed", error) from error
+                if len(records) > 100:
+                    raise ResultStoreError(f"{label} discovery exceeded its page limit")
+                for record in records:
+                    if not pending and record.state != "live":
+                        continue
+                    try:
+                        if self._retire(record, require_expired=not pending):
+                            completed.add(record.result_id)
+                    except ResultStoreError:
+                        # Expired reads are already hidden, and pending work is
+                        # already fenced. Durable indexes retain both for retry.
+                        continue
+                if next_cursor is None:
+                    return
+                try:
+                    cursor_identity = stable_json_bytes(next_cursor)
+                except Exception as error:
+                    raise ResultStoreError(
+                        f"{label} discovery returned a malformed cursor"
+                    ) from error
+                if cursor_identity in seen_cursors:
+                    raise ResultStoreError(
+                        f"{label} discovery repeated its pagination cursor"
+                    )
+                seen_cursors.add(cursor_identity)
+                cursor = next_cursor
+            raise ResultStoreError(
+                f"{label} discovery exceeded the bounded sweep budget",
+                retryable=True,
+            )
+
+        drain(pending=False)
+        drain(pending=True)
         return len(completed)
 
 

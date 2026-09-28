@@ -551,13 +551,17 @@ def main() -> None:
             )
             require(status == 204 and not deleted_payload, "owner could not delete after restart")
             require(deleted_headers.get("Cache-Control") == "no-store", "deletion was cacheable")
-            status, _headers, missing_payload = request(
+            status, missing_headers, missing_payload = request(
                 deletion_url,
                 result["bundleUrl"],
                 headers={"If-None-Match": etag},
             )
             require(status == 404, "deleted result remained reachable")
             require(json.loads(missing_payload) == {"error": "not-found"}, "deleted result leaked data")
+            require(
+                missing_headers.get("Cache-Control") == "no-store",
+                "deleted bundle miss was cacheable",
+            )
             status, missing_poster_headers, missing_poster_payload = request(
                 deletion_url,
                 poster_path,
@@ -865,6 +869,54 @@ def main() -> None:
         delete_service.shutdown()
         delete_thread.join(timeout=2)
 
+    class ReadFailureBackend:
+        def __init__(self) -> None:
+            self.error = ResultStoreError("transient provider outage", retryable=True)
+
+        def get(self, _result_id: str):
+            raise self.error
+
+        def get_artifact(self, _result_id: str, _kind: str):
+            raise self.error
+
+    read_backend = ReadFailureBackend()
+    read_service = LocalScanJobService(result_backend=read_backend)  # type: ignore[arg-type]
+    read_server = build_server("127.0.0.1", 0, read_service, static_root=None)
+    read_thread = threading.Thread(target=read_server.serve_forever, daemon=True)
+    read_thread.start()
+    read_url = f"http://127.0.0.1:{read_server.server_port}"
+    read_result_id = "r_" + "f" * 32
+    try:
+        for path in (
+            f"/api/results/{read_result_id}",
+            f"/api/results/{read_result_id}/poster.png",
+        ):
+            for method in ("GET", "HEAD"):
+                status, headers, payload = request(read_url, path, method=method)
+                require(
+                    status == 503
+                    and not payload
+                    and headers.get("Cache-Control") == "no-store"
+                    and headers.get("Retry-After") == "5",
+                    "retryable result read did not return a cache-free 503",
+                )
+        read_backend.error = ResultStoreError("stored identity is corrupt")
+        status, headers, payload = request(
+            read_url,
+            f"/api/results/{read_result_id}",
+        )
+        require(
+            status == 404
+            and json.loads(payload) == {"error": "not-found"}
+            and headers.get("Cache-Control") == "no-store",
+            "nonretryable bundle failure did not remain a cache-free miss",
+        )
+    finally:
+        read_server.shutdown()
+        read_server.server_close()
+        read_service.shutdown()
+        read_thread.join(timeout=2)
+
     print(
         "Verified local no-login HTTP health, bounded submissions, seeded transport admission, "
         f"job polling ({sorted(observed_states)}), browser-held owner capability, no-store ETag "
@@ -872,7 +924,7 @@ def main() -> None:
         "byte-identical restart recovery, HMAC deletion after "
         "restart, stale-ETag denial, binary GET/HEAD parity, raw-upload refusal, "
         "exact reuse without ownership transfer, expiry recovery, owner-safe guessing throttles, "
-        "target correlation, "
+        "target correlation, retryable read availability, "
         "admission cooling, active-job bounds, and content-free misses; arbitrary public scanning "
         "stayed disabled."
     )

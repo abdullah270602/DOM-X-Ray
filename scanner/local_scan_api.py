@@ -8,9 +8,11 @@ the production public-egress boundary described by ``docs/THREAT_MODEL.md``.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import logging
 import mimetypes
+import os
 import re
 import secrets
 import sys
@@ -22,7 +24,7 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Mapping, Protocol
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -42,6 +44,7 @@ from scanner.poster_renderer import render_poster_png
 from scanner.result_manifest import build_result_manifest
 from scanner.result_store import (
     ArtifactKind,
+    DeletionCapabilityKeyring,
     FilesystemResultStore,
     MemoryResultStore,
     ResultBackend,
@@ -61,7 +64,10 @@ FIXTURE_DIR = ROOT / "fixtures" / "scan"
 SCAN_SCHEMA = json.loads((ROOT / "docs" / "SCAN_RECORD.schema.json").read_text(encoding="utf-8"))
 MAPPING = json.loads((ROOT / "docs" / "MAPPING_REGISTRY.v0.1.json").read_text(encoding="utf-8"))
 LOGGER = logging.getLogger(__name__)
-DELETE_RETRY_AFTER_SECONDS = 5
+BACKEND_RETRY_AFTER_SECONDS = 5
+DEFAULT_RETENTION_HOURS = 24.0
+RESULT_BACKENDS = ("filesystem", "composite")
+_BASE64URL_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 MAX_REQUEST_BODY_BYTES = 2_048
 DEFAULT_POLL_AFTER_MS = 350
@@ -547,7 +553,11 @@ class LocalScanJobService:
     def get_bundle(self, result_id: str) -> tuple[bytes, str] | None:
         try:
             stored = self._result_backend.get(result_id)
-        except (ValueError, ResultStoreError):
+        except ValueError:
+            return None
+        except ResultStoreError as error:
+            if error.retryable:
+                raise
             return None
         return None if stored is None else (stored.payload, stored.etag)
 
@@ -558,7 +568,11 @@ class LocalScanJobService:
     ) -> tuple[bytes, str] | None:
         try:
             stored = self._result_backend.get_artifact(result_id, kind)
-        except (ValueError, ResultStoreError):
+        except ValueError:
+            return None
+        except ResultStoreError as error:
+            if error.retryable:
+                raise
             return None
         return None if stored is None else (stored.payload, stored.etag)
 
@@ -569,10 +583,10 @@ class LocalScanJobService:
                 outcome = self._result_backend.delete(result_id, deletion_token)
             except ResultStoreError as error:
                 if error.retryable:
-                    return "retryable", DELETE_RETRY_AFTER_SECONDS
+                    return "retryable", BACKEND_RETRY_AFTER_SECONDS
                 return "not-found", None
             if outcome in {"pending", "retryable"}:
-                return outcome, DELETE_RETRY_AFTER_SECONDS
+                return outcome, BACKEND_RETRY_AFTER_SECONDS
             if outcome == "forbidden":
                 failures = [
                     attempted_at
@@ -823,7 +837,17 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
         artifact_match = ARTIFACT_ROUTE_PATTERN.fullmatch(path)
         if artifact_match is not None:
             kind, content_type = ARTIFACT_ROUTES[artifact_match.group(2)]
-            found = self.server.service.get_artifact(artifact_match.group(1), kind)
+            try:
+                found = self.server.service.get_artifact(artifact_match.group(1), kind)
+            except ResultStoreError:
+                self._send_empty(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    headers={
+                        "Cache-Control": "no-store",
+                        "Retry-After": str(BACKEND_RETRY_AFTER_SECONDS),
+                    },
+                )
+                return
             if found is None:
                 self._send_empty(
                     HTTPStatus.NOT_FOUND,
@@ -847,9 +871,23 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/results/"):
             result_id = path.removeprefix("/api/results/")
-            found = self.server.service.get_bundle(result_id)
+            try:
+                found = self.server.service.get_bundle(result_id)
+            except ResultStoreError:
+                self._send_empty(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    headers={
+                        "Cache-Control": "no-store",
+                        "Retry-After": str(BACKEND_RETRY_AFTER_SECONDS),
+                    },
+                )
+                return
             if found is None:
-                self._send_json(HTTPStatus.NOT_FOUND, {"error": "not-found"})
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "not-found"},
+                    headers={"Cache-Control": "no-store"},
+                )
                 return
             payload, etag = found
             if self.headers.get("If-None-Match") == etag:
@@ -925,6 +963,115 @@ def build_server(
     )
 
 
+def _positive_finite_hours(value: object, *, source: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{source} must be a positive finite number of hours")
+    try:
+        hours = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{source} must be a positive finite number of hours") from error
+    if not 0 < hours < float("inf"):
+        raise ValueError(f"{source} must be a positive finite number of hours")
+    return hours
+
+
+def _composite_deletion_keys(value: str | None) -> tuple[bytes, ...]:
+    """Decode canonical, unpadded base64url keys without exposing their values."""
+
+    if not isinstance(value, str) or not value:
+        raise ValueError("DOM_XRAY_DELETION_KEYS_B64 is required for the composite backend")
+    encoded_keys = value.split(",")
+    if not 1 <= len(encoded_keys) <= 4:
+        raise ValueError("DOM_XRAY_DELETION_KEYS_B64 must contain one to four keys")
+    decoded: list[bytes] = []
+    try:
+        for encoded in encoded_keys:
+            if not encoded or _BASE64URL_KEY_PATTERN.fullmatch(encoded) is None:
+                raise ValueError
+            padded = encoded + "=" * (-len(encoded) % 4)
+            key = base64.b64decode(padded, altchars=b"-_", validate=True)
+            if len(key) != 32 or base64.urlsafe_b64encode(key).decode("ascii").rstrip("=") != encoded:
+                raise ValueError
+            decoded.append(key)
+    except (ValueError, TypeError, base64.binascii.Error) as error:
+        raise ValueError(
+            "DOM_XRAY_DELETION_KEYS_B64 must contain canonical unpadded base64url 32-byte keys"
+        ) from None
+    return tuple(decoded)
+
+
+def build_result_backend(
+    backend_name: str,
+    data_dir: Path,
+    *,
+    retention_hours: float | None = None,
+    environ: Mapping[str, str] | None = None,
+    aws_client_factory: Callable[[str], Any] | None = None,
+) -> ResultBackend:
+    """Build the selected result backend; AWS clients are injectable for tests.
+
+    The local branch intentionally stays self-contained: it does not import the
+    AWS adapters or boto3, and keeps the historical generated key and 24-hour
+    retention defaults.
+    """
+
+    values = os.environ if environ is None else environ
+    if backend_name == "filesystem":
+        hours = DEFAULT_RETENTION_HOURS if retention_hours is None else _positive_finite_hours(
+            retention_hours,
+            source="--retention-hours",
+        )
+        store_key = load_or_create_store_key(data_dir / "store.key")
+        return FilesystemResultStore(
+            data_dir / "results",
+            keys=(store_key,),
+            retention_seconds=hours * 60 * 60,
+        )
+    if backend_name != "composite":
+        raise ValueError("result backend must be filesystem or composite")
+
+    raw_hours: object = retention_hours
+    if raw_hours is None:
+        raw_hours = values.get("DOM_XRAY_RETENTION_HOURS")
+    if raw_hours is None:
+        raise ValueError(
+            "composite backend requires --retention-hours or DOM_XRAY_RETENTION_HOURS"
+        )
+    hours = _positive_finite_hours(raw_hours, source="composite retention")
+    keyring = DeletionCapabilityKeyring(_composite_deletion_keys(
+        values.get("DOM_XRAY_DELETION_KEYS_B64")
+    ))
+
+    # Keep all deployment-only imports below the filesystem branch. In
+    # particular, a local run never imports boto3.
+    try:
+        from scanner.artifact_delivery import DeliveryCachePolicy
+        from scanner.composite_result_backend import CompositeResultBackend
+        from scanner.dynamodb_control_store import dynamodb_control_store_from_environment
+        from scanner.s3_object_store import s3_object_store_from_environment
+
+        object_store = s3_object_store_from_environment(
+            environ=values,
+            client_factory=aws_client_factory,
+        )
+        control_store = dynamodb_control_store_from_environment(
+            environ=values,
+            client_factory=aws_client_factory,
+        )
+        return CompositeResultBackend(
+            object_store,
+            control_store,
+            keyring,
+            retention_seconds=hours * 60 * 60,
+            cache_policy=DeliveryCachePolicy.no_store(),
+            purger=None,
+        )
+    except Exception:
+        # Provider exceptions can contain request metadata. Keep startup output
+        # limited to a stable message and never include configured secrets.
+        raise RuntimeError("composite result backend could not be initialized") from None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
@@ -932,21 +1079,29 @@ def main() -> None:
     parser.add_argument("--static-root", type=Path, default=ROOT / "viewer" / "dist")
     parser.add_argument("--data-dir", type=Path, default=ROOT / ".dom-xray-data")
     parser.add_argument(
+        "--result-backend",
+        choices=RESULT_BACKENDS,
+        default=os.environ.get("DOM_XRAY_RESULT_BACKEND", "filesystem"),
+        help="filesystem proof backend or the explicitly configured AWS composite backend",
+    )
+    parser.add_argument(
         "--retention-hours",
         type=float,
-        default=24.0,
-        help="Local proof retention only; production policy remains an explicit launch decision.",
+        default=None,
+        help="Result retention; composite mode requires an explicit value or DOM_XRAY_RETENTION_HOURS.",
     )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
     if args.verbose:
         logging.basicConfig(level=logging.INFO)
-    store_key = load_or_create_store_key(args.data_dir / "store.key")
-    result_backend = FilesystemResultStore(
-        args.data_dir / "results",
-        keys=(store_key,),
-        retention_seconds=args.retention_hours * 60 * 60,
-    )
+    try:
+        result_backend = build_result_backend(
+            args.result_backend,
+            args.data_dir,
+            retention_hours=args.retention_hours,
+        )
+    except (ValueError, RuntimeError) as error:
+        parser.error(str(error))
     service = LocalScanJobService(result_backend=result_backend)
     server = build_server(
         args.host,
