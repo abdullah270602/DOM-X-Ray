@@ -27,6 +27,7 @@ RESULT_ID_PATTERN = re.compile(r"^r_[0-9a-f]{32}$")
 MAX_ENCODED_ITEM_BYTES = 350_000
 DEFAULT_EXPIRY_INDEX = "GSI1"
 EXPIRY_PARTITION = "LIVE_EXPIRY"
+WORK_PARTITION = "DELIVERY_WORK"
 TTL_DELETION_QUARANTINE_SECONDS = 60 * 60
 
 TRANSIENT_CODES = {
@@ -366,6 +367,13 @@ def encode_control_item(record: ResultControlRecord) -> dict[str, object]:
     if record.state == "live" and record.expires_at_epoch_ms is not None:
         item["GSI1PK"] = _s(EXPIRY_PARTITION)
         item["GSI1SK"] = _n(record.expires_at_epoch_ms)
+    elif record.state == "retiring" or (
+        record.state == "retired" and record.cleanup_state == "pending"
+    ):
+        if record.retired_at is None:
+            raise ControlStoreError("DynamoDB lifecycle work lacks retirement time")
+        item["GSI1PK"] = _s(WORK_PARTITION)
+        item["GSI1SK"] = _n(timestamp_epoch_ms(record.retired_at, "retirement time"))
     if len(stable_json_bytes(item)) > MAX_ENCODED_ITEM_BYTES:
         raise ControlStoreError("DynamoDB control item exceeds its encoded size budget")
     return item
@@ -449,8 +457,20 @@ def _decode_control_item(value: object) -> ResultControlRecord:
             != record.expires_at_epoch_ms
         ):
             raise ControlStoreError("DynamoDB live expiry index drifted")
+    elif record.state == "retiring" or (
+        record.state == "retired" and record.cleanup_state == "pending"
+    ):
+        if (
+            not has_expiry_index
+            or set(value) & {"GSI1PK", "GSI1SK"} != {"GSI1PK", "GSI1SK"}
+            or _av_string(value["GSI1PK"], "work partition") != WORK_PARTITION
+            or record.retired_at is None
+            or _av_int(value["GSI1SK"], "work sort key")
+            != timestamp_epoch_ms(record.retired_at, "retirement time")
+        ):
+            raise ControlStoreError("DynamoDB pending-work index drifted")
     elif has_expiry_index:
-        raise ControlStoreError("DynamoDB non-live item retained expiry index fields")
+        raise ControlStoreError("DynamoDB inactive item retained lifecycle index fields")
     return record
 
 
@@ -543,6 +563,38 @@ def _validated_expiry_cursor(
                 "DynamoDB expiry query cursor is malformed"
             ) from error
         raise ValueError("expiry query cursor is invalid") from error
+
+
+def _validated_work_cursor(
+    value: object,
+    *,
+    provider_response: bool,
+    maximum_epoch_ms: int,
+) -> dict[str, object]:
+    try:
+        if (
+            not isinstance(value, Mapping)
+            or set(value) != {"PK", "SK", "GSI1PK", "GSI1SK"}
+            or len(stable_json_bytes(value)) > 4096
+        ):
+            raise ValueError("cursor shape is invalid")
+        partition = _av_string(value["PK"], "cursor partition key")
+        if not partition.startswith("RESULT#"):
+            raise ValueError("cursor partition prefix drifted")
+        _validate_result_id(partition.removeprefix("RESULT#"))
+        if (
+            _av_string(value["SK"], "cursor sort key") != "CONTROL"
+            or _av_string(value["GSI1PK"], "cursor work partition") != WORK_PARTITION
+            or _av_int(value["GSI1SK"], "cursor work sort key") > maximum_epoch_ms
+        ):
+            raise ValueError("cursor identity or boundary drifted")
+        return dict(value)
+    except (ControlStoreError, KeyError, TypeError, ValueError) as error:
+        if provider_response:
+            raise ControlStoreError(
+                "DynamoDB pending-work query cursor is malformed"
+            ) from error
+        raise ValueError("pending-work query cursor is invalid") from error
 
 
 class DynamoDBControlStore:
@@ -904,6 +956,8 @@ class DynamoDBControlStore:
             ":required": _b(plan.purge_required),
             ":purgeState": _s("pending" if plan.purge_required else "confirmed"),
             ":cleanup": _s("pending"),
+            ":workPk": _s(WORK_PARTITION),
+            ":workEpoch": _n(timestamp_epoch_ms(retired_at, "retirement time")),
         }
         updates = [
             "#state = :retiring",
@@ -935,7 +989,9 @@ class DynamoDBControlStore:
                 TableName=self._table,
                 Key=_key(live.result_id),
                 UpdateExpression=(
-                    "SET " + ", ".join(updates) + " REMOVE #gsiPk, #gsiSk"
+                    "SET " + ", ".join(
+                        (*updates, "#gsiPk = :workPk", "#gsiSk = :workEpoch")
+                    )
                 ),
                 ConditionExpression=condition,
                 ExpressionAttributeNames=names,
@@ -1253,6 +1309,8 @@ class DynamoDBControlStore:
             "#cleanup": "cleanupState",
             "#purgeState": "purgeState",
             "#revision": "revision",
+            "#gsiPk": "GSI1PK",
+            "#gsiSk": "GSI1SK",
         }
         values = {
             ":retired": _s("retired"),
@@ -1268,7 +1326,8 @@ class DynamoDBControlStore:
                 TableName=self._table,
                 Key=_key(retired.result_id),
                 UpdateExpression=(
-                    "SET #cleanup = :complete, #revision = #revision + :one"
+                    "SET #cleanup = :complete, #revision = #revision + :one "
+                    "REMOVE #gsiPk, #gsiSk"
                 ),
                 ConditionExpression=(
                     "#state = :retired AND #identity = :identity "
@@ -1379,6 +1438,91 @@ class DynamoDBControlStore:
             None
             if cursor is None
             else _validated_expiry_cursor(
+                cursor,
+                provider_response=True,
+                maximum_epoch_ms=now_epoch_ms,
+            )
+        )
+        return tuple(records), validated_cursor
+
+    def list_pending_work(
+        self,
+        now_epoch_ms: int,
+        *,
+        limit: int = 100,
+        next_token: Mapping[str, Any] | None = None,
+    ) -> tuple[tuple[ResultControlRecord, ...], Mapping[str, Any] | None]:
+        """Discover retiring and not-yet-cleaned tombstones using the shared GSI."""
+        if (
+            isinstance(now_epoch_ms, bool)
+            or not isinstance(now_epoch_ms, int)
+            or now_epoch_ms < 0
+        ):
+            raise ValueError("pending-work query boundary must be a non-negative integer")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("pending-work query limit must be from 1 to 100")
+        arguments: dict[str, object] = {
+            "TableName": self._table,
+            "IndexName": self._expiry_index,
+            "KeyConditionExpression": "#gpk = :workPk AND #gsk <= :now",
+            "ProjectionExpression": "#pk, #sk",
+            "ExpressionAttributeNames": {
+                "#gpk": "GSI1PK",
+                "#gsk": "GSI1SK",
+                "#pk": "PK",
+                "#sk": "SK",
+            },
+            "ExpressionAttributeValues": {
+                ":workPk": _s(WORK_PARTITION),
+                ":now": _n(now_epoch_ms),
+            },
+            "Limit": limit,
+            "ReturnConsumedCapacity": "TOTAL",
+        }
+        if next_token is not None:
+            arguments["ExclusiveStartKey"] = _validated_work_cursor(
+                next_token,
+                provider_response=False,
+                maximum_epoch_ms=now_epoch_ms,
+            )
+        try:
+            response = self._client.query(**arguments)
+        except Exception as error:
+            raise _provider_failure("DynamoDB pending-work query failed", error) from error
+        if not isinstance(response, Mapping) or not isinstance(response.get("Items", []), list):
+            raise ControlStoreError("DynamoDB pending-work query response is malformed")
+        if len(response.get("Items", [])) > limit:
+            raise ControlStoreError("DynamoDB pending-work query exceeded its requested limit")
+        result_ids: list[str] = []
+        for item in response.get("Items", []):
+            if not isinstance(item, Mapping) or set(item) != {"PK", "SK"}:
+                raise ControlStoreError("DynamoDB pending-work candidate is malformed")
+            partition = _av_string(item["PK"], "pending-work candidate partition key")
+            if (
+                not partition.startswith("RESULT#")
+                or _av_string(item["SK"], "pending-work candidate sort key") != "CONTROL"
+            ):
+                raise ControlStoreError("DynamoDB pending-work candidate key drifted")
+            result_ids.append(_validate_result_id(partition.removeprefix("RESULT#")))
+        if len(set(result_ids)) != len(result_ids):
+            raise ControlStoreError("DynamoDB pending-work query repeated a result")
+        records: list[ResultControlRecord] = []
+        for result_id in result_ids:
+            record = self._read(result_id)
+            if (
+                record is not None
+                and (record.state == "retiring" or (
+                    record.state == "retired" and record.cleanup_state == "pending"
+                ))
+                and record.retired_at is not None
+                and timestamp_epoch_ms(record.retired_at, "retirement time") <= now_epoch_ms
+            ):
+                records.append(record)
+        cursor = response.get("LastEvaluatedKey")
+        validated_cursor = (
+            None
+            if cursor is None
+            else _validated_work_cursor(
                 cursor,
                 provider_response=True,
                 maximum_epoch_ms=now_epoch_ms,

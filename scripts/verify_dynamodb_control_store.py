@@ -252,8 +252,8 @@ class FakeDynamoClient:
             if "#confirmedAt" in names:
                 set_value("#confirmedAt", ":confirmedAt")
             increment_revision()
-            item.pop(actual("#gsiPk"), None)
-            item.pop(actual("#gsiSk"), None)
+            set_value("#gsiPk", ":workPk")
+            set_value("#gsiSk", ":workEpoch")
         elif expression.startswith("SET #request = :request"):
             condition = (
                 equals("#state", ":retiring")
@@ -308,6 +308,8 @@ class FakeDynamoClient:
                 self._conditional(item)
             set_value("#cleanup", ":complete")
             increment_revision()
+            item.pop(actual("#gsiPk"), None)
+            item.pop(actual("#gsiSk"), None)
         else:
             raise AssertionError(f"unexpected update expression: {expression}")
         self.items[key] = item
@@ -318,19 +320,24 @@ class FakeDynamoClient:
         if self.query_error is not None:
             raise self.query_error
         require("ConsistentRead" not in kwargs, "GSI query requested strong consistency")
+        condition = kwargs.get("KeyConditionExpression")
+        is_work_query = condition == "#gpk = :workPk AND #gsk <= :now"
         require(
-            kwargs.get("KeyConditionExpression") == "#gpk = :expiryPk AND #gsk <= :now",
-            "expiry query condition drifted",
+            is_work_query
+            or condition == "#gpk = :expiryPk AND #gsk <= :now",
+            "lifecycle query condition drifted",
         )
         if self.query_response is not None:
             return copy.deepcopy(self.query_response)
         now_epoch_ms = self._number(kwargs["ExpressionAttributeValues"][":now"])
+        partition_name = ":workPk" if is_work_query else ":expiryPk"
+        query_partition = self._string(kwargs["ExpressionAttributeValues"][partition_name])
         candidates = sorted(
             (
                 item
                 for item in self.items.values()
                 if "GSI1PK" in item
-                and self._string(item["GSI1PK"]) == "LIVE_EXPIRY"
+                and self._string(item["GSI1PK"]) == query_partition
                 and self._number(item["GSI1SK"]) <= now_epoch_ms
             ),
             key=lambda item: (self._number(item["GSI1SK"]), self._string(item["PK"])),
@@ -736,6 +743,16 @@ def main() -> None:
         shared_retiring.state == "retiring" and shared_retiring.purge_state == "pending",
         "shared retirement became visible or confirmed too early",
     )
+    work_boundary = timestamp_epoch_ms(
+        shared_retiring.retired_at,
+        "retirement time",
+    )
+    pending_work, work_cursor = store.list_pending_work(work_boundary)
+    require(
+        any(record.result_id == shared_live.result_id for record in pending_work)
+        and work_cursor is None,
+        "pending-work query did not recover a retiring record",
+    )
     competing_plan = build_retirement_plan(
         shared_live,
         operation_id="p_" + "3" * 32,
@@ -857,6 +874,16 @@ def main() -> None:
         store.finalize_retirement(confirmed) == shared_retired,
         "retirement finalization retry did not converge",
     )
+    pending_work, _ = store.list_pending_work(work_boundary)
+    require(
+        any(
+            record.result_id == shared_live.result_id
+            and record.state == "retired"
+            and record.cleanup_state == "pending"
+            for record in pending_work
+        ),
+        "pending-work index dropped an uncleaned tombstone",
+    )
     forged_cleanup = replace(shared_retired, cleanup_state="complete")
     require(
         isinstance(
@@ -870,6 +897,82 @@ def main() -> None:
     )
     shared_clean = store.mark_cleanup_complete(shared_retired)
     require(shared_clean.cleanup_state == "complete", "shared cleanup was not recorded")
+    pending_work, _ = store.list_pending_work(work_boundary)
+    require(
+        all(record.result_id != shared_live.result_id for record in pending_work),
+        "cleanup-complete tombstone remained in the recovery index",
+    )
+
+    work_page_client = FakeDynamoClient()
+    work_page_store = control_store(work_page_client, table)
+    work_lives = []
+    for digit in ("5", "6"):
+        candidate = staged_record(
+            "r_" + digit * 32,
+            cache_policy=DeliveryCachePolicy.no_store(),
+            expires_at=None,
+        )
+        work_page_store.create_staged(candidate)
+        active = work_page_store.activate(
+            candidate,
+            activated_at="2026-09-27T12:00:01.000Z",
+            now_epoch_ms=timestamp_epoch_ms(
+                "2026-09-27T12:00:01.000Z",
+                "activation time",
+            ),
+        )
+        work_lives.append(active)
+        work_page_store.begin_retirement(
+            active,
+            build_retirement_plan(
+                active,
+                operation_id="p_" + digit * 32,
+                provider_target_id=None,
+            ),
+            retired_at=f"2026-09-27T12:00:0{2 if digit == '5' else 3}.000Z",
+        )
+    work_now = timestamp_epoch_ms("2026-09-27T12:00:03.000Z", "query boundary")
+    work_first, work_next = work_page_store.list_pending_work(work_now, limit=1)
+    require(
+        len(work_first) == 1 and work_next is not None,
+        "pending-work query did not emit a bounded cursor",
+    )
+    work_second, work_final = work_page_store.list_pending_work(
+        work_now,
+        limit=1,
+        next_token=work_next,
+    )
+    require(
+        len(work_second) == 1
+        and work_second[0].result_id != work_first[0].result_id
+        and work_final is None,
+        "pending-work cursor repeated or skipped a result",
+    )
+    bad_work_cursor = copy.deepcopy(work_next)
+    assert bad_work_cursor is not None
+    bad_work_cursor["GSI1PK"] = {"S": "LIVE_EXPIRY"}
+    capture_value_error(
+        lambda: work_page_store.list_pending_work(work_now, next_token=bad_work_cursor),
+        "pending-work query accepted a cursor from the expiry partition",
+    )
+    future_work_cursor = copy.deepcopy(work_next)
+    assert future_work_cursor is not None
+    future_work_cursor["GSI1SK"] = {"N": str(work_now + 1)}
+    capture_value_error(
+        lambda: work_page_store.list_pending_work(
+            work_now,
+            next_token=future_work_cursor,
+        ),
+        "pending-work query accepted a cursor beyond its time boundary",
+    )
+    corrupt_work_item = copy.deepcopy(
+        work_page_client.items[(f"RESULT#{work_lives[0].result_id}", "CONTROL")]
+    )
+    corrupt_work_item.pop("GSI1PK", None)
+    capture_error(
+        lambda: decode_control_item(corrupt_work_item),
+        "control decoder accepted pending retirement without its work index",
+    )
 
     page_client = FakeDynamoClient()
     page_store = control_store(page_client, table)
