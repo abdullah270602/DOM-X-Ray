@@ -67,6 +67,13 @@ See `docs/BROWSER_EGRESS_PROXY.md`. Certificate issuance, capture-probe ledger
 integration, bounded resolver/issuer execution, and independent container egress
 still block production scanning.
 
+Gate 3 broker checkpoint: `docs/ORIGIN_BROKER_RPC.md` records a bounded per-scan
+Unix RPC and actual Chromium process-pair fixture. The broker owns grants, DNS,
+pinning and wire budgets; every call checks exact full-grant binding, and initial
+binding precedes fetch/tunnel operations. This is still same-UID, same-container,
+reserved-origin proof. Separate identities/mount policy, real public egress,
+durable recovery, parser and production adoption gates remain open.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

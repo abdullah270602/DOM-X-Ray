@@ -24,6 +24,18 @@ def main():
         os.environ.clear()
         os.environ.update(PATH='/usr/bin:/bin', LANG='C.UTF-8', LC_ALL='C.UTF-8',
                           HOME=temporary, TMPDIR=temporary)
+        if mode in ('capture-broker', 'capture-broker-hang'):
+            from fixtures.worker.broker_capture_fixture import capture_through_broker
+            def broker_after_capture(_probe, _home, browser):
+                if mode == 'capture-broker-hang':
+                    witness = browser.new_context()
+                    page = witness.new_page()
+                    page.set_content('<div>Offline RPC timeout witness</div>')
+                    if page.evaluate('1 + 1') != 2:
+                        raise AssertionError('offline broker witness failure')
+                    time.sleep(60)
+            emit_record(capture_through_broker(grant, runtime(), after_capture=broker_after_capture), nonce)
+            return
         if mode in ('capture', 'capture-hang', 'capture-wrong-pin'):
             requests, contacts = [], []
             def connector(destination, **_kwargs):

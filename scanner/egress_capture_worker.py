@@ -149,7 +149,8 @@ def load_capture_config(path):
         runtime.get('expectedChromiumVersion', CHROMIUM_VERSION))
 
 
-def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pinned, after_capture=None):
+def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pinned, after_capture=None,
+                         origin_exchange=None):
     """Compose normal TLS, per-scan trust, policy, proxy and actual probe.
 
     Reserved .test targets only until public containment/parser gates pass.
@@ -168,9 +169,16 @@ def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pin
     temporary_parent = os.environ.get("TMPDIR")
     if not temporary_parent:
         raise ValueError("capture-worker-private-temp-required")
-    policy = DestinationPolicy(BoundedSystemResolver() if resolver is None else resolver)
-    exchange = OriginExchange(policy, user_agent="DOM-X-Ray-Guarded-Capture/0.1",
-                              initial_grant=grant, connector=connector)
+    if origin_exchange is None:
+        policy = DestinationPolicy(BoundedSystemResolver() if resolver is None else resolver)
+        exchange = OriginExchange(policy, user_agent="DOM-X-Ray-Guarded-Capture/0.1",
+                                  initial_grant=grant, connector=connector)
+    else:
+        if (not isinstance(origin_exchange, OriginExchange) or resolver is not None or connector is not connect_pinned
+                or origin_exchange.validate_initial_target(grant.target_url) != grant.destination):
+            raise ValueError('capture-worker-origin-exchange-binding')
+        exchange = origin_exchange
+        policy = exchange.destination_policy
     with ScanCertificateIssuer(runtime.openssl) as issuer, \
          LinuxBrowserTrust(issuer.trust_certificate, runtime.certutil,
                            runtime_library_path=runtime.library_directory) as trust, \

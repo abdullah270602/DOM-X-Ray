@@ -187,6 +187,15 @@ class OriginExchange:
     def destination_policy(self):
         return self._policy
 
+    @property
+    def initial_grant(self):
+        return self._initial_grant
+
+    @property
+    def initial_grant_consumed(self):
+        with self._lock:
+            return self._initial_consumed
+
     def validate_initial_target(self, url):
         """Proxy setup must bind to the launch target without re-resolving it."""
         if self._initial_grant is None:

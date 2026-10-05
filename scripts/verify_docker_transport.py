@@ -28,6 +28,7 @@ def require(value, message):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--image', default='dom-x-ray-capture-fixture:gate3')
+    parser.add_argument('--origin-broker', action='store_true', help='also run the native RPC process-pair fixture')
     options = parser.parse_args()
     executable = shutil.which('docker')
     require(executable is not None, 'Docker CLI missing')
@@ -48,6 +49,8 @@ def main():
              ('duplicate-key', 'worker-invalid-result'),
              ('oversize', 'worker-invalid-result'), ('stderr-flood', 'admitted'),
              ('wrong-target', 'invalid-record'), ('stock-public', 'worker-crashed')]
+    if options.origin_broker:
+        cases += [('capture-broker', 'admitted'), ('capture-broker-hang', 'worker-timeout')]
     with tempfile.TemporaryDirectory(prefix='dxr-docker-verifier-') as temporary:
         for mode, expected in cases:
             command = ('/usr/bin/python3', '-I', '/opt/dom-xray/fixtures/worker/container_stdio_fixture.py', mode)
