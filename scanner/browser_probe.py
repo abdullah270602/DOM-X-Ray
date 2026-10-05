@@ -13,12 +13,13 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 from playwright.sync_api import Browser, Error as PlaywrightError, Route
 
 from scanner.aggregation import aggregate_nodes
 from scanner.destination_policy import is_forbidden_literal_host
+from scanner.egress_ledger import redacted_url as _redacted_url, match_url as _match_url
 from scanner.insights import select_hero_insight
 
 
@@ -200,29 +201,6 @@ def _origin(url: str) -> str:
     return f"{parsed.scheme}://{hostname}{port}"
 
 
-def _redacted_url(url: str) -> str:
-    parsed = urlsplit(url)
-    hostname = parsed.hostname or ""
-    if ":" in hostname:
-        hostname = f"[{hostname}]"
-    port = f":{parsed.port}" if parsed.port else ""
-    return urlunsplit((parsed.scheme, f"{hostname}{port}", parsed.path or "/", "", ""))
-
-
-def _match_url(url: str) -> str:
-    """Canonical in-memory URL key; query participates and is never published."""
-
-    parsed = urlsplit(url)
-    hostname = (parsed.hostname or "").lower().rstrip(".")
-    if ":" in hostname:
-        hostname = f"[{hostname}]"
-    default_port = 80 if parsed.scheme.lower() == "http" else 443
-    port = f":{parsed.port}" if parsed.port and parsed.port != default_port else ""
-    return urlunsplit(
-        (parsed.scheme.lower(), f"{hostname}{port}", parsed.path or "/", parsed.query, "")
-    )
-
-
 def correlate_worker_bootstrap_egress_bytes(
     network_rows: list[dict[str, Any]],
     egress_observations: list[dict[str, Any]],
@@ -374,7 +352,8 @@ def classify_interstitial_v1(signals: dict[str, int | None]) -> str | None:
     return None
 
 
-def validate_fixture_target(url: str, *, allow_trusted_loopback: bool = False) -> None:
+def validate_fixture_target(url: str, *, allow_trusted_loopback: bool = False,
+                            allow_https: bool = False) -> None:
     """Keep the proof harness physically scoped to reserved local fixtures."""
 
     parsed = urlsplit(url)
@@ -385,7 +364,7 @@ def validate_fixture_target(url: str, *, allow_trusted_loopback: bool = False) -
             or (allow_trusted_loopback and parsed.hostname == "localhost")
         )
     )
-    if parsed.scheme != "http" or not allowed_host:
+    if parsed.scheme not in ({"http", "https"} if allow_https else {"http"}) or not allowed_host:
         raise ValueError("browser_probe accepts reserved HTTP .test fixtures only")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("browser_probe fixture targets cannot contain credentials")
@@ -477,9 +456,11 @@ def probe_page(
     proxy_server: str | None = None,
     cache_disabled: bool = True,
     trusted_loopback_fixture: bool = False,
+    trusted_https_fixture: bool = False,
     policy_block_log: list[dict[str, Any]] | None = None,
     egress_observation_snapshot: Callable[[], list[dict[str, Any]]] | None = None,
     egress_correlation_key: Callable[[str], str] | None = None,
+    egress_observations_truncated: Callable[[], bool] | None = None,
     max_requests: int = MAX_REQUESTS,
     max_response_bytes: int = MAX_RESPONSE_BYTES,
     max_total_received_bytes: int = MAX_TOTAL_RECEIVED_BYTES,
@@ -503,13 +484,19 @@ def probe_page(
             raise ValueError(f"{name} must be a positive integer")
         if value > ceiling:
             raise ValueError(f"{name} cannot exceed its hard ceiling of {ceiling}")
-    validate_fixture_target(url, allow_trusted_loopback=trusted_loopback_fixture)
+    validate_fixture_target(url, allow_trusted_loopback=trusted_loopback_fixture,
+                            allow_https=trusted_https_fixture)
+    if trusted_https_fixture and (proxy_server is None or egress_observation_snapshot is None
+                                  or egress_observations_truncated is None):
+        raise ValueError("HTTPS fixture capture requires its enforcing proxy and bounded ledger")
     if proxy_server is not None and policy_block_log is None:
         raise ValueError("proxy-backed fixture capture requires its policy block log")
     if (egress_observation_snapshot is None) != (egress_correlation_key is None):
         raise ValueError("egress observation snapshot and correlation key must be paired")
     if proxy_server is None and egress_observation_snapshot is not None:
         raise ValueError("egress observations require their enforcing proxy")
+    if egress_observations_truncated is not None and egress_observation_snapshot is None:
+        raise ValueError("egress truncation evidence requires its observation snapshot")
     if proxy_server is None and (
         max_requests != MAX_REQUESTS
         or max_response_bytes != MAX_RESPONSE_BYTES
@@ -1297,6 +1284,7 @@ def probe_page(
         ]
         final_document_status = None
         terminal_main_document_limit_reason = None
+        terminal_block = None
         if terminal_main_documents:
             terminal_main_document = max(
                 terminal_main_documents,
@@ -1317,13 +1305,21 @@ def probe_page(
             ):
                 terminal_main_document_limit_reason = str(terminal_block["reason"])
         interstitial_signals = dict(page_state["interstitialSignals"])
+        egress_truncated = bool(egress_observations_truncated and egress_observations_truncated())
         interstitial_signals["finalDocumentStatus"] = (
             None
-            if terminal_main_document_limit_reason is not None
+            if terminal_main_document_limit_reason is not None or (
+                terminal_block is not None and terminal_block.get("reason") == "egress-ledger-limit")
             else final_document_status
         )
         interstitial_kind = classify_interstitial_v1(interstitial_signals)
         limitations = []
+        if egress_truncated:
+            limitations.append({
+                "code": "egress-observation-limit", "scope": "scan", "targetId": None,
+                "message": "The enforcing proxy's observation ledger reached its bounded capacity.",
+                "invalidatesMetrics": ["request_count", "total_transferred_bytes"],
+            })
         if page_state["domNodeLimitReached"]:
             limitations.append(
                 {
@@ -1614,6 +1610,7 @@ def probe_page(
         )
         measurement_incomplete = (
             worker_capture_incomplete
+            or egress_truncated
             or bool(unknown_nonbootstrap_resources)
             or bool(blocked_requests)
             or page_state["domNodeLimitReached"]
@@ -1639,6 +1636,7 @@ def probe_page(
                     or page_state["geometryCandidateLimitReached"]
                     or aggregation.fallback_rule is not None
                     or auxiliary_events.truncated
+                    or egress_truncated
                 )
                 else "measurement-unavailable"
             )

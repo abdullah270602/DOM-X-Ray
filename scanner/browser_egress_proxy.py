@@ -20,6 +20,7 @@ from threading import Condition, Lock, Semaphore, Thread, current_thread
 from urllib.parse import urlsplit
 
 from scanner.destination_policy import DestinationPolicy
+from scanner.egress_ledger import EgressLedger, redacted_url
 from scanner.origin_exchange import OriginExchange, OriginExchangeError
 
 _TOKEN = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
@@ -72,12 +73,15 @@ class BrowserEgressProxy(ThreadingTCPServer):
     daemon_threads = True
 
     def __init__(self, *, initial_url: str, policy: DestinationPolicy,
-                 exchange: OriginExchange, tls_context: Callable[[str], ssl.SSLContext]):
+                 exchange: OriginExchange, tls_context: Callable[[str], ssl.SSLContext],
+                 ledger_limit: int = 1_000):
         policy.validate(initial_url, purpose="initial")
         self.policy = policy
         self.exchange = exchange
         self.tls_context = tls_context
         self.initial_url = initial_url
+        self.ledger = EgressLedger(ledger_limit)
+        self.blocked = self.ledger.blocked
         self._slots = Semaphore(16)
         self._events_lock = Lock()
         self._events = []
@@ -152,6 +156,12 @@ class BrowserEgressProxy(ThreadingTCPServer):
         with self._events_lock:
             return tuple(dict(event) for event in self._events)
 
+    def snapshot_observations(self):
+        return self.ledger.snapshot()
+
+    def correlation_key(self, url):
+        return self.ledger.correlation_key(url)
+
     def event(self, **event):
         with self._events_lock:
             if len(self._events) < 1_000:
@@ -164,6 +174,7 @@ class _Handler(BaseRequestHandler):
     def handle(self):
         connection = self.request
         deadline = time.monotonic() + 15
+        observation = None
         try:
             method, target, headers = _head(connection, deadline)
             _bodyless(headers)
@@ -202,8 +213,6 @@ class _Handler(BaseRequestHandler):
                 tunnel = (host, port)
                 method, target, headers = _head(connection, deadline)
                 _bodyless(headers)
-            if method not in {"GET", "HEAD", "OPTIONS"}:
-                raise OriginExchangeError("method")
             hosts = [value for name, value in headers if name == "host"]
             if len(hosts) != 1:
                 raise ValueError("invalid Host")
@@ -216,6 +225,12 @@ class _Handler(BaseRequestHandler):
                 if parsed.scheme != "http" or _authority(hosts[0], "http") != _authority(parsed.netloc, "http"):
                     raise ValueError("absolute request authority drift")
                 url = target
+            observation = self.server.ledger.begin(url, method, headers)
+            if observation is None:
+                observation = {"url": redacted_url(url), "method": method}
+                raise OriginExchangeError("egress-ledger-limit")
+            if method not in {"GET", "HEAD", "OPTIONS"}:
+                raise OriginExchangeError("method")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise OriginExchangeError("timeout")
@@ -226,19 +241,33 @@ class _Handler(BaseRequestHandler):
             response += b"".join(f"{name}: {value}\r\n".encode("iso-8859-1") for name, value in result.headers)
             response += b"Connection: close\r\n\r\n" + result.body
             connection.settimeout(max(0.001, deadline - time.monotonic()))
-            connection.sendall(response)
+            try:
+                connection.sendall(response)
+            except OSError:
+                self.server.ledger.finish(observation, outcome="client-write-failed",
+                    responseStatus=result.status, upstreamBytesRead=result.upstream_wire_bytes,
+                    upstreamWireBytes=result.upstream_wire_bytes)
+                self.server.event(outcome="client-write-failed", status=result.status,
+                    upstreamBytesRead=result.upstream_wire_bytes, browserWireBytes=None)
+                return
+            self.server.ledger.finish(observation, outcome="relayed", responseStatus=result.status,
+                upstreamBytesRead=result.upstream_wire_bytes, upstreamWireBytes=result.upstream_wire_bytes,
+                browserWireBytes=len(response))
             self.server.event(outcome="relayed", status=result.status, upstreamBytesRead=result.upstream_wire_bytes,
                               browserWireBytes=len(response), tls=tunnel is not None)
         except (OriginExchangeError, ValueError, OSError) as error:
             block_id = secrets.token_hex(16)
             # No request URL/header or provider text enters this event or body.
             reason = str(error) if isinstance(error, OriginExchangeError) else "invalid-browser-request"
-            limit = reason in {"request-limit", "response-byte-limit", "total-byte-limit"}
+            limit = reason in {"request-limit", "response-byte-limit", "total-byte-limit", "egress-ledger-limit"}
             status = 509 if limit else 403
             response = (f"HTTP/1.1 {status} Scan Blocked\r\nContent-Length: 0\r\n"
                         f"X-DOM-X-Ray-Block-Id: {block_id}\r\nConnection: close\r\n\r\n").encode("ascii")
+            self.server.ledger.block(observation, block_id=block_id, reason=reason, status=status,
+                wire_bytes=len(response), upstream_bytes=getattr(error, "upstream_bytes_read", 0))
             try:
                 connection.sendall(response)
+                self.server.ledger.finish(observation, browserWireBytes=len(response))
             except OSError:
                 pass
             self.server.event(outcome="blocked", status=status, blockId=block_id, reason=reason,
