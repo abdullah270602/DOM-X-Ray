@@ -113,3 +113,8 @@ published scanner identity/robots/opt-out policy, durable distributed abuse
 controls, and retention decisions. Then lift the public probe guard and run
 representative successful/partial/error captures and end-to-end latency tests.
 Neither the seeded API nor the public probe gate was relaxed by this checkpoint.
+
+The subsequent network/PID namespace wrapper now has independent native kernel
+and actual Chromium bypass evidence in `BROWSER_NAMESPACE.md`. It is not yet
+adopted by this stock lifecycle. Filesystem/other Unix sockets, same-UID sibling
+access, whole-worker quotas and deployment containment remain open.
