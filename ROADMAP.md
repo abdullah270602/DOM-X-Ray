@@ -59,6 +59,14 @@ HTTPS HEAD smoke test are recorded in `docs/ORIGIN_EXCHANGE.md`. Browser HTTPS
 interception, request/block-ledger integration, service-worker coverage, bounded
 production DNS, and independent egress enforcement remain open.
 
+The browser HTTPS proxy now terminates CONNECT locally and checks tunnel Host,
+TLS SNI, and decrypted request Host before using the bounded origin exchange.
+Real Chromium evidence covers document/script/service-worker requests, private
+redirect denial, byte caps, authority pivots, and stalled-socket teardown.
+See `docs/BROWSER_EGRESS_PROXY.md`. Certificate issuance, capture-probe ledger
+integration, bounded resolver/issuer execution, and independent container egress
+still block production scanning.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

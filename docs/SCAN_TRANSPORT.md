@@ -116,4 +116,8 @@ The origin-side HTTP integration is now in `scanner/origin_exchange.py`.
 It enforces anonymous requests, strict response framing, scan-wide wire-byte
 limits, and redirect revalidation over the pinned connector. See
 `docs/ORIGIN_EXCHANGE.md` for its verifier and real HTTPS HEAD evidence.
-It still needs the browser-facing TLS interception proxy and containment.
+It still needs capture-probe integration and independent containment.
+The first browser TLS proxy is now implemented and verified with real Chromium
+documents, subresources, and service-worker traffic. Its origin sockets remain
+deterministic fixtures in that verifier. See `docs/BROWSER_EGRESS_PROXY.md` for
+the remaining probe-ledger, certificate issuer, resolver, and containment work.
