@@ -59,7 +59,7 @@ def _valid_output(output, nonce):
 class _PipeProcess:
     """One bounded pipe reader and finite stdin writer; never communicate()."""
 
-    def __init__(self, command, payload, limit):
+    def __init__(self, command, payload, limit, *, keep_stdin=False):
         options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE if payload is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=False, **options)
@@ -68,6 +68,7 @@ class _PipeProcess:
         self.failed = False
         self.read_done = threading.Event()
         self.write_done = threading.Event()
+        self.keep_stdin = keep_stdin
 
         def read():
             try:
@@ -89,10 +90,11 @@ class _PipeProcess:
             except (OSError, ValueError):
                 self.failed = True
             finally:
-                try:
-                    self.process.stdin.close()
-                except OSError:
-                    self.failed = True
+                if not keep_stdin:
+                    try:
+                        self.process.stdin.close()
+                    except OSError:
+                        self.failed = True
                 self.write_done.set()
 
         threading.Thread(target=read, daemon=True).start()
@@ -114,6 +116,29 @@ class _PipeProcess:
                 raise TimeoutError('docker-command-deadline')
             time.sleep(min(0.01, max(0, deadline - time.monotonic())))
 
+    def wait_prefix(self, prefix, deadline):
+        while True:
+            if self.failed or self.overflow:
+                raise WorkerContainmentError('docker-readiness-pipe-failed')
+            available = bytes(self.data[:len(prefix)])
+            _require(prefix.startswith(available), 'docker-readiness-prefix')
+            if len(available) == len(prefix):
+                _require(self.process.poll() is None, 'docker-broker-exited-before-worker')
+                return
+            if self.process.poll() is not None:
+                raise WorkerContainmentError('docker-broker-no-readiness')
+            if time.monotonic() >= deadline:
+                raise TimeoutError('docker-readiness-deadline')
+            time.sleep(min(0.01, max(0, deadline - time.monotonic())))
+
+    def close_input(self, deadline):
+        if self.keep_stdin:
+            if not self.write_done.wait(max(0, deadline - time.monotonic())):
+                raise TimeoutError('docker-stdin-close-deadline')
+            _require(not self.failed, 'docker-stdin-write-failed')
+            if not self.process.stdin.closed:
+                self.process.stdin.close()
+
     def stop(self, deadline):
         if self.process.poll() is None:
             self.process.kill()
@@ -125,6 +150,8 @@ class _PipeProcess:
         self.read_done.wait(remaining)
         self.write_done.wait(max(0, deadline - time.monotonic()))
         _require(self.read_done.is_set() and self.write_done.is_set(), 'docker-client-pipes-survived-stop')
+        if self.keep_stdin and not self.process.stdin.closed:
+            self.process.stdin.close()
 
 
 class DockerWorkerSupervisor:

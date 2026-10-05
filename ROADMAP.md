@@ -82,6 +82,14 @@ clients. This remains reserved-origin fixture evidence: a startup-inclusive
 trusted pair supervisor, durable recovery and public broker egress are not yet
 implemented or production-adopted.
 
+`docs/PAIR_SUPERVISOR.md` now records that trusted pair-supervisor checkpoint:
+the existing transport admits actual fixture capture only after a shared
+startup-through-cleanup lease, broker report and exact container/volume teardown.
+Four native cases passed within 15 seconds, including live-renderer timeout and
+credential rejection. Durable controller-death/orphan recovery, independent
+cgroup-empty proof, actual public broker egress and production API adoption still
+remain open; fixture timings are not public-corpus latency evidence.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

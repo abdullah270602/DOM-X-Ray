@@ -83,6 +83,11 @@ memory peak was 222,375,936 bytes and process peak was 89, not public-corpus bou
 
 ## Remaining release gates
 
+Follow-up: `PAIR_SUPERVISOR.md` records a trusted startup-inclusive pair launcher
+and native 15-second lease tests. The fixture limitations below describe this
+verifier specifically; durable recovery and real public egress remain open for
+the new launcher too.
+
 The existing `DockerWorkerSupervisor` still forbids mounts and does not launch
 this pair. The new verifier is deliberately not its replacement: volume setup
 and container creation precede the measured worker interval; cleanup calls have
