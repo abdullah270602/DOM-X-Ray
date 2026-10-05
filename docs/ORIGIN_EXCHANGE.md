@@ -68,9 +68,10 @@ exchange returned HTTP 200, 1,209 raw HTTP wire bytes, and zero body bytes.
 The system resolver was used only for this smoke test. This is one-machine
 evidence, not a production resolver choice or a representative browser benchmark.
 
-The next integration must terminate browser HTTPS with trust scoped to the
-disposable browser, preserve Host/SNI identity across both sides, apply the same
-path to redirects/subresources/service-worker traffic, bound incoming request
-framing, correlate block receipts, and deny every browser route that can bypass
-the proxy. Independent container egress enforcement is still required.
+The browser proxy now terminates HTTPS, binds CONNECT/Host/SNI, bounds request
+framing, and correlates receipts and worker-bootstrap bytes with full fixture
+capture evidence in `BROWSER_EGRESS_PROXY.md`. Per-scan CA/host certificate
+issuance has separate evidence in `SCAN_CERTIFICATES.md`. Deployment must still
+scope root trust to the disposable browser and deny every browser route that
+can bypass the proxy. Independent container egress enforcement is required.
 Arbitrary public scanning remains disabled.

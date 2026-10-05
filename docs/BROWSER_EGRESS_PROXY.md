@@ -22,6 +22,9 @@ must be restricted to the disposable browser; never install its signing key in
 system trust or disable upstream HTTPS verification. Upstream connections still
 use `connect_pinned` with the origin's real hostname and normal certificate
 verification. The fixture's Chromium key allowlist is test-only configuration.
+`ScanCertificateIssuer` now provides independent per-scan roots and host keys,
+fresh contexts, and bounded issuance; see `SCAN_CERTIFICATES.md`. Installing its
+root only in the deployed disposable browser remains required evidence.
 
 The content-free diagnostic events contain outcome/status/counts and random
 block IDs. A separate scan-local capture ledger retains redacted URL paths
@@ -86,6 +89,6 @@ page capture, a deployed resolver, certificate issuer, or independent firewall.
 Chromium source for its scoped test trust:
 [IgnoreErrorsCertVerifier](https://chromium.googlesource.com/chromium/src/+/main/services/network/ignore_errors_cert_verifier.h).
 
-Next: issue fresh host-bound certificates in the disposable worker, select a bounded
-resolver, verify browser bypass attempts in the container network, then run
+Next: integrate disposable-browser root trust and a bounded resolver, verify
+browser bypass attempts in the container network, then run
 representative public-page capture. Public arbitrary scanning remains disabled.

@@ -262,7 +262,12 @@ def main():
             # that socket and wait for the handler rather than leak a daemon.
             stalled = socket.create_connection(proxy.server_address, timeout=5)
             stalled.sendall(b"GET ")
-        require(stalled.recv(1024) == b"", "proxy teardown left a stalled browser socket open")
+        try:
+            closed = stalled.recv(1024) == b""
+        except ConnectionResetError:
+            # Windows may report a reset instead of EOF after forced shutdown.
+            closed = True
+        require(closed, "proxy teardown left a stalled browser socket open")
         stalled.close()
         require(all(b"User-Agent: DOM-X-Ray-Proxy-Fixture/0.1" in request for request in requests),
                 "browser identity was forwarded to an origin")
