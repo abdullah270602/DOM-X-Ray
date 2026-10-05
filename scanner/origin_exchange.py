@@ -18,6 +18,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from scanner.destination_policy import DestinationPolicy, DestinationPolicyError, DestinationPurpose
 from scanner.pinned_connector import connect_pinned
+from scanner.scan_transport import PublicScanGrant, check_public_scan_grant, public_scan_target_matches
 
 _TOKEN = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 _FORWARD_REQUEST = frozenset({
@@ -157,12 +158,14 @@ class OriginExchange:
     """One scan's serialized request and wire-byte budget.
 
     Resolver/connector injection is trusted deployment configuration. No grant
-    is cached. Every request and redirect check independently validates DNS.
+    is cached. An optional initial launch grant is consumed once by the exact
+    initial GET. Every subsequent request and redirect independently validates DNS.
     A production resolver must be bounded outside this layer as well.
     """
 
     def __init__(self, policy: DestinationPolicy, *, user_agent: str,
-                 limits: EgressLimits = EgressLimits(), connector: Callable = connect_pinned):
+                 limits: EgressLimits = EgressLimits(), connector: Callable = connect_pinned,
+                 initial_grant: PublicScanGrant | None = None):
         _header("user-agent", user_agent)
         if not user_agent or len(user_agent) > 512:
             raise ValueError("invalid scanner identity")
@@ -172,9 +175,46 @@ class OriginExchange:
         self._user_agent = user_agent
         self._limits = limits
         self._connector = connector
+        if initial_grant is not None:
+            check_public_scan_grant(initial_grant)
+        self._initial_grant = initial_grant
+        self._initial_consumed = False
         self._lock = Lock()
         self._requests = 0
         self._received = 0
+
+    @property
+    def destination_policy(self):
+        return self._policy
+
+    def validate_initial_target(self, url):
+        """Proxy setup must bind to the launch target without re-resolving it."""
+        if self._initial_grant is None:
+            return self._policy.validate(url, purpose="initial")
+        if not public_scan_target_matches(url, self._initial_grant):
+            raise ValueError("initial-grant-target-mismatch")
+        return self._initial_grant.destination
+
+    def request_purpose(self, url, initial_url):
+        if self._initial_grant is not None:
+            return "initial" if public_scan_target_matches(url, self._initial_grant) else "subresource"
+        return "initial" if url == initial_url else "subresource"
+
+    def validate_browser_tunnel(self, url):
+        """CONNECT checks authority only; it neither connects nor consumes a grant.
+
+        Pending initial authority uses supplied answers for syntax/policy checks.
+        No origin request borrows this result; fetch owns one-shot pinning.
+        """
+        with self._lock:
+            initial = self._initial_grant if not self._initial_consumed else None
+        if initial is not None:
+            candidate = DestinationPolicy(lambda _host, _port: initial.destination.addresses).validate(
+                url, purpose="subresource")
+            target = initial.destination
+            if (candidate.scheme, candidate.hostname, candidate.port) == (target.scheme, target.hostname, target.port):
+                return candidate
+        return self._policy.validate(url, purpose="subresource")
 
     def fetch(self, url: str, *, method: str = "GET", purpose: DestinationPurpose,
               headers: Sequence[tuple[str, str]] = (), timeout_seconds: float = 10) -> OriginResponse:
@@ -224,7 +264,20 @@ class OriginExchange:
             available = self._limits.max_total_received_bytes - self._received
             if available <= 0:
                 raise OriginExchangeError("total-byte-limit")
-            grant = self._policy.validate(url, purpose=purpose)
+            if self._initial_grant is not None and purpose == "initial":
+                if not public_scan_target_matches(url, self._initial_grant):
+                    raise OriginExchangeError("destination-policy")
+                if not self._initial_consumed:
+                    if method != "GET":
+                        raise OriginExchangeError("method")
+                    # Consume before connector contact, including failed contact.
+                    # Never retry this grant or fall back to a new DNS answer.
+                    self._initial_consumed = True
+                    grant = self._initial_grant.destination
+                else:
+                    grant = self._policy.validate(url, purpose=purpose)
+            else:
+                grant = self._policy.validate(url, purpose=purpose)
             parsed = urlsplit(url)
             path = urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
             if any(ord(character) <= 32 or ord(character) >= 127 for character in path):

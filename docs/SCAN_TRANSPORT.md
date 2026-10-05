@@ -122,7 +122,43 @@ documents, subresources, and service-worker traffic. Its origin sockets remain
 deterministic fixtures in that verifier. See `docs/BROWSER_EGRESS_PROXY.md` for
 the full fixture probe/ledger evidence and remaining public integration work.
 `docs/SCAN_CERTIFICATES.md` covers per-scan CA/host issuance; disposable-browser
-root installation and independent containment remain open.
+root installation has native Linux evidence in `docs/BROWSER_TRUST.md`;
+deployed worker integration and independent containment remain open.
 The bounded system DNS adapter now has process/nonce/size and pinning-composition
 evidence in `docs/BOUNDED_RESOLVER.md`; deployment DNS configuration and its
 integration into the actual public worker remain open.
+
+## Initial-grant proxy integration
+
+`OriginExchange(initial_grant=grant)` now consumes the launch grant once, under
+its serialized request lock, for a GET matching the exact initial target. The
+supplied complete address tuple is rechecked locally without DNS; malformed,
+noncanonical, duplicate, private, wrong-purpose, and target-mismatched grants
+are rejected. URL matching normalizes scheme, hostname, effective port, and
+empty path, but never equates different paths or accepts query/fragment data.
+Proxy setup binds to that same target without another DNS lookup.
+
+The initial CONNECT only validates authority against supplied answers; it
+does not contact the origin or consume the grant. Its existing Host/SNI and
+decrypted Host checks remain intact. Only the matching decrypted GET consumes
+the initial grant. Consumption happens before connector contact, including a
+failed connection; there is no in-call fallback to a new DNS answer. Every
+subsequent request, including another fetch of the initial URL, validates
+afresh. Redirect preflight and the actual followed request also validate
+independently. Proxy and exchange must use the identical policy instance, or
+setup fails before opening a listener.
+
+`python scripts/verify_initial_grant.py` proves these boundaries, concurrent
+one-shot use, failed-contact consumption, rebinding rejection, and real HTTP
+proxy ingress with empty-path/case/default-port normalization. The native
+Linux `verify_browser_trust.py --native` path also carries the launch grant
+through real sandboxed Chromium HTTPS CONNECT, complete capture, and
+service-worker traffic: the first connector receives the exact original
+destination object while later connectors receive freshly validated answers.
+Wrong-root/hostname TLS rejection neither consumes the grant nor resolves or
+contacts the origin.
+
+This is component integration evidence, not a production launch adapter. The
+API's public worker path still needs grant transfer, whole-worker deadline and
+cleanup, independent network containment, and representative public tests.
+Grant retention is scan-local and must end with disposable-worker destruction.

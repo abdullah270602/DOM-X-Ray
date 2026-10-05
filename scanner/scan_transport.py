@@ -93,6 +93,36 @@ class ScanTransportResult:
 LaunchWorker = Callable[[PublicScanGrant, Path], WorkerLaunch]
 
 
+def check_public_scan_grant(grant: PublicScanGrant) -> None:
+    """Recheck a trusted launch grant's complete shape without resolving DNS."""
+    try:
+        if (not isinstance(grant, PublicScanGrant)
+                or not isinstance(grant.destination, ValidatedDestination)
+                or grant.destination.purpose != "initial"
+                or not isinstance(grant.destination.addresses, tuple)):
+            raise ValueError("invalid grant")
+        checked = DestinationPolicy(lambda _host, _port: grant.destination.addresses).validate(
+            grant.target_url, purpose="initial")
+        if checked != grant.destination:
+            raise ValueError("noncanonical grant")
+    except (TypeError, ValueError, AttributeError):
+        raise ValueError("invalid-public-scan-grant") from None
+
+
+def public_scan_target_matches(url: str, grant: PublicScanGrant) -> bool:
+    """Match the initial URL, including path, with no network resolution.
+
+    Initial targets disallow query/fragment material. The local policy check
+    prevents normalization from silently accepting those or unsafe syntax.
+    """
+    try:
+        checked = DestinationPolicy(lambda _host, _port: grant.destination.addresses).validate(
+            url, purpose="initial")
+        return checked == grant.destination and _normalized_url_identity(url) == _normalized_url_identity(grant.target_url)
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
 def _worker_outcome(run: WorkerRun) -> TransportOutcome:
     if run.outcome == "timeout":
         return "worker-timeout"

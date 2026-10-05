@@ -150,23 +150,31 @@ def native(openssl, certutil, runtime_library_path=None):
     from scanner.browser_egress_proxy import run_browser_egress_proxy
     from scanner.destination_policy import DestinationPolicy
     from scanner.origin_exchange import OriginExchange
+    from scanner.scan_transport import PublicScanGrant
     from scanner.browser_probe import probe_page
     from scripts.verify_browser_egress_proxy import FixtureOrigin
     from scripts.validate_fixtures import validate_semantics
     from jsonschema import Draft202012Validator, FormatChecker
     import json
 
-    policy = DestinationPolicy(lambda _host, _port: ["1.1.1.1"])
     with ScanCertificateIssuer(openssl) as issuer, ScanCertificateIssuer(openssl) as other, \
          LinuxBrowserTrust(issuer.trust_certificate, certutil, runtime_library_path=runtime_library_path) as trust, \
          LinuxBrowserTrust(other.trust_certificate, certutil, runtime_library_path=runtime_library_path) as unrelated:
+        owned_homes = [Path(trust.environment["HOME"]), Path(unrelated.environment["HOME"])]
         with sync_playwright() as playwright:
             for mode in ("trusted", "wrong-root", "wrong-host"):
                 requests = []
+                grants, lookups = [], []
+                target = "https://xray.test"
+                initial = PublicScanGrant(target, DestinationPolicy(lambda h, p: ["1.1.1.1"]).validate(target, purpose="initial"))
+                policy = DestinationPolicy(lambda h, p: lookups.append((h, p)) or ["1.0.0.1"])
+                def connector(grant, **_kwargs):
+                    grants.append(grant)
+                    return FixtureOrigin(grant, requests)
                 exchange = OriginExchange(policy, user_agent="DOM-X-Ray-NSS-Fixture/0.1",
-                    connector=lambda grant, **_kwargs: FixtureOrigin(grant, requests))
+                    connector=connector, initial_grant=initial)
                 factory = (lambda _host: issuer("wrong.test")) if mode == "wrong-host" else issuer
-                with run_browser_egress_proxy(initial_url="https://xray.test/", policy=policy,
+                with run_browser_egress_proxy(initial_url=target, policy=policy,
                         exchange=exchange, tls_context=factory) as proxy:
                     environment = unrelated.environment if mode == "wrong-root" else trust.environment
                     browser = playwright.chromium.launch(headless=True, chromium_sandbox=True,
@@ -186,6 +194,9 @@ def native(openssl, certutil, runtime_library_path=None):
                                     captured.record["finalUrl"] == "https://xray.test/",
                                     "normal Chromium NSS capture was not a truthful complete record")
                             require(requests, "trusted browser did not reach origin exchange")
+                            require(grants[0] is initial.destination and
+                                    all(value.addresses == ("1.0.0.1",) for value in grants[1:]) and lookups,
+                                    "native Chromium replaced initial grant or reused it for later requests")
                             require(any(row["fetchDestination"] == "serviceworker" and row["outcome"] == "relayed"
                                         for row in proxy.snapshot_observations()),
                                     "native NSS capture omitted service-worker bootstrap")
@@ -199,8 +210,10 @@ def native(openssl, certutil, runtime_library_path=None):
                             else:
                                 raise AssertionError("Chromium accepted a wrong root/hostname")
                             require(not requests, "rejected browser trust contacted the origin")
+                            require(not grants and not lookups, "negative initial TLS consumed/re-resolved the grant")
                     finally:
                         browser.close()
+    require(all(not home.exists() for home in owned_homes), "native browser trust profiles survived cleanup")
     print("Verified native Linux sandboxed Chromium with private NSS trust and normal certificate checks: full "
           "semantically validated HTTPS/service-worker capture, unrelated scan root and wrong hostname rejected "
           "before origin contact. No system trust or "

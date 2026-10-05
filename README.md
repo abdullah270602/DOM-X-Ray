@@ -100,6 +100,7 @@ python scripts/verify_browser_egress_proxy.py
 python scripts/verify_scan_certificates.py
 python scripts/verify_bounded_resolver.py
 python scripts/verify_browser_trust.py
+python scripts/verify_initial_grant.py
 python scripts/verify_scan_api_contract.py
 python scripts/verify_result_store.py
 python scripts/verify_artifact_delivery.py

@@ -75,7 +75,9 @@ class BrowserEgressProxy(ThreadingTCPServer):
     def __init__(self, *, initial_url: str, policy: DestinationPolicy,
                  exchange: OriginExchange, tls_context: Callable[[str], ssl.SSLContext],
                  ledger_limit: int = 1_000):
-        policy.validate(initial_url, purpose="initial")
+        if not isinstance(exchange, OriginExchange) or policy is not exchange.destination_policy:
+            raise ValueError("proxy-policy-mismatch")
+        exchange.validate_initial_target(initial_url)
         self.policy = policy
         self.exchange = exchange
         self.tls_context = tls_context
@@ -181,7 +183,7 @@ class _Handler(BaseRequestHandler):
             tunnel = None
             if method == "CONNECT":
                 host, port = _authority(target, "https")
-                grant = self.server.policy.validate(f"https://{target}/", purpose="subresource")
+                grant = self.server.exchange.validate_browser_tunnel(f"https://{target}/")
                 if (host, port) != (grant.hostname, grant.port):
                     raise ValueError("authority drift")
                 hosts = [value for name, value in headers if name == "host"]
@@ -235,7 +237,7 @@ class _Handler(BaseRequestHandler):
             if remaining <= 0:
                 raise OriginExchangeError("timeout")
             result = self.server.exchange.fetch(url, method=method,
-                purpose="initial" if url == self.server.initial_url else "subresource",
+                purpose=self.server.exchange.request_purpose(url, self.server.initial_url),
                 headers=headers, timeout_seconds=remaining)
             response = f"HTTP/1.1 {result.status} Origin Response\r\n".encode("ascii")
             response += b"".join(f"{name}: {value}\r\n".encode("iso-8859-1") for name, value in result.headers)

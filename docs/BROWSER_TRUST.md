@@ -40,6 +40,12 @@ are deterministic fixtures; this does not prove public capture or deployed
 firewall containment. No certificate-error switches or OS trust changes were
 used in this native test.
 
+The native probe now also carries a prevalidated initial address grant through
+CONNECT and the first decrypted GET without re-resolving it. Later origin
+requests receive independently validated addresses; negative initial TLS tests
+perform no DNS lookup or origin contact. See `SCAN_TRANSPORT.md` for the
+one-shot grant contract and remaining launch integration obligations.
+
 ## Project-local native test preparation
 
 `scripts/prepare_linux_trust_python.py --bootstrap-wheel /absolute/path/pip-25.3-py3-none-any.whl`
