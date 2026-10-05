@@ -25,6 +25,9 @@ verification. The fixture's Chromium key allowlist is test-only configuration.
 `ScanCertificateIssuer` now provides independent per-scan roots and host keys,
 fresh contexts, and bounded issuance; see `SCAN_CERTIFICATES.md`. Installing its
 root only in the deployed disposable browser remains required evidence.
+`BoundedSystemResolver` now supplies deadline-supervised system lookups;
+`BOUNDED_RESOLVER.md` documents its strict protocol and remaining deployment
+resolver/firewall configuration proof.
 
 The content-free diagnostic events contain outcome/status/counts and random
 block IDs. A separate scan-local capture ledger retains redacted URL paths
@@ -89,6 +92,7 @@ page capture, a deployed resolver, certificate issuer, or independent firewall.
 Chromium source for its scoped test trust:
 [IgnoreErrorsCertVerifier](https://chromium.googlesource.com/chromium/src/+/main/services/network/ignore_errors_cert_verifier.h).
 
-Next: integrate disposable-browser root trust and a bounded resolver, verify
+Next: integrate disposable-browser root trust and the bounded resolver in the
+public worker/grant path, verify
 browser bypass attempts in the container network, then run
 representative public-page capture. Public arbitrary scanning remains disabled.

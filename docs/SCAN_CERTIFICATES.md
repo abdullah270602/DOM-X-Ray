@@ -81,6 +81,7 @@ separate evidence in `SCAN_TRANSPORT.md` and `ORIGIN_EXCHANGE.md`.
 Install the root only in the disposable browser's isolated trust/profile, verify
 negative trust tests without certificate-error switches, remove that profile and
 worker after every scan, and prove independent egress/firewall containment.
-Select a bounded resolver, wire the public worker/grant path, and run the public
+The bounded system adapter now has evidence in `BOUNDED_RESOLVER.md`; wire it
+into the public worker/grant path and run the public
 corpus/latency tests. Arbitrary public scanning remains disabled. The Chromium
 SPKI exception in this verifier is not the production trust configuration.

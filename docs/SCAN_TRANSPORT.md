@@ -122,4 +122,7 @@ documents, subresources, and service-worker traffic. Its origin sockets remain
 deterministic fixtures in that verifier. See `docs/BROWSER_EGRESS_PROXY.md` for
 the full fixture probe/ledger evidence and remaining public integration work.
 `docs/SCAN_CERTIFICATES.md` covers per-scan CA/host issuance; disposable-browser
-root installation, a bounded resolver, and independent containment remain open.
+root installation and independent containment remain open.
+The bounded system DNS adapter now has process/nonce/size and pinning-composition
+evidence in `docs/BOUNDED_RESOLVER.md`; deployment DNS configuration and its
+integration into the actual public worker remain open.

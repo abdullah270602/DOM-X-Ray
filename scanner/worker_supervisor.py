@@ -270,12 +270,12 @@ def _terminate_process_tree(
             ) from error
 
 
-def _artifact_is_valid(path: Path, nonce: str) -> bool:
+def _artifact_is_valid(path: Path, nonce: str, max_bytes: int = MAX_WORKER_RESULT_BYTES) -> bool:
     try:
         metadata = path.lstat()
         if not stat.S_ISREG(metadata.st_mode):
             return False
-        if metadata.st_size <= 0 or metadata.st_size > MAX_WORKER_RESULT_BYTES:
+        if metadata.st_size <= 0 or metadata.st_size > max_bytes:
             return False
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
@@ -294,6 +294,7 @@ def run_worker_command(
     deadline_seconds: float = MAX_WORKER_SECONDS,
     cwd: str | Path | None = None,
     environment: Mapping[str, str] | None = None,
+    max_result_bytes: int = MAX_WORKER_RESULT_BYTES,
 ) -> WorkerRun:
     """Run one disposable worker under a wall-clock process deadline.
 
@@ -301,10 +302,15 @@ def run_worker_command(
     bounded tail for process-tree termination, so both timeout classification and
     cleanup stay inside the declared wall-time ceiling. Standard streams are
     closed so an untrusted page cannot create an unbounded supervisor buffer.
+    Callers may narrow the result byte limit, never exceed the hard ceiling;
+    file size is checked before JSON parsing.
     """
 
     normalized_command = _validated_command(command)
     normalized_deadline = _validated_deadline(deadline_seconds)
+    if (isinstance(max_result_bytes, bool) or not isinstance(max_result_bytes, int)
+            or not 1 <= max_result_bytes <= MAX_WORKER_RESULT_BYTES):
+        raise ValueError("invalid worker result byte limit")
     normalized_result_path = Path(result_path)
     if normalized_result_path.exists():
         raise ValueError("worker result path must be unique and absent before launch")
@@ -378,7 +384,7 @@ def run_worker_command(
             windows_job.close()
 
     artifact_present = normalized_result_path.exists()
-    artifact_valid = _artifact_is_valid(normalized_result_path, result_nonce)
+    artifact_valid = _artifact_is_valid(normalized_result_path, result_nonce, max_result_bytes)
     if returncode == 0 and artifact_valid:
         outcome = "completed"
     elif returncode == 0:

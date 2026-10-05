@@ -98,6 +98,7 @@ python scripts/verify_pinned_connector.py
 python scripts/verify_origin_exchange.py
 python scripts/verify_browser_egress_proxy.py
 python scripts/verify_scan_certificates.py
+python scripts/verify_bounded_resolver.py
 python scripts/verify_scan_api_contract.py
 python scripts/verify_result_store.py
 python scripts/verify_artifact_delivery.py
