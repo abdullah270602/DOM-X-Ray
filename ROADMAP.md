@@ -74,6 +74,14 @@ binding precedes fetch/tunnel operations. This is still same-UID, same-container
 reserved-origin proof. Separate identities/mount policy, real public egress,
 durable recovery, parser and production adoption gates remain open.
 
+The follow-up `docs/CONTAINER_BROKER_BOUNDARY.md` checkpoint demonstrates actual
+Chromium capture with different broker/worker container UIDs and a fresh named
+volume mounted read-only by the worker. Permission and credential canaries prove
+worker mutation/private-file access denial and no origin/DNS activity for denied
+clients. This remains reserved-origin fixture evidence: a startup-inclusive
+trusted pair supervisor, durable recovery and public broker egress are not yet
+implemented or production-adopted.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

@@ -204,7 +204,7 @@ class OriginBroker(_UnixBase):
     daemon_threads = True
 
     def __init__(self, path, *, grant, exchange, capability, worker_uid, lifetime_seconds=15,
-                 max_control_calls=1000):
+                 max_control_calls=1000, socket_gid=None):
         _require(sys.platform == 'linux' and hasattr(socket, 'SO_PEERCRED'))
         check_public_scan_grant(grant)
         _require(type(exchange) is OriginExchange and exchange.initial_grant == grant
@@ -213,12 +213,18 @@ class OriginBroker(_UnixBase):
         _integer(worker_uid, 2**31 - 1)
         _require(0 < _integer(max_control_calls, 1000))
         path = Path(path)
+        parent_mode = 0o700 if socket_gid is None else 0o710
+        if socket_gid is not None:
+            _integer(socket_gid, 2**31 - 1)
+            _require(path.parent.stat().st_gid == socket_gid and os.getgid() == socket_gid)
         _require(path.is_absolute() and path.parent.resolve(strict=True) == path.parent
                  and path.parent.is_dir() and path.parent.stat().st_uid == os.getuid()
-                 and not path.parent.stat().st_mode & 0o077 and not path.exists() and not path.is_symlink()
+                 and stat.S_IMODE(path.parent.stat().st_mode) == parent_mode
+                 and not path.exists() and not path.is_symlink()
                  and len(os.fsencode(path)) <= 107)
         self.grant, self.exchange, self.capability, self.worker_uid = grant, exchange, capability, worker_uid
         self.grant_binding = _grant_binding(grant, capability)
+        self.socket_gid = socket_gid
         self.deadline = time.monotonic() + _seconds(lifetime_seconds)
         self.path = path
         self._slots, self._activity, self._active = Semaphore(16), Condition(), set()
@@ -226,7 +232,9 @@ class OriginBroker(_UnixBase):
         self._control_lock, self._control_calls, self.max_control_calls = Lock(), 0, max_control_calls
         self._bound = False
         super().__init__(str(path), _Handler)
-        path.chmod(0o600)
+        if socket_gid is not None:
+            _require(path.stat().st_gid == socket_gid)
+        path.chmod(0o600 if socket_gid is None else 0o620)
         self._identity = (path.stat().st_dev, path.stat().st_ino)
         self._thread = Thread(target=self.serve_forever, kwargs={'poll_interval': 0.05}, daemon=True)
         self._thread.start()
@@ -276,7 +284,10 @@ class OriginBroker(_UnixBase):
                 self._activity.wait(_remaining(deadline))
         _require(not self._thread.is_alive())
         metadata = self.path.lstat()
-        _require(stat.S_ISSOCK(metadata.st_mode) and (metadata.st_dev, metadata.st_ino) == self._identity)
+        _require(stat.S_ISSOCK(metadata.st_mode) and (metadata.st_dev, metadata.st_ino) == self._identity
+                 and metadata.st_uid == os.getuid()
+                 and stat.S_IMODE(metadata.st_mode) == (0o600 if self.socket_gid is None else 0o620)
+                 and (self.socket_gid is None or metadata.st_gid == self.socket_gid))
         self.path.unlink()
 
 
@@ -291,10 +302,14 @@ class TunnelAuthority:
 class RemoteOriginExchange(OriginExchange):
     """Client has no origin connector or resolver; server owns their decisions."""
 
-    def __init__(self, path, *, grant, capability, broker_uid):
+    def __init__(self, path, *, grant, capability, broker_uid, socket_gid=None):
         check_public_scan_grant(grant)
         _require(isinstance(capability, str) and re.fullmatch(r'[0-9a-f]{64}', capability))
         _integer(broker_uid, 2**31 - 1)
+        if socket_gid is not None:
+            _integer(socket_gid, 2**31 - 1)
+            _require(os.getgid() == socket_gid and broker_uid != os.getuid())
+        self.socket_gid = socket_gid
         self.path, self.capability, self.broker_uid = Path(path), capability, broker_uid
         _require(self.path.is_absolute() and len(os.fsencode(self.path)) <= 107)
         def no_dns(_host, _port):
@@ -315,8 +330,13 @@ class RemoteOriginExchange(OriginExchange):
         _require(len(raw) <= MAX_HEAD and sys.platform == 'linux')
         try:
             metadata = self.path.lstat()
+            parent = self.path.parent.stat()
             _require(stat.S_ISSOCK(metadata.st_mode) and metadata.st_uid == self.broker_uid
-                     and metadata.st_mode & 0o077 == 0 and self.path.parent.resolve() == self.path.parent)
+                     and stat.S_IMODE(metadata.st_mode) == (0o600 if self.socket_gid is None else 0o620)
+                     and (self.socket_gid is None or metadata.st_gid == self.socket_gid)
+                     and (self.socket_gid is None or (parent.st_uid == self.broker_uid
+                          and parent.st_gid == self.socket_gid and stat.S_IMODE(parent.st_mode) == 0o710))
+                     and self.path.parent.resolve() == self.path.parent)
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
                 connection.settimeout(_remaining(deadline))
                 connection.connect(str(self.path))

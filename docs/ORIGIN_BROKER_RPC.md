@@ -89,6 +89,10 @@ rerun is not engine reliability evidence.
 
 ## Still required before public scanning
 
+Follow-up evidence: `CONTAINER_BROKER_BOUNDARY.md` now records separate-UID,
+cross-container socket access and permission-denial fixtures. That does not
+replace production pair supervision, recovery or real public egress proof.
+
 - Different worker/broker identities and cross-container socket mount policy;
   same-UID peer checks do not prove identity isolation.
 - Actual public TLS with broker egress/firewall policy and bounded production DNS.
