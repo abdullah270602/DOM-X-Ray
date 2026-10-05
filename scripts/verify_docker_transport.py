@@ -42,6 +42,7 @@ def main():
                             capture_output=True, check=True, timeout=10).stdout
     schema, semantic = validators()
     cases = [('valid', 'admitted'), ('capture', 'admitted'),
+             ('capture-wrong-pin', 'worker-crashed'),
              ('capture-hang', 'worker-timeout'), ('crash', 'worker-crashed'),
              ('wrong-nonce', 'worker-invalid-result'), ('trailing', 'worker-invalid-result'),
              ('duplicate-key', 'worker-invalid-result'),
@@ -64,6 +65,9 @@ def main():
                 temporary_root=temporary, deadline_seconds=15)
             require(result.outcome == expected,
                     f'{mode}: expected {expected}, got {result.outcome}')
+            if mode == 'capture-wrong-pin':
+                require(result.worker is not None and result.worker.returncode == 7,
+                        'wrong browser pin did not reject before origin contact')
             require(not list(Path(temporary).iterdir()), 'host temporary result survived return')
             require(result.admitted == (expected == 'admitted'), 'ineligible result admitted')
             print(f'{mode}: {result.outcome}; {result.worker.duration_ms:.0f} ms', flush=True)

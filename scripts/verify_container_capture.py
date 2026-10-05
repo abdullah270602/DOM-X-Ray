@@ -28,6 +28,10 @@ def main():
     parser.add_argument('--image', default='dom-x-ray-capture-fixture:gate3')
     parser.add_argument('--seccomp', type=Path, default=Path(__file__).resolve().parents[1] /
                         '.dom-xray-data/fixture-seccomp-capture.json')
+    parser.add_argument('--runtime-inventory', action='store_true',
+                        help='also verify the current candidate manifest and installed package pins')
+    parser.add_argument('--runtime-regressions', action='store_true',
+                        help='also run current-candidate NSS and sandboxed measurement regressions')
     options = parser.parse_args()
     profile = json.loads(options.seccomp.read_text(encoding='utf-8'))
     fingerprint = hashlib.sha256(json.dumps(profile, sort_keys=True,
@@ -48,7 +52,12 @@ def main():
     require(engine['OSType'] == 'linux' and engine['CgroupVersion'] == '2', 'Linux cgroup v2 required')
     report = {'engine': engine['ServerVersion'], 'image_id': image,
               'profile_sha256': fingerprint, 'cases': []}
-    for case in ('default-policy-denial', 'mount-compatibility', 'capture-and-timeout', 'network-bypass'):
+    cases = ('default-policy-denial', 'mount-compatibility', 'capture-and-timeout', 'network-bypass')
+    if options.runtime_inventory:
+        cases = ('runtime-inventory', *cases)
+    if options.runtime_regressions:
+        cases = (*cases, 'nss-trust', 'measurement-regressions')
+    for case in cases:
         token = secrets.token_hex(16)
         name = 'dom-x-ray-capture-fixture-' + token
         try:
@@ -59,6 +68,14 @@ def main():
                 command = ['python3', '-I', 'fixtures/worker/container_mount_probe.py']
             if case == 'network-bypass':
                 command = ['python3', 'scripts/verify_namespaced_chromium.py', '--runtime-root', '/opt/runtime']
+            if case == 'runtime-inventory':
+                command = ['python3', 'scripts/verify_runtime_inventory.py']
+            if case == 'nss-trust':
+                command = ['python3', 'scripts/verify_browser_trust.py', '--native',
+                           '--certutil', '/usr/bin/certutil', '--expected-chromium-version', '153.0.8010.12']
+            if case == 'measurement-regressions':
+                command = ['python3', 'scripts/verify_browser_fixtures.py',
+                           '--expected-chromium-version', '153.0.8010.12', '--sandbox']
             identifier = docker('create', '--pull=never', '--name', name,
                 '--label', f'{LABEL}={token}', '--init', '--network=none', '--read-only',
                 '--user=10001:10001', '--cap-drop=ALL', '--security-opt=no-new-privileges=true',
@@ -87,7 +104,7 @@ def main():
                 require(len(installed) == 1 and json.loads(installed[0]) == profile,
                         'engine did not receive the reviewed fixture syscall profile')
             docker('start', identifier)
-            exit_code = int(docker('wait', identifier, timeout=50))
+            exit_code = int(docker('wait', identifier, timeout=180 if case == 'measurement-regressions' else 50))
             state = json.loads(docker('inspect', identifier))[0]['State']
             logs = docker('logs', identifier)
             require(not state['Running'] and state['Pid'] == 0 and not state['OOMKilled'],
@@ -104,6 +121,15 @@ def main():
                             'capture verifier did not finish all checks')
                 elif case == 'network-bypass':
                     require('Verified' in logs, 'network verifier did not finish')
+                elif case == 'runtime-inventory':
+                    require('Verified candidate runtime inventory' in logs, 'runtime inventory verifier did not finish')
+                elif case == 'nss-trust':
+                    require('Verified native Linux sandboxed Chromium with private NSS trust' in logs,
+                            'native NSS acceptance/rejection verifier did not finish')
+                elif case == 'measurement-regressions':
+                    require('Validated controlled Chromium 153.0.8010.12 against 31 deterministic browser fixtures.' in logs
+                            and 'Validated schema-conformant scene manifests for all 31 browser fixtures.' in logs,
+                            'current-browser measurement regression verifier did not finish')
             print(f'{case}: {logs}', flush=True)
             report['cases'].append({'case': case, 'exit_code': exit_code, 'container_stopped': True})
         finally:

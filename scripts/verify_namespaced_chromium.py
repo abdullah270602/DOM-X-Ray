@@ -20,6 +20,7 @@ from scanner.browser_probe import probe_page
 from scanner.destination_policy import DestinationPolicy
 from scanner.origin_exchange import OriginExchange
 from scanner.scan_transport import PublicScanGrant
+from scanner.container_capture_entry import runtime as pinned_runtime
 from scripts.verify_browser_egress_proxy import FixtureOrigin
 from scripts.validate_fixtures import validate_semantics
 
@@ -34,8 +35,9 @@ def main():
     parser.add_argument("--runtime-root", type=Path, default=ROOT / ".dom-xray-data/linux-trust")
     base = parser.parse_args().runtime_root.resolve(strict=True)
     require(sys.platform == "linux", "native Linux namespaced Chromium proof required")
-    libraries = base / "root/usr/lib/x86_64-linux-gnu"
-    executable = base / "browsers/chromium_headless_shell-1187/chrome-linux/headless_shell"
+    runtime = pinned_runtime(base)
+    libraries = runtime.library_directory
+    executable = runtime.chromium
     target = "https://xray.test/"
     grant = PublicScanGrant(target, DestinationPolicy(lambda h, p: ["1.1.1.1"]).validate(target, purpose="initial"))
     requests, grants = [], []
@@ -59,7 +61,7 @@ def main():
         browser = playwright.chromium.launch(executable_path=str(wrapper), headless=True, chromium_sandbox=True,
             env=trust.environment, proxy={"server": proxy.url}, args=["--disable-quic"], timeout=5_000)
         try:
-            require(browser.version == "140.0.7339.16", "unpinned namespaced Chromium")
+            require(browser.version == runtime.expected_chromium_version, "unpinned namespaced Chromium")
             captured = probe_page(browser, target, trusted_https_fixture=True, proxy_server=proxy.url,
                 policy_block_log=proxy.blocked, egress_observation_snapshot=proxy.snapshot_observations,
                 egress_correlation_key=proxy.correlation_key,

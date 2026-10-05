@@ -1,6 +1,7 @@
 """Trusted baked fixture modes, not a visitor-selectable scanner entrypoint."""
 
 import json
+from dataclasses import replace
 import os
 from pathlib import Path
 import sys
@@ -23,8 +24,11 @@ def main():
         os.environ.clear()
         os.environ.update(PATH='/usr/bin:/bin', LANG='C.UTF-8', LC_ALL='C.UTF-8',
                           HOME=temporary, TMPDIR=temporary)
-        if mode in ('capture', 'capture-hang'):
-            requests = []
+        if mode in ('capture', 'capture-hang', 'capture-wrong-pin'):
+            requests, contacts = [], []
+            def connector(destination, **_kwargs):
+                contacts.append(destination)
+                return FixtureOrigin(destination, requests)
             def after_capture(_probe, _home, browser):
                 if mode == 'capture-hang':
                     context = browser.new_context()
@@ -33,10 +37,19 @@ def main():
                     if page.evaluate('1 + 1') != 2:
                         raise AssertionError('offline renderer failure')
                     time.sleep(60)
-            record = capture_granted_page(grant, runtime(),
-                resolver=lambda _h, _p: ['1.0.0.1'],
-                connector=lambda destination, **_kwargs: FixtureOrigin(destination, requests),
-                after_capture=after_capture)
+            configured = runtime()
+            if mode == 'capture-wrong-pin':
+                configured = replace(configured, expected_chromium_version='0.0.0.0')
+            try:
+                record = capture_granted_page(grant, configured,
+                    resolver=lambda _h, _p: ['1.0.0.1'],
+                    connector=connector,
+                    after_capture=after_capture)
+            except ValueError as error:
+                if (mode == 'capture-wrong-pin' and str(error) == 'capture-worker-browser-version'
+                        and not requests and not contacts):
+                    raise SystemExit(7) from None
+                raise
             emit_record(record, nonce)
         elif mode == 'crash':
             raise SystemExit(7)

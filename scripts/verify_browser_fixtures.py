@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import copy
 import json
 import sys
@@ -729,6 +730,11 @@ def deterministic_fingerprint(record: dict) -> tuple:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--expected-chromium-version', default=EXPECTED_CHROMIUM_VERSION,
+                        help='trusted regression pin, not visitor configuration')
+    parser.add_argument('--sandbox', action='store_true', help='require native Chromium sandboxing')
+    options = parser.parse_args()
     Draft202012Validator.check_schema(SCHEMA)
     validator = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
     Draft202012Validator.check_schema(SCENE_SCHEMA)
@@ -773,12 +779,13 @@ def main() -> None:
         assert_proxy_observation_contract(proxy)
         browser = playwright.chromium.launch(
             headless=True,
+            chromium_sandbox=options.sandbox,
             args=["--proxy-bypass-list=<-loopback>"],
         )
         try:
             require(
-                browser.version == EXPECTED_CHROMIUM_VERSION,
-                f"Chromium version {browser.version} != pinned proof version {EXPECTED_CHROMIUM_VERSION}",
+                browser.version == options.expected_chromium_version,
+                f"Chromium version {browser.version} != pinned proof version {options.expected_chromium_version}",
             )
             limit_guard_url = f"http://clean.test:{server.server_port}/clean/"
             try:
@@ -2426,7 +2433,7 @@ def main() -> None:
             browser.close()
 
     print(
-        f"Validated controlled Chromium {EXPECTED_CHROMIUM_VERSION} "
+        f"Validated controlled Chromium {options.expected_chromium_version} "
         f"against {len(FIXTURES)} deterministic browser fixtures."
     )
     for summary in summaries:

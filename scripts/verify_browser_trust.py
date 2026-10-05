@@ -143,7 +143,7 @@ def contract(openssl):
           "NSS commands were mocked; this is not native Chromium trust proof.")
 
 
-def native(openssl, certutil, runtime_library_path=None):
+def native(openssl, certutil, runtime_library_path=None, expected_chromium_version='140.0.7339.16'):
     if sys.platform != "linux" or not certutil:
         raise RuntimeError("native trust verification requires Linux NSS certutil")
     from playwright.sync_api import sync_playwright, Error as PlaywrightError
@@ -180,7 +180,7 @@ def native(openssl, certutil, runtime_library_path=None):
                     browser = playwright.chromium.launch(headless=True, chromium_sandbox=True,
                         env=environment, proxy={"server": proxy.url}, args=["--disable-quic"], timeout=5_000)
                     try:
-                        require(browser.version == "140.0.7339.16", "native verifier requires pinned Chromium")
+                        require(browser.version == expected_chromium_version, "native verifier requires pinned Chromium")
                         if mode == "trusted":
                             captured = probe_page(browser, "https://xray.test/", trusted_https_fixture=True,
                                 proxy_server=proxy.url, policy_block_log=proxy.blocked,
@@ -225,11 +225,14 @@ def main():
     parser.add_argument("--native", action="store_true")
     parser.add_argument("--certutil", help="absolute path to Linux NSS certutil, not Windows certutil")
     parser.add_argument("--runtime-library-path", help="reviewed project-local shared library directory")
+    parser.add_argument('--expected-chromium-version', default='140.0.7339.16',
+                        help='trusted test pin; never visitor configuration')
     options = parser.parse_args()
     openssl = shutil.which("openssl") or r"C:\Program Files\Git\usr\bin\openssl.exe"
     contract(openssl)
     if options.native:
-        native(openssl, options.certutil or shutil.which("certutil"), options.runtime_library_path)
+        native(openssl, options.certutil or shutil.which("certutil"), options.runtime_library_path,
+               options.expected_chromium_version)
 
 
 if __name__ == "__main__":

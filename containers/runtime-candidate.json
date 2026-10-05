@@ -1,0 +1,5 @@
+{
+  "playwrightVersion": "1.63.0",
+  "expectedChromiumVersion": "153.0.8010.12",
+  "chromium": "/opt/runtime/browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell"
+}

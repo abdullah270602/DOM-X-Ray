@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 from jsonschema import Draft202012Validator, FormatChecker
 from scanner.destination_policy import DestinationPolicy
 from scanner.egress_capture_worker import CaptureRuntime, capture_granted_page, create_capture_launch, load_capture_config
+from scanner.container_capture_entry import runtime as pinned_runtime
 from scanner.scan_transport import run_public_scan_transport, PublicScanGrant
 from scripts.validate_fixtures import validate_semantics
 
@@ -51,9 +52,7 @@ def main():
         require(os.getuid() == 10001 and status['NoNewPrivs'].strip() == '1' and status['Seccomp'].strip() == '2'
                 and all(int(status[key].strip(), 16) == 0 for key in ('CapEff', 'CapPrm', 'CapBnd')),
                 'container verifier identity/capabilities/filter mismatch')
-    runtime = CaptureRuntime(Path("/usr/bin/openssl"), base / "root/usr/bin/certutil",
-        base / "browsers/chromium_headless_shell-1187/chrome-linux/headless_shell",
-        base / "root/usr/lib/x86_64-linux-gnu")
+    runtime = pinned_runtime(base)
     packages = base / "python"
     fixture = ROOT / "fixtures/worker/egress_capture_fixture.py"
     schema = Draft202012Validator(json.loads((ROOT / "docs/SCAN_RECORD.schema.json").read_text()),
@@ -169,6 +168,14 @@ def main():
         config = private / "capture-config.json"
         original = config.read_bytes()
         require(load_capture_config(config)[0] == grant, "private grant roundtrip drifted")
+        require(load_capture_config(config)[1].expected_chromium_version == runtime.expected_chromium_version,
+                'explicit browser pin was lost during grant-file roundtrip')
+        legacy = json.loads(original)
+        legacy['runtime'].pop('expectedChromiumVersion')
+        config.write_bytes(json.dumps(legacy).encode())
+        require(load_capture_config(config)[1].expected_chromium_version == '140.0.7339.16',
+                'legacy config silently selected a new browser pin')
+        config.write_bytes(original)
         previous_tmpdir = os.environ.pop("TMPDIR", None)
         try:
             try:
@@ -186,6 +193,10 @@ def main():
         require(all(default.command), "installed-package launch used an invalid empty process argument")
         variants = [original[:-1] + b',"unknown":true}', b'{"grant":{},"grant":{},"runtime":{}}',
                     b"x" * 16_385]
+        for invalid_pin in (None, True, '', 'latest', '153.x', '153.0.8010.12/extra'):
+            forged = json.loads(original)
+            forged['runtime']['expectedChromiumVersion'] = invalid_pin
+            variants.append(json.dumps(forged).encode())
         forged = json.loads(original)
         forged["grant"]["destination"]["addresses"] = ["127.0.0.1"]
         variants.append(json.dumps(forged).encode())

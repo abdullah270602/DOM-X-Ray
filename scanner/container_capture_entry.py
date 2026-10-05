@@ -41,10 +41,23 @@ def emit_record(record, nonce):
     sys.stdout.buffer.flush()
 
 
-def runtime():
-    return CaptureRuntime(Path('/usr/bin/openssl'), Path('/opt/runtime/root/usr/bin/certutil'),
-        Path('/opt/runtime/browsers/chromium_headless_shell-1187/chrome-linux/headless_shell'),
-        Path('/opt/runtime/root/usr/lib/x86_64-linux-gnu'))
+def runtime(base=Path('/opt/runtime')):
+    manifest = base / 'capture-runtime.json'
+    if manifest.exists():
+        if manifest.stat().st_size > 8192:
+            raise ValueError('container-runtime-manifest-limit')
+        config = json.loads(manifest.read_bytes(), object_pairs_hook=_pairs)
+        if not isinstance(config, dict) or set(config) != {'chromium', 'expectedChromiumVersion', 'playwrightVersion'}:
+            raise ValueError('container-runtime-manifest-shape')
+        from importlib.metadata import version
+        if version('playwright') != config['playwrightVersion']:
+            raise ValueError('container-playwright-pin')
+        return CaptureRuntime(Path('/usr/bin/openssl'), base / 'root/usr/bin/certutil',
+            Path(config['chromium']), base / 'root/usr/lib/x86_64-linux-gnu',
+            config['expectedChromiumVersion'])
+    return CaptureRuntime(Path('/usr/bin/openssl'), base / 'root/usr/bin/certutil',
+        base / 'browsers/chromium_headless_shell-1187/chrome-linux/headless_shell',
+        base / 'root/usr/lib/x86_64-linux-gnu')
 
 
 def main():

@@ -35,8 +35,12 @@ class CaptureRuntime:
     certutil: Path
     chromium: Path
     library_directory: Path | None = None
+    expected_chromium_version: str = CHROMIUM_VERSION
 
     def __post_init__(self):
+        if (not isinstance(self.expected_chromium_version, str)
+                or not re.fullmatch(r'[0-9]{1,3}\.[0-9]{1,5}\.[0-9]{1,5}\.[0-9]{1,5}', self.expected_chromium_version)):
+            raise ValueError('invalid-capture-browser-pin')
         for path in (self.openssl, self.certutil, self.chromium):
             if not isinstance(path, Path) or not path.is_absolute() or not path.is_file():
                 raise ValueError("invalid-capture-runtime")
@@ -75,7 +79,8 @@ def create_capture_launch(grant, result_path, runtime, *, packages_directory=Non
         "addresses": list(destination.addresses)}}, "runtime": {
         "openssl": str(runtime.openssl), "certutil": str(runtime.certutil),
         "chromium": str(runtime.chromium),
-        "libraryDirectory": None if runtime.library_directory is None else str(runtime.library_directory)}}
+        "libraryDirectory": None if runtime.library_directory is None else str(runtime.library_directory),
+        "expectedChromiumVersion": runtime.expected_chromium_version}}
     encoded = json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8")
     if len(encoded) > MAX_CONFIG_BYTES:
         raise ValueError("capture-worker-config-limit")
@@ -124,7 +129,9 @@ def load_capture_config(path):
         raise ValueError("invalid-capture-config")
     grant, runtime = payload["grant"], payload["runtime"]
     if (not isinstance(grant, dict) or set(grant) != {"targetUrl", "destination"}
-            or not isinstance(runtime, dict) or set(runtime) != {"openssl", "certutil", "chromium", "libraryDirectory"}):
+            or not isinstance(runtime, dict) or set(runtime) not in (
+                {"openssl", "certutil", "chromium", "libraryDirectory"},
+                {"openssl", "certutil", "chromium", "libraryDirectory", "expectedChromiumVersion"})):
         raise ValueError("invalid-capture-config")
     destination = grant["destination"]
     if (not isinstance(destination, dict) or set(destination) != {"purpose", "scheme", "hostname", "port", "addresses"}
@@ -138,7 +145,8 @@ def load_capture_config(path):
     checked = PublicScanGrant(grant["targetUrl"], destination)
     check_public_scan_grant(checked)
     return checked, CaptureRuntime(Path(runtime["openssl"]), Path(runtime["certutil"]), Path(runtime["chromium"]),
-        None if runtime["libraryDirectory"] is None else Path(runtime["libraryDirectory"]))
+        None if runtime["libraryDirectory"] is None else Path(runtime["libraryDirectory"]),
+        runtime.get('expectedChromiumVersion', CHROMIUM_VERSION))
 
 
 def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pinned, after_capture=None):
@@ -179,7 +187,7 @@ def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pin
             executable_path=str(wrapper), env=trust.environment,
             proxy={"server": proxy.url}, args=["--disable-quic"], timeout=5_000)
         try:
-            if browser.version != CHROMIUM_VERSION:
+            if browser.version != runtime.expected_chromium_version:
                 raise ValueError("capture-worker-browser-version")
             probe = probe_page(browser, grant.target_url, trusted_https_fixture=True,
                 proxy_server=proxy.url, policy_block_log=proxy.blocked,

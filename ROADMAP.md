@@ -207,6 +207,17 @@ fixture-only engine launch/result seam; production image/filter review,
 restricted broker connectivity, durable orphan recovery, independent
 descendant/cgroup-empty teardown, and public scanner adoption remain open.
 
+The next runtime candidate pins Playwright 1.63.0 / Chromium 153.0.8010.12 in a
+separate image, with official PyPI-verified hash locks and an immutable runtime
+manifest that checks package/browser versions before page contact. The old 140
+fixture remains for comparison; no visitor can select a runtime or disable its
+pin. See `docs/RUNTIME_CANDIDATE.md`. Current-image testing does not replace
+vulnerability/kernel review, reproducible OS locking, patch maintenance,
+production syscall-policy review or public scanner adoption.
+Seven native suites (including 31 sandboxed measurement fixtures) and twelve
+transport cases pass on the current candidate; historical transport compatibility
+also passes. An incorrect browser pin is rejected before origin connector contact.
+
 ## Gate 4 — Public exploration loop
 
 **Question:** Can a newcomer complete the core journey without help?
