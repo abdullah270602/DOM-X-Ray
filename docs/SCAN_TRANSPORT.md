@@ -162,3 +162,9 @@ This is component integration evidence, not a production launch adapter. The
 API's public worker path still needs grant transfer, whole-worker deadline and
 cleanup, independent network containment, and representative public tests.
 Grant retention is scan-local and must end with disposable-worker destruction.
+
+The Linux `create_capture_launch` adapter now carries this grant through a
+strict private config into the real supervised browser-egress lifecycle. Native
+controlled HTTPS capture and live-browser timeout/cleanup evidence are recorded
+in `EGRESS_CAPTURE_WORKER.md`. The public API/queue and independent containment
+integration remain open; the probe's reserved-fixture guard remains enforced.
