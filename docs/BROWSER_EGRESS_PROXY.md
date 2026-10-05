@@ -24,7 +24,9 @@ use `connect_pinned` with the origin's real hostname and normal certificate
 verification. The fixture's Chromium key allowlist is test-only configuration.
 `ScanCertificateIssuer` now provides independent per-scan roots and host keys,
 fresh contexts, and bounded issuance; see `SCAN_CERTIFICATES.md`. Installing its
-root only in the deployed disposable browser remains required evidence.
+root in a private Linux NSS profile now has native sandboxed Chromium evidence
+without certificate-error switches; see `BROWSER_TRUST.md`. Deployed worker
+integration and independent containment remain required evidence.
 `BoundedSystemResolver` now supplies deadline-supervised system lookups;
 `BOUNDED_RESOLVER.md` documents its strict protocol and remaining deployment
 resolver/firewall configuration proof.

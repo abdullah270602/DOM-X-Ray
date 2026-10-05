@@ -1,6 +1,6 @@
 # Per-scan browser TLS certificates
 
-Status: real issuer and proxy integration evidence; deployed browser trust open.
+Status: real issuer, proxy, and native browser-trust evidence; deployment integration open.
 
 `scanner/scan_certificates.py` supplies `ScanCertificateIssuer`, a callable for
 `BrowserEgressProxy.tls_context`. It creates a new P-256 CA key and root for each
@@ -78,9 +78,12 @@ separate evidence in `SCAN_TRANSPORT.md` and `ORIGIN_EXCHANGE.md`.
 
 ## Remaining release obligations
 
-Install the root only in the disposable browser's isolated trust/profile, verify
-negative trust tests without certificate-error switches, remove that profile and
-worker after every scan, and prove independent egress/firewall containment.
+`LinuxBrowserTrust` now installs only the public root in a private scan-owned
+Linux NSS database. Native sandboxed Chromium accepted the correct root and
+rejected unrelated roots and wrong-host leaves without certificate-error
+switches; see `BROWSER_TRUST.md`. Wire this into the deployed disposable worker,
+close all browser processes before profile cleanup, destroy the worker after
+every scan, and prove independent egress/firewall containment.
 The bounded system adapter now has evidence in `BOUNDED_RESOLVER.md`; wire it
 into the public worker/grant path and run the public
 corpus/latency tests. Arbitrary public scanning remains disabled. The Chromium
