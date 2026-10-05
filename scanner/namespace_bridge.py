@@ -149,22 +149,32 @@ class _BridgeHandler(BaseRequestHandler):
 class NamespaceBridge(_BoundedHandlers, ThreadingUnixStreamServer):
     """Private pathname socket that can reach only one fixed loopback proxy."""
 
-    def __init__(self, proxy_port):
+    def __init__(self, proxy_port, *, temporary_parent=None):
         if (not isinstance(proxy_port, int) or isinstance(proxy_port, bool)
                 or not 1 <= proxy_port <= 65_535 or not hasattr(socket, "SO_PEERCRED")):
             raise ValueError("namespace-bridge-configuration")
+        if temporary_parent is not None:
+            temporary_parent = Path(temporary_parent)
+            if (not temporary_parent.is_absolute() or not temporary_parent.is_dir()
+                    or temporary_parent.is_symlink() or temporary_parent.stat().st_mode & 0o077):
+                raise ValueError("namespace-bridge-private-directory")
         self.proxy_port = proxy_port
         self.owner_uid = os.getuid()
         # Bounded scan-local process identities for namespace verification only;
         # never a public record, hostname, address, or authorization decision.
         self.peer_ids = set()
         self.configure_handlers()
-        # Avoid long nested worker TMPDIR paths exceeding Linux sockaddr_un.
-        self._temporary = tempfile.TemporaryDirectory(prefix="dxr-net-", dir="/tmp")
+        # A supervised worker supplies parent-owned storage, so hard termination
+        # cannot orphan a socket directory outside transport cleanup. Long paths
+        # fail closed; never silently fall back to unowned /tmp storage.
+        self._temporary = tempfile.TemporaryDirectory(prefix="dxr-net-",
+            dir="/tmp" if temporary_parent is None else str(temporary_parent))
         directory = Path(self._temporary.name)
         directory.chmod(0o700)
         self.path = directory / "proxy.sock"
         try:
+            if len(os.fsencode(self.path)) > 107:
+                raise ValueError("namespace-bridge-path-limit")
             super().__init__(str(self.path), _BridgeHandler)
             self.path.chmod(0o600)
             self._thread = Thread(target=self.serve_forever, daemon=True)

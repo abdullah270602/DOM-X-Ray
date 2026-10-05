@@ -32,6 +32,15 @@ def descendants():
         for pid, (ppid, started, chromium) in rows.items():
             if ppid == parent:
                 owned.append({"pid": pid, "startTicks": started, "chromium": chromium})
+                try:
+                    owned[-1]["networkNamespace"] = os.readlink(f"/proc/{pid}/ns/net")
+                    owned[-1]["commandName"] = Path(f"/proc/{pid}/comm").read_text().strip()
+                    process_stat = Path(f"/proc/{pid}/stat").read_text()
+                    process_fields = process_stat[process_stat.rfind(")") + 2:].split()
+                    owned[-1]["processGroup"] = process_fields[2]
+                    owned[-1]["session"] = process_fields[3]
+                except OSError:
+                    pass
                 pending.append(pid)
     return owned
 
@@ -54,6 +63,15 @@ def main():
         marker = {"profileHome": str(home), "configHome": str(result_path.parent),
                   "requestCount": len(requests), "lookupCount": len(dns),
                   "descendants": descendants(), "status": probe.record["status"]}
+        namespace_config = json.loads((home / "namespace-config.json").read_text())
+        marker["bridgePath"] = namespace_config["bridgePath"]
+        marker["hostNetworkNamespace"] = os.readlink("/proc/self/ns/net")
+        if not Path(marker["bridgePath"]).is_relative_to(result_path.parent):
+            raise AssertionError("bridge socket escaped transport-owned cleanup")
+        observed = [row["networkNamespace"] for row in marker["descendants"]
+                    if row["chromium"] and "networkNamespace" in row]
+        if not observed or any(value == marker["hostNetworkNamespace"] for value in observed):
+            raise AssertionError("supervised Chromium used host network namespace")
         if "AWS_SECRET_ACCESS_KEY" in os.environ or "PYTHONPATH" in os.environ:
             raise AssertionError("worker inherited application secrets/package overrides")
         Path(os.environ["DOM_XRAY_FIXTURE_MARKER"]).write_text(json.dumps(marker))

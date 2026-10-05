@@ -158,6 +158,15 @@ Instrumentation: queue time, navigation/capture/processing durations, status and
 
 Pivot rule: if arbitrary-page reliability or safety misses the gate after bounded remediation, narrow the supported input set—curated domains, user-provided static exports, or seeded examples—before weakening isolation or truthfulness.
 
+Gate 3 containment checkpoint: the guarded Linux capture worker now launches
+actual Chromium through the fixed proxy bridge and user/network/PID namespace
+wrapper. Native integration evidence covers normal HTTPS/service-worker capture
+(3,694 / 3,477 ms), live-browser timeout (14,518 / 14,504 ms), distinct browser network namespace,
+and parent-owned relay/scan-file cleanup. See `docs/EGRESS_CAPTURE_WORKER.md` and
+`docs/BROWSER_NAMESPACE.md`. Filesystem/other Unix sockets, whole-worker resource
+bounds, patched deployment images, API/queue adoption and public-corpus evidence
+remain open; arbitrary public scanning is still disabled.
+
 ## Gate 4 — Public exploration loop
 
 **Question:** Can a newcomer complete the core journey without help?

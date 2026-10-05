@@ -1,6 +1,6 @@
 # Supervised browser-egress capture lifecycle
 
-Status: native Linux controlled capture and timeout proof; arbitrary public capture remains disabled.
+Status: native Linux namespaced controlled capture and timeout proof; arbitrary public capture remains disabled.
 
 `scanner/egress_capture_worker.py` integrates the real scanner components into
 one worker lifecycle. `create_capture_launch` implements the
@@ -34,10 +34,12 @@ or deployment packaging, not an API/visitor setting.
    exchange with the one-shot initial grant and normal pinned TLS connector.
 4. Create a fresh scan CA, private Linux NSS browser trust, and enforcing HTTPS
    proxy using that same policy instance.
-5. Launch pinned Chromium 140.0.7339.16 with sandboxing and normal certificate
-   verification, an explicit executable, private trust environment, and proxy.
+5. Create a fixed Unix-socket proxy bridge under the worker's parent-owned
+   private TMPDIR. Launch pinned Chromium 140.0.7339.16 through the trusted
+   user/network/PID namespace wrapper, with sandboxing, normal certificate
+   verification, private trust environment, and the namespace-local proxy relay.
 6. Run the real browser probe with its ledger/block/truncation evidence.
-7. Close Chromium, Playwright, proxy handlers, trust profile, and certificate
+7. Close Chromium, Playwright, bridge/proxy handlers, trust profile, and certificate
    issuer before writing the atomic, bounded nonce result envelope.
 8. The parent admits only a zero-exit eligible artifact that passes schema,
    semantic, and target correlation checks. The transport removes all owned
@@ -46,9 +48,11 @@ or deployment packaging, not an API/visitor setting.
 The outer supervisor reserves a termination tail within its fifteen-second
 clock. A timeout or cleanup failure never publishes a record. Linux
 process-group termination is not a container, cgroup, PID namespace, or network
-firewall: escaped sessions and processes outside the observed tree still need
-independent deployment containment. Whole-worker filesystem/disk/process limits
-also remain required.
+firewall. The adopted browser wrapper independently creates a loopback-only
+network namespace and a PID namespace whose destruction kills browser children,
+including detached sessions (see `BROWSER_NAMESPACE.md`). The host-side worker
+and broker are outside that namespace. Whole-worker containment and
+filesystem/disk/process limits still remain required.
 
 ## Reproducible native proof
 
@@ -105,6 +109,41 @@ private answers and boolean ports, and ensure the stock entrypoint cannot
 admit an arbitrary public target. Schema/nonce/crash/target-mismatch negative
 admission cases retain coverage in `verify_scan_transport.py`.
 
+In the initial, pre-parent-death-fix namespace adoption run, the native-storage integration verifier completed a
+normal HTTPS/service-worker capture in 3,572 ms and the deliberately hung live
+browser timed out at 14,504 ms. Both used actual Chromium in a network namespace
+different from the worker's host namespace. The verifier observed exact live
+browser descendants before exit and confirmed they stopped, and the parent
+transport removed the relay socket **and its directory**, including after hard
+worker termination. Schema/semantic admission, initial-grant pinning, strict
+config rejection, secret-free environment and stock public-target rejection
+also passed in that run. These are local fixture measurements, not production
+latency or full containment evidence.
+That first pass did not establish reliable detached-launch cleanup, as the
+repeat failure below demonstrates; the repaired topology is verified separately.
+
+A repeat completed capture in 4,901 ms but failed the existing 400 ms timeout
+descendant check: two non-Chromium host-network descendants remained alive.
+The pinned Playwright launcher explicitly uses a detached process group, so
+worker group termination alone does not cover that executable. The trusted
+wrapper now sets SIGKILL parent-death before exec and checks the parent race;
+`unshare --kill-child` carries teardown into namespace PID 1. A separate native
+fixture now reproduces detached launch and verifies namespace destruction after
+its parent is killed. This addresses the launch topology, not arbitrary
+whole-worker process escape or a replacement for cgroups.
+
+With that parent-death fix, two consecutive complete/timeout verifier runs
+passed without extending the 400 ms cleanup observation. Complete captures
+took 3,694 ms and 3,477 ms; forced timeouts took 14,518 ms and 14,504 ms. Both
+also passed the missing-TMPDIR fail-closed regression and parent-owned socket
+directory removal. Reliability on the production image still requires its own
+benchmark and hostile cleanup tests.
+
+The Linux pathname socket is limited to 107 encoded bytes. Deployment must use
+short private runtime paths. Capture rejects a missing/empty TMPDIR rather than
+using standalone storage. Unsafe, symlink, non-private or overlong bridge
+parents fail closed; there is no fallback outside parent-owned cleanup storage.
+
 ## Remaining work
 
 Adopt this launcher in the API/queue only behind independently verified
@@ -114,7 +153,7 @@ controls, and retention decisions. Then lift the public probe guard and run
 representative successful/partial/error captures and end-to-end latency tests.
 Neither the seeded API nor the public probe gate was relaxed by this checkpoint.
 
-The subsequent network/PID namespace wrapper now has independent native kernel
-and actual Chromium bypass evidence in `BROWSER_NAMESPACE.md`. It is not yet
-adopted by this stock lifecycle. Filesystem/other Unix sockets, same-UID sibling
+The network/PID namespace wrapper has independent native kernel and actual
+Chromium bypass evidence in `BROWSER_NAMESPACE.md` and is now adopted by this
+stock lifecycle. Filesystem/other Unix sockets, same-UID sibling
 access, whole-worker quotas and deployment containment remain open.

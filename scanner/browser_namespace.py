@@ -59,13 +59,28 @@ def write_namespace_wrapper(directory, *, executable, bridge_path, port, preserv
     with config.open("x") as stream:
         json.dump(payload, stream)
     config.chmod(0o600)
-    command = ["/usr/bin/unshare", "--user", "--map-current-user", "--net", "--pid", "--fork",
-               "--mount-proc", "--kill-child", "--keep-caps", "/usr/bin/python3", "-I",
-               str(Path(__file__).resolve()), str(config)]
+    command = ["/usr/bin/python3", "-I", str(Path(__file__).resolve()), "--launch", str(config)]
     with wrapper.open("x") as stream:
         stream.write("#!/bin/sh\nexec " + " ".join(shlex.quote(item) for item in command) + ' "$@"\n')
     wrapper.chmod(0o700)
     return wrapper
+
+
+def launch_namespace():
+    """Tie Playwright's detached launcher to its actual parent before exec."""
+    parent = os.getppid()
+    if parent <= 1 or os.getuid() == 0:
+        raise ValueError("namespace-launch-parent")
+    library = ctypes.CDLL(None, use_errno=True)
+    if library.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+        raise OSError("namespace-launch-parent-death")
+    # Parent death before prctl would otherwise miss the notification.
+    if os.getppid() != parent:
+        raise ValueError("namespace-launch-parent-changed")
+    command = ["/usr/bin/unshare", "--user", "--map-current-user", "--net", "--pid", "--fork",
+               "--mount-proc", "--kill-child", "--keep-caps", "/usr/bin/python3", "-I",
+               str(Path(__file__).resolve()), *sys.argv[2:]]
+    os.execv(command[0], command)
 
 
 def main():
@@ -119,6 +134,9 @@ def socket_interfaces():
 
 if __name__ == "__main__":
     try:
-        main()
+        if len(sys.argv) > 1 and sys.argv[1] == "--launch":
+            launch_namespace()
+        else:
+            main()
     except Exception:
         raise SystemExit(2) from None

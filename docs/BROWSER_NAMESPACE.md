@@ -5,7 +5,13 @@ Status: native kernel and actual Chromium network-bypass proof; not complete dep
 `scanner/browser_namespace.py` generates a trusted executable wrapper around
 pinned Chromium. `unshare` creates new user, network, PID, and private-proc mount
 namespaces, mapping the current non-root UID/GID to itself. A trusted Python
-namespace PID 1 enables only loopback. Before starting the relay or browser it
+host launcher first sets a SIGKILL parent-death signal and rechecks its parent
+PID to close the setup race, then execs `unshare`. This is needed because
+Playwright launches the executable in a detached process group; worker group
+termination alone cannot reliably reach it. The non-privileged exec must
+preserve this signal, while `unshare --kill-child` links namespace PID 1 to the
+outer launcher. See the [parent-death signal rules](https://man7.org/linux/man-pages/man2/PR_SET_PDEATHSIG.2const.html).
+Namespace PID 1 enables only loopback. Before starting the relay or browser it
 drops effective, permitted, inheritable, ambient, and bounding capabilities and
 sets no-new-privs. The helper verifies its own postcondition and fails closed on
 setup errors. There is no veth, external interface, default route, host-network
@@ -24,7 +30,11 @@ and [user namespace rules](https://man7.org/linux/man-pages/man7/user_namespaces
 ## Fixed proxy bridge
 
 `scanner/namespace_bridge.py` exposes a private 0600 pathname Unix socket under
-a new 0700 `/tmp/dxr-net-*` directory. Its host-side handler checks Linux peer UID
+a new 0700 `dxr-net-*` directory. Standalone proofs use `/tmp`; the supervised
+capture lifecycle explicitly uses its parent-owned private worker TMPDIR, so
+the transport also removes socket files after hard worker termination. Unsafe
+parents and paths exceeding 107 encoded bytes fail closed without an external
+storage fallback. Its host-side handler checks Linux peer UID
 and can connect only to a fixed `127.0.0.1` enforcing-proxy port. It never accepts
 an upstream address, proxy credentials, shell command, or passed descriptor.
 The namespace-local TCP relay listens on loopback at that same port, so existing
@@ -53,6 +63,8 @@ Tested on Ubuntu under WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`, util-linu
 
 - exact large-payload relay delivery with constrained socket buffers, partial
   writes, and half-closes in both directions;
+- explicit parent-owned bridge placement and orderly cleanup, rejection of
+  non-private/symlink parents, and overlong-path rejection without leaked files;
 - distinct user/network/PID namespaces, exact single UID/GID mappings, non-root
   execution, loopback UP as the only interface, and empty main IPv4/IPv6 routes;
 - zero capability sets plus no-new-privs in the adversarial child;
@@ -64,6 +76,9 @@ Tested on Ubuntu under WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`, util-linu
   target denied without another origin contact;
 - a live `setsid()` descendant destroyed on normal exit and timeout, with no
   remaining members of its exact PID namespace after bounded observation;
+- a trusted parent that launches the wrapper with `start_new_session=True`,
+  matching Playwright's detached group, then waits for it; supervisor timeout
+  kills that parent and the parent-death chain destroys the browser namespace;
 - no eligible artifact after timeout and removal of the bridge socket on close.
 
 `scripts/verify_namespaced_chromium.py` additionally launches the *actual*
@@ -100,8 +115,9 @@ scan. No private-key confidentiality or cross-worker isolation claim follows
 from this proof. The kernel, binaries, packages and mount layout also require
 reviewed patched deployment images, quotas, and runtime integrity controls.
 
-Next: adopt the wrapper in the supervised capture lifecycle with an isolated
-filesystem/Unix-socket surface and deployment resource bounds, then repeat
-hostile network, file, sibling, teardown and public-corpus tests. The stock
-capture worker and seeded API were not switched to this wrapper yet, and the
+The stock supervised capture lifecycle now uses this wrapper; its integrated
+normal-capture and live-browser timeout evidence is in `EGRESS_CAPTURE_WORKER.md`.
+Next: isolate the filesystem/Unix-socket surface and add deployment resource
+bounds, then repeat hostile network, file, sibling, teardown and public-corpus
+tests. The seeded API was not switched to arbitrary public capture, and the
 reserved-target guard remains enforced. Arbitrary public scans remain disabled.

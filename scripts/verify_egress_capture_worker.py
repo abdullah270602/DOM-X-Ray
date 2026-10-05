@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from jsonschema import Draft202012Validator, FormatChecker
 from scanner.destination_policy import DestinationPolicy
-from scanner.egress_capture_worker import CaptureRuntime, create_capture_launch, load_capture_config
+from scanner.egress_capture_worker import CaptureRuntime, capture_granted_page, create_capture_launch, load_capture_config
 from scanner.scan_transport import run_public_scan_transport, PublicScanGrant
 from scripts.validate_fixtures import validate_semantics
 
@@ -46,7 +46,7 @@ def main():
     fixture = ROOT / "fixtures/worker/egress_capture_fixture.py"
     schema = Draft202012Validator(json.loads((ROOT / "docs/SCAN_RECORD.schema.json").read_text()),
                                   format_checker=FormatChecker())
-    with tempfile.TemporaryDirectory(prefix="dom-xray-supervised-egress-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="dxr-egress-", dir="/tmp") as temporary:
         directory = Path(temporary)
         for hang, expected in ((False, "admitted"), (True, "worker-timeout")):
             marker_path = directory / ("timeout.json" if hang else "complete.json")
@@ -94,6 +94,13 @@ def main():
             require(not survivors, f"browser descendants survived bounded exit observation: {survivors}")
             require(not Path(marker["profileHome"]).exists() and not Path(marker["configHome"]).exists(),
                     "scan-owned trust/config files survived transport cleanup")
+            bridge = Path(marker["bridgePath"])
+            require(not bridge.exists() and not bridge.parent.exists(),
+                    "scan-owned bridge socket/directory survived transport cleanup")
+            observed = [row["networkNamespace"] for row in marker["descendants"]
+                        if row["chromium"] and "networkNamespace" in row]
+            require(observed and all(value != marker["hostNetworkNamespace"] for value in observed),
+                    "transport did not launch Chromium through isolated networking")
             if not hang:
                 require(transport.admitted and transport.record["status"] == "complete"
                         and marker["lookupCount"] > 0 and marker["requestCount"] > 1,
@@ -128,6 +135,17 @@ def main():
         config = private / "capture-config.json"
         original = config.read_bytes()
         require(load_capture_config(config)[0] == grant, "private grant roundtrip drifted")
+        previous_tmpdir = os.environ.pop("TMPDIR", None)
+        try:
+            try:
+                capture_granted_page(grant, runtime)
+            except ValueError as error:
+                require(str(error) == "capture-worker-private-temp-required", "missing TMPDIR failed at wrong boundary")
+            else:
+                raise AssertionError("capture silently fell back to unowned temporary storage")
+        finally:
+            if previous_tmpdir is not None:
+                os.environ["TMPDIR"] = previous_tmpdir
         default_directory = directory / "default-packages"
         default_directory.mkdir(mode=0o700)
         default = create_capture_launch(grant, default_directory / "result.json", runtime)
@@ -159,8 +177,9 @@ def main():
             raise AssertionError("symlink worker config was accepted")
     print("Verified native sandboxed Chromium capture through grant-file launch, supervisor, normal private NSS "
           "trust, HTTPS proxy/service-worker capture, schema+semantic admission, minimal secret-free env, "
-          "strict config rejection, live-browser post-capture timeout, descendant kill and scan-file cleanup. "
-          "Public capture and independent container/network containment remain disabled/unproven.")
+          "strict config rejection, isolated browser network namespace, live-browser post-capture timeout, "
+          "descendant kill and parent-owned bridge/scan-file cleanup. "
+          "Public capture and full filesystem/container containment remain disabled/unproven.")
 
 
 if __name__ == "__main__":

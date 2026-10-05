@@ -97,6 +97,26 @@ def verify_partial_writes():
 def main():
     require(sys.platform == "linux", "native Linux namespace verification required")
     verify_partial_writes()
+    with tempfile.TemporaryDirectory(prefix="dxr-bridge-parent-", dir="/tmp") as temporary:
+        parent = Path(temporary)
+        with NamespaceBridge(12345, temporary_parent=parent) as bridge:
+            owned = bridge.path
+            require(owned.is_relative_to(parent) and owned.is_socket(), "bridge ignored owned storage")
+        require(not owned.parent.exists(), "orderly bridge shutdown leaked owned directory")
+        public = parent / "public"
+        public.mkdir(mode=0o755)
+        link = parent / "link"
+        link.symlink_to(parent, target_is_directory=True)
+        long = parent / ("x" * 100)
+        long.mkdir(mode=0o700)
+        for invalid in (public, link, long):
+            try:
+                NamespaceBridge(12345, temporary_parent=invalid)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("unsafe or overlong bridge parent accepted")
+        require(not list(long.iterdir()), "overlong bridge setup leaked a temporary directory")
     for hang in (False, True):
         with tempfile.TemporaryDirectory(prefix="dxr-ns-proof-") as temporary, \
              socket.socket() as tcp, socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as tcp6, \
@@ -125,7 +145,8 @@ def main():
                     "marker": str(marker), "hang": hang}))
                 wrapper = write_namespace_wrapper(directory, executable=Path(sys.executable), bridge_path=bridge.path,
                     port=proxy.server_address[1], preserve_pipes=False)
-                run = run_worker_command([str(wrapper), "-I", str(ROOT / "fixtures/worker/network_namespace_fixture.py"),
+                run = run_worker_command([sys.executable, "-I", str(ROOT / "fixtures/worker/detached_namespace_parent.py"),
+                                          str(wrapper), "-I", str(ROOT / "fixtures/worker/network_namespace_fixture.py"),
                                           str(config), str(result)], result_path=result, cwd=ROOT,
                     environment={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}, deadline_seconds=4 if hang else 10)
                 require(run.outcome == ("timeout" if hang else "completed"), f"namespace outcome: {run.outcome}")

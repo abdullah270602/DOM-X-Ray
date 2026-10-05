@@ -149,10 +149,15 @@ def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pin
     """
     from playwright.sync_api import sync_playwright
     from scanner.browser_probe import probe_page, validate_fixture_target
+    from scanner.browser_namespace import write_namespace_wrapper
+    from scanner.namespace_bridge import NamespaceBridge
     if sys.platform != "linux" or not isinstance(runtime, CaptureRuntime):
         raise ValueError("capture-worker-platform-or-runtime")
     check_public_scan_grant(grant)
     validate_fixture_target(grant.target_url, allow_https=True)
+    temporary_parent = os.environ.get("TMPDIR")
+    if not temporary_parent:
+        raise ValueError("capture-worker-private-temp-required")
     policy = DestinationPolicy(BoundedSystemResolver() if resolver is None else resolver)
     exchange = OriginExchange(policy, user_agent="DOM-X-Ray-Guarded-Capture/0.1",
                               initial_grant=grant, connector=connector)
@@ -161,9 +166,12 @@ def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pin
                            runtime_library_path=runtime.library_directory) as trust, \
          run_browser_egress_proxy(initial_url=grant.target_url, policy=policy,
                                  exchange=exchange, tls_context=issuer) as proxy, \
+         NamespaceBridge(proxy.server_address[1], temporary_parent=temporary_parent) as bridge, \
          sync_playwright() as playwright:
+        wrapper = write_namespace_wrapper(Path(trust.environment["HOME"]), executable=runtime.chromium,
+            bridge_path=bridge.path, port=proxy.server_address[1])
         browser = playwright.chromium.launch(headless=True, chromium_sandbox=True,
-            executable_path=str(runtime.chromium), env=trust.environment,
+            executable_path=str(wrapper), env=trust.environment,
             proxy={"server": proxy.url}, args=["--disable-quic"], timeout=5_000)
         try:
             if browser.version != CHROMIUM_VERSION:
