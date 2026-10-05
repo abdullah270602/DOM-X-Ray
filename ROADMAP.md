@@ -177,6 +177,15 @@ timeout/profile cleanup and six direct-network bypass denials pass; see
 identities, whole-worker cgroup/disk bounds and public-corpus/deployment evidence
 remain required. This is not public-scan enablement.
 
+The local Docker resource checkpoint now exercises seven disposable Python probes
+under Docker Desktop's Linux/cgroup-v2 engine: configured limits, actual CPU
+throttling, fork rejection, tmpfs saturation, and kernel OOM kill, plus stopped
+container observations after detached normal/forced exits. It uses no networking,
+host mounts or privileges and removes only invocation-owned test containers.
+See `docs/CONTAINER_RESOURCE_PROOF.md`. This is native quota evidence, not scanner
+adoption or independent detached-descendant/cgroup-empty proof; those boundaries
+and actual Chromium budgets remain open. Arbitrary public scanning stays disabled.
+
 ## Gate 4 — Public exploration loop
 
 **Question:** Can a newcomer complete the core journey without help?
