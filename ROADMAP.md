@@ -197,6 +197,16 @@ browser and broad inherited fixture filter are not production-approved; trusted
 engine-side launcher/result transfer, independent teardown, patched image,
 identity/egress/API adoption and public-corpus proof remain open.
 
+A trusted Docker launch/result checkpoint now transfers a bounded grant and
+fresh nonce over stdin and accepts capped stdout only after exact owned-container
+stop/removal checks. Native actual capture, live-renderer timeout, crash,
+wrong-nonce, trailing/duplicate JSON, oversized output and stderr-flood cases
+exercise the explicit transport provider. No process fallback or public API
+enablement is introduced. See `docs/DOCKER_WORKER_TRANSPORT.md`. This closes the
+fixture-only engine launch/result seam; production image/filter review,
+restricted broker connectivity, durable orphan recovery, independent
+descendant/cgroup-empty teardown, and public scanner adoption remain open.
+
 ## Gate 4 — Public exploration loop
 
 **Question:** Can a newcomer complete the core journey without help?

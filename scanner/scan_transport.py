@@ -19,7 +19,7 @@ import ipaddress
 import json
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 from urllib.parse import urlsplit
@@ -75,6 +75,7 @@ class WorkerLaunch:
     command: Sequence[str]
     cwd: str | Path | None = None
     environment: Mapping[str, str] | None = None
+    input_payload: bytes | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,23 @@ def check_public_scan_grant(grant: PublicScanGrant) -> None:
             raise ValueError("noncanonical grant")
     except (TypeError, ValueError, AttributeError):
         raise ValueError("invalid-public-scan-grant") from None
+
+
+def decode_public_scan_grant(payload: object) -> PublicScanGrant:
+    """Decode only grant data, never runtime paths, commands or resolver settings."""
+    if not isinstance(payload, dict) or set(payload) != {'targetUrl', 'destination'}:
+        raise ValueError('invalid-public-scan-grant')
+    destination = payload['destination']
+    if (not isinstance(destination, dict)
+            or set(destination) != {'purpose', 'scheme', 'hostname', 'port', 'addresses'}
+            or not isinstance(destination['addresses'], list)
+            or isinstance(destination['port'], bool) or not isinstance(destination['port'], int)
+            or any(not isinstance(destination[key], str) for key in ('purpose', 'scheme', 'hostname'))):
+        raise ValueError('invalid-public-scan-grant')
+    grant = PublicScanGrant(payload['targetUrl'],
+        ValidatedDestination(**{**destination, 'addresses': tuple(destination['addresses'])}))
+    check_public_scan_grant(grant)
+    return grant
 
 
 def public_scan_target_matches(url: str, grant: PublicScanGrant) -> bool:
@@ -191,12 +209,15 @@ def run_public_scan_transport(
     semantic_validator: RecordValidator,
     deadline_seconds: float = MAX_WORKER_SECONDS,
     temporary_root: str | Path | None = None,
+    worker_supervisor: Callable[[WorkerLaunch, Path, float], WorkerRun] | None = None,
 ) -> ScanTransportResult:
     """Validate, supervise, and admit one scan without publishing partial output.
 
     ``DestinationPolicyError`` propagates before ``launch_worker`` is invoked.
     All worker or record failures collapse to allowlisted outcome values and carry
     no untrusted error text. Temporary result artifacts are destroyed on return.
+    An explicit supervisor is trusted deployment code, not visitor configuration.
+    Stdin payloads require that provider; the process default never ignores them.
     """
 
     destination = policy.validate(target_url, purpose="initial")
@@ -223,13 +244,16 @@ def run_public_scan_transport(
                 record=None,
             )
         try:
-            run = run_worker_command(
-                launch.command,
-                result_path=result_path,
-                deadline_seconds=deadline_seconds,
-                cwd=launch.cwd,
-                environment=launch.environment,
-            )
+            if worker_supervisor is None:
+                if launch.input_payload is not None:
+                    raise ValueError('worker stdin requires an explicit trusted supervisor')
+                run = run_worker_command(
+                    launch.command, result_path=result_path, deadline_seconds=deadline_seconds,
+                    cwd=launch.cwd, environment=launch.environment)
+            else:
+                run = worker_supervisor(launch, result_path, deadline_seconds)
+            if not isinstance(run, WorkerRun):
+                raise ValueError('invalid worker supervision result')
         except Exception:
             return ScanTransportResult(
                 outcome="supervisor-failed",
