@@ -45,6 +45,13 @@ Gate 0 still needs the proven destination and request/byte semantics—including
 
 Pivot rule: if the concept requires invented causality to feel dramatic, remove that layer. The minimum honest product is Structure + transferred Weight + external requests.
 
+The Gate 0 TCP/TLS origin connector now uses only approved numeric addresses,
+checks the connected peer, and preserves hostname/SNI/certificate verification
+under one connection/handshake timeout. Its network-free verifier checks pinning,
+rejected grants, TLS failures, fallback, and cleanup. One public TLS handshake
+succeeded on 2026-10-05. Browser proxy integration, request/byte enforcement,
+production resolution, and container egress remain required before public scans.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

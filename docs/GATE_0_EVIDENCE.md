@@ -122,4 +122,12 @@ Validated public-scan transport: independent initial/redirect/subresource addres
 
 ## Next proof-producing slice
 
+The origin connection slice is implemented in `scanner/pinned_connector.py`.
+Its network-free verifier covers IPv4/IPv6 numeric sockets without DNS, grant
+validation before contact, approved TCP fallback, TLS hostname/trust settings,
+no TLS downgrade, peer identity, shared timeout, and cleanup. One public
+`www.python.org` handshake negotiated TLS 1.3 and HTTP/1.1 on 2026-10-05.
+See `docs/SCAN_TRANSPORT.md` for the evidence boundary. Browser proxy integration
+and independent deployment egress enforcement remain open.
+
 After the application stack is approved, adopt the destination-policy seam in the production API/queue worker, select and pin the shared WHATWG/UTS #46 parser and resolver, and make the HTTPS connector use only each grant's validated addresses behind an independently enforced public-egress boundary. Carry the proven request/byte semantics and transient service-worker bootstrap observations into that same boundary; neither the pure resolver test nor the loopback proxy is deployment containment. Adopt the proven supervisor/capture envelope and make the deployment kill the whole disposable container without relabeling the local OS proof as production containment. Keep consent and challenge handling open until a provider-independent, non-text structural proof can distinguish them from ordinary application modals and iframes; do not ship a guessed classifier. The in-memory admission primitive is not durable rate enforcement. The schema distinguishes inspectable evidence-only nodes from scene-instantiated nodes for mandatory overflow; the eventual viewer must honor `sceneIncluded` rather than rendering every record entry.
