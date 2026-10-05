@@ -135,6 +135,22 @@ class ControlStore(Protocol):
         next_token: Mapping[str, Any] | None = None,
     ) -> tuple[tuple[ResultControlRecord, ...], Mapping[str, Any] | None]: ...
 
+    def list_expired_staged(
+        self,
+        now_epoch_ms: int,
+        *,
+        limit: int = 100,
+        next_token: Mapping[str, Any] | None = None,
+    ) -> tuple[tuple[ResultControlRecord, ...], Mapping[str, Any] | None]: ...
+
+    def abandon_staged(
+        self,
+        staged: ResultControlRecord,
+        *,
+        abandoned_at: str,
+        now_epoch_ms: int,
+    ) -> ResultControlRecord: ...
+
     def list_pending_work(
         self,
         now_epoch_ms: int,
@@ -187,6 +203,7 @@ class CompositeResultBackend:
         keyring: DeletionKeyring,
         *,
         retention_seconds: float | None = None,
+        staging_timeout_seconds: float = 900,
         cache_policy: DeliveryCachePolicy | None = None,
         purger: CachePurger | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -198,6 +215,13 @@ class CompositeResultBackend:
             or retention_seconds <= 0
         ):
             raise ValueError("retention must be a positive finite duration")
+        if (
+            isinstance(staging_timeout_seconds, bool)
+            or not isinstance(staging_timeout_seconds, (int, float))
+            or not math.isfinite(staging_timeout_seconds)
+            or staging_timeout_seconds <= 0
+        ):
+            raise ValueError("staging timeout must be a positive finite duration")
         policy = cache_policy or DeliveryCachePolicy.no_store()
         if not isinstance(policy, DeliveryCachePolicy):
             raise ValueError("result backend requires a delivery cache policy")
@@ -210,6 +234,7 @@ class CompositeResultBackend:
         self._controls = control_store
         self._keyring = keyring
         self._retention_seconds = retention_seconds
+        self._staging_timeout_seconds = float(staging_timeout_seconds)
         self._cache_policy = policy
         self._purger = purger
         self._clock = clock
@@ -337,6 +362,8 @@ class CompositeResultBackend:
         *,
         token_digest: str,
     ) -> ResultControlRecord:
+        if staged.staging_expires_at_epoch_ms is None:
+            raise ResultStoreError("legacy staged result requires operator recovery")
         if not self._keyring.verify_digest(
             staged.deletion_key_id,
             token_digest,
@@ -370,12 +397,30 @@ class CompositeResultBackend:
                     read_error if _is_retryable(read_error) else error,
                 ) from error
             if (
+                existing is not None
+                and existing.state == "abandoned"
+                and existing.control_identity_sha256 == staged.control_identity_sha256
+            ):
+                raise ResultStoreError("staged result was abandoned before activation") from error
+            if (
                 existing is None
                 or existing.state != "live"
                 or existing.control_identity_sha256 != staged.control_identity_sha256
             ):
                 raise _backend_error("staged result activation did not converge", error) from error
             activated = existing
+        if activated.state == "abandoned":
+            try:
+                existing = self._controls.get_control(staged.result_id)
+            except Exception as error:
+                raise _backend_error("staged result abandonment could not be resolved", error) from error
+            if (
+                existing is None
+                or existing.state != "abandoned"
+                or existing.control_identity_sha256 != staged.control_identity_sha256
+            ):
+                raise ResultStoreError("staged result abandonment did not converge")
+            raise ResultStoreError("staged result was abandoned before activation")
         if activated.state != "live" or activated.control_identity_sha256 != staged.control_identity_sha256:
             raise ResultStoreError("control store returned an unexpected activation")
         visibility_now_ms = int(self._now().timestamp() * 1000)
@@ -423,7 +468,7 @@ class CompositeResultBackend:
             elif existing.state == "staged":
                 record = self._activate_staged(existing, token_digest=deletion_token_digest)
             else:
-                raise ResultStoreError("retired result ID cannot be reused")
+                raise ResultStoreError("terminal result ID cannot be reused")
             _bundle, stored, _artifacts = self._read_objects(record)
             return _publication(stored, created=created)
 
@@ -434,6 +479,16 @@ class CompositeResultBackend:
             if self._retention_seconds is None
             else _timestamp(now + timedelta(seconds=self._retention_seconds))
         )
+        staging_expires_at = _timestamp(
+            now + timedelta(seconds=self._staging_timeout_seconds)
+        )
+        if expires_at is not None and expires_at < staging_expires_at:
+            staging_expires_at = expires_at
+        # Control timestamps are canonical milliseconds. A timeout shorter
+        # than the remaining fraction of a millisecond can round back to the
+        # publication instant, which would create an immediately stale stage.
+        if staging_expires_at <= published_at:
+            raise ResultStoreError("staging deadline must be after publication time")
         key_id, protected_digest = self._keyring.sign_digest(deletion_token_digest)
         versions: list[PrivateObjectVersion] = []
         try:
@@ -455,6 +510,7 @@ class CompositeResultBackend:
                 versions,
                 published_at=published_at,
                 expires_at=expires_at,
+                staging_expires_at=staging_expires_at,
                 deletion_key_id=key_id,
                 deletion_digest_hmac_sha256=protected_digest,
                 cache_policy=self._cache_policy,
@@ -535,7 +591,62 @@ class CompositeResultBackend:
             raise _RetirementPending("control store did not confirm object cleanup")
         return True
 
+    def _cleanup_abandoned(self, abandoned: ResultControlRecord) -> bool:
+        if abandoned.state != "abandoned":
+            raise ResultStoreError("staged cleanup requires an abandoned control")
+        if abandoned.cleanup_state == "complete":
+            return True
+        try:
+            for registered in abandoned.objects:
+                self._objects.delete(_version(registered))
+            completed = self._controls.mark_cleanup_complete(abandoned)
+        except Exception as error:
+            raise _RetirementPending(
+                "abandoned staged result exact object cleanup is pending"
+            ) from error
+        if completed.state != "abandoned" or completed.cleanup_state != "complete":
+            raise _RetirementPending("control store did not confirm abandoned cleanup")
+        return True
+
+    def _abandon_staged(self, staged: ResultControlRecord, *, now: datetime) -> ResultControlRecord | None:
+        if staged.state != "staged":
+            return staged if staged.state == "abandoned" else None
+        deadline_ms = staged.staging_expires_at_epoch_ms
+        now_ms = int(now.timestamp() * 1000)
+        if deadline_ms > now_ms:
+            return None
+        try:
+            abandoned = self._controls.abandon_staged(
+                staged,
+                abandoned_at=_timestamp(now),
+                now_epoch_ms=now_ms,
+            )
+        except Exception as error:
+            # Resolve CAS races only with an authoritative reread. An active
+            # winner owns its objects; an abandoned winner owns cleanup.
+            try:
+                existing = self._controls.get_control(staged.result_id)
+            except Exception as read_error:
+                raise _backend_error(
+                    "staged abandonment could not be resolved",
+                    read_error if _is_retryable(read_error) else error,
+                ) from error
+            if (
+                existing is None
+                or existing.control_identity_sha256 != staged.control_identity_sha256
+                or existing.state not in {"live", "abandoned"}
+            ):
+                raise _backend_error("staged abandonment did not converge", error) from error
+            abandoned = existing
+        if abandoned.control_identity_sha256 != staged.control_identity_sha256:
+            raise ResultStoreError("control store returned a different abandoned publication")
+        if abandoned.state not in {"live", "abandoned"}:
+            raise ResultStoreError("control store returned an unexpected staged transition")
+        return abandoned
+
     def _retire(self, record: ResultControlRecord, *, require_expired: bool = False) -> bool:
+        if record.state == "abandoned":
+            return self._cleanup_abandoned(record)
         if record.state == "retired":
             return self._cleanup_retired(record)
         if record.state == "live":
@@ -656,7 +767,7 @@ class CompositeResultBackend:
             if failure.retryable:
                 return "retryable"
             raise failure from error
-        if record is None or record.state == "staged":
+        if record is None or record.state in {"staged", "abandoned"}:
             return "not-found"
 
         now_ms = int(self._now().timestamp() * 1000)
@@ -697,14 +808,24 @@ class CompositeResultBackend:
         now_ms = int(now.timestamp() * 1000)
         completed: set[str] = set()
 
-        def drain(*, pending: bool) -> None:
+        def drain(*, kind: str) -> None:
             cursor: Mapping[str, Any] | None = None
             seen_cursors: set[bytes] = set()
-            label = "pending-result" if pending else "expired-result"
+            label = {
+                "staged": "expired-staged-result",
+                "expired": "expired-result",
+                "pending": "pending-result",
+            }[kind]
             for _page in range(100):
                 try:
-                    if pending:
+                    if kind == "pending":
                         records, next_cursor = self._controls.list_pending_work(
+                            now_ms,
+                            limit=100,
+                            next_token=cursor,
+                        )
+                    elif kind == "staged":
+                        records, next_cursor = self._controls.list_expired_staged(
                             now_ms,
                             limit=100,
                             next_token=cursor,
@@ -720,10 +841,16 @@ class CompositeResultBackend:
                 if len(records) > 100:
                     raise ResultStoreError(f"{label} discovery exceeded its page limit")
                 for record in records:
-                    if not pending and record.state != "live":
+                    expected_state = {"staged": "staged", "expired": "live"}.get(kind)
+                    if expected_state is not None and record.state != expected_state:
                         continue
                     try:
-                        if self._retire(record, require_expired=not pending):
+                        if kind == "staged":
+                            abandoned = self._abandon_staged(record, now=now)
+                            if abandoned is not None and abandoned.state == "abandoned":
+                                if self._cleanup_abandoned(abandoned):
+                                    completed.add(record.result_id)
+                        elif self._retire(record, require_expired=kind == "expired"):
                             completed.add(record.result_id)
                     except ResultStoreError:
                         # Expired reads are already hidden, and pending work is
@@ -748,8 +875,11 @@ class CompositeResultBackend:
                 retryable=True,
             )
 
-        drain(pending=False)
-        drain(pending=True)
+        # Staged expiry uses its own bounded index and completes before the
+        # live expiry and ordinary durable work queues are visited.
+        drain(kind="staged")
+        drain(kind="expired")
+        drain(kind="pending")
         return len(completed)
 
 

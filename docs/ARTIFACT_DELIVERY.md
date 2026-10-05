@@ -37,6 +37,7 @@ The required state machine is:
 
 ```text
 absent -> staged -> live -> retiring -> retired
+             \-> abandoned
 ```
 
 1. Validate the complete viewer bundle and every ready artifact.
@@ -48,8 +49,13 @@ absent -> staged -> live -> retiring -> retired
 5. Atomically commit the live control record as the sole visibility marker.
 6. Mark the scan job ready only after that visibility commit succeeds.
 
-An activation failure leaves private staged objects, never a partially public
-result. The caller may retry the same stage or abort it and remove its objects.
+An activation failure leaves private staged objects. The composite backend
+allows retries before its immutable staging deadline: 15 minutes by default,
+capped by result retention. Activation requires a time strictly before that
+deadline; abandonment requires a time at or after it. An expired stage becomes
+an `abandoned` permanent tombstone before exact registered versions are deleted.
+This path has no activation or purge evidence and never invokes the purger.
+Partial cleanup remains indexed for restart.
 Production control records require a transactional or conditional multi-writer
 store; a process-local lock is not sufficient.
 
@@ -186,8 +192,12 @@ runtime using `--result-backend composite` or
 `DOM_XRAY_RESULT_BACKEND=composite`. Startup requires validated deletion keys,
 explicit retention, and successful S3/DynamoDB preflight; failure does not fall
 back to filesystem storage. Current runtime policy is fixed to `no-store` with
-no CloudFront purger. Staged publications can be retried by their caller, but
-there is no indexed staged-abandonment/recovery workflow yet. A read authorized
+no CloudFront purger. New stages are discovered through `STAGED_EXPIRY`, then
+abandoned cleanup resumes through `DELIVERY_WORK`. New controls use v0.2.0;
+the decoder preserves old v0.1.0 identities. Historical stages without leases
+remain readable and private but need explicit operator recovery before any
+activation or cleanup. Uploads interrupted before control creation still need
+separate orphan recovery. A read authorized
 before a retirement fence may finish fetching its exact object version after
 the fence.
 

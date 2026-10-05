@@ -12,6 +12,7 @@ from scanner.api_contract import stable_json_bytes
 from scanner.artifact_delivery import DeliveryObjectRef
 from scanner.delivery_control import (
     CONTROL_VERSION,
+    LEGACY_CONTROL_VERSION,
     RegisteredDeliveryObject,
     ResultControlRecord,
     RetirementPlan,
@@ -27,6 +28,7 @@ RESULT_ID_PATTERN = re.compile(r"^r_[0-9a-f]{32}$")
 MAX_ENCODED_ITEM_BYTES = 350_000
 DEFAULT_EXPIRY_INDEX = "GSI1"
 EXPIRY_PARTITION = "LIVE_EXPIRY"
+STAGED_EXPIRY_PARTITION = "STAGED_EXPIRY"
 WORK_PARTITION = "DELIVERY_WORK"
 TTL_DELETION_QUARANTINE_SECONDS = 60 * 60
 
@@ -312,7 +314,10 @@ REQUIRED_ITEM_FIELDS = {
 OPTIONAL_ITEM_FIELDS = {
     "expiresAt",
     "expiresAtEpochMs",
+    "stagingExpiresAt",
+    "stagingExpiresAtEpochMs",
     "activatedAt",
+    "abandonedAt",
     "retiredAt",
     "purgeOperationId",
     "purgeCoverageSha256",
@@ -332,7 +337,7 @@ def encode_control_item(record: ResultControlRecord) -> dict[str, object]:
         raise ValueError("DynamoDB control write requires a control record")
     item: dict[str, object] = {
         **_key(record.result_id),
-        "controlVersion": _s(CONTROL_VERSION),
+        "controlVersion": _s(record.control_version),
         "resultId": _s(record.result_id),
         "state": _s(record.state),
         "revision": _n(record.revision),
@@ -358,22 +363,33 @@ def encode_control_item(record: ResultControlRecord) -> dict[str, object]:
         "purgeProviderRequestId": record.purge_provider_request_id,
         "purgeConfirmedAt": record.purge_confirmed_at,
         "cleanupState": record.cleanup_state,
+        "abandonedAt": record.abandoned_at,
     }
     item.update({name: _s(value) for name, value in optional_strings.items() if value is not None})
     if record.expires_at_epoch_ms is not None:
         item["expiresAtEpochMs"] = _n(record.expires_at_epoch_ms)
+    if record.staging_expires_at is not None:
+        item["stagingExpiresAt"] = _s(record.staging_expires_at)
+    if record.staging_expires_at_epoch_ms is not None:
+        item["stagingExpiresAtEpochMs"] = _n(record.staging_expires_at_epoch_ms)
     if record.purge_required is not None:
         item["purgeRequired"] = _b(record.purge_required)
-    if record.state == "live" and record.expires_at_epoch_ms is not None:
+    if record.state == "staged" and record.control_version != LEGACY_CONTROL_VERSION:
+        if record.staging_expires_at_epoch_ms is None:
+            raise ControlStoreError("DynamoDB staged item lacks its immutable deadline")
+        item["GSI1PK"] = _s(STAGED_EXPIRY_PARTITION)
+        item["GSI1SK"] = _n(record.staging_expires_at_epoch_ms)
+    elif record.state == "live" and record.expires_at_epoch_ms is not None:
         item["GSI1PK"] = _s(EXPIRY_PARTITION)
         item["GSI1SK"] = _n(record.expires_at_epoch_ms)
     elif record.state == "retiring" or (
         record.state == "retired" and record.cleanup_state == "pending"
-    ):
-        if record.retired_at is None:
-            raise ControlStoreError("DynamoDB lifecycle work lacks retirement time")
+    ) or (record.state == "abandoned" and record.cleanup_state == "pending"):
+        work_time = record.retired_at if record.state != "abandoned" else record.abandoned_at
+        if work_time is None:
+            raise ControlStoreError("DynamoDB lifecycle work lacks its work timestamp")
         item["GSI1PK"] = _s(WORK_PARTITION)
-        item["GSI1SK"] = _n(timestamp_epoch_ms(record.retired_at, "retirement time"))
+        item["GSI1SK"] = _n(timestamp_epoch_ms(work_time, "lifecycle work time"))
     if len(stable_json_bytes(item)) > MAX_ENCODED_ITEM_BYTES:
         raise ControlStoreError("DynamoDB control item exceeds its encoded size budget")
     return item
@@ -386,7 +402,8 @@ def _decode_control_item(value: object) -> ResultControlRecord:
         REQUIRED_ITEM_FIELDS | OPTIONAL_ITEM_FIELDS
     ):
         raise ControlStoreError("DynamoDB control item has an invalid shape")
-    if _av_string(value["controlVersion"], "control version") != CONTROL_VERSION:
+    control_version = _av_string(value["controlVersion"], "control version")
+    if control_version not in {CONTROL_VERSION, LEGACY_CONTROL_VERSION}:
         raise ControlStoreError("DynamoDB control version drifted")
     result_id = _av_string(value["resultId"], "result ID")
     _validate_result_id(result_id)
@@ -408,6 +425,7 @@ def _decode_control_item(value: object) -> ResultControlRecord:
         return None if name not in value else _av_string(value[name], name)
 
     record = ResultControlRecord(
+        control_version=control_version,
         result_id=result_id,
         state=_av_string(value["state"], "state"),  # type: ignore[arg-type]
         revision=_av_int(value["revision"], "revision"),
@@ -425,6 +443,12 @@ def _decode_control_item(value: object) -> ResultControlRecord:
             if "expiresAtEpochMs" not in value
             else _av_int(value["expiresAtEpochMs"], "expiry epoch milliseconds")
         ),
+        staging_expires_at=optional_string("stagingExpiresAt"),
+        staging_expires_at_epoch_ms=(
+            None
+            if "stagingExpiresAtEpochMs" not in value
+            else _av_int(value["stagingExpiresAtEpochMs"], "staging expiry epoch milliseconds")
+        ),
         deletion_key_id=_av_string(value["deletionKeyId"], "deletion key ID"),
         deletion_digest_hmac_sha256=_av_string(
             value["deletionDigestHmacSha256"],
@@ -434,6 +458,7 @@ def _decode_control_item(value: object) -> ResultControlRecord:
         objects=objects,
         public_paths=public_paths,
         activated_at=optional_string("activatedAt"),
+        abandoned_at=optional_string("abandonedAt"),
         retired_at=optional_string("retiredAt"),
         purge_operation_id=optional_string("purgeOperationId"),
         purge_coverage_sha256=optional_string("purgeCoverageSha256"),
@@ -449,7 +474,17 @@ def _decode_control_item(value: object) -> ResultControlRecord:
         cleanup_state=optional_string("cleanupState"),  # type: ignore[arg-type]
     )
     has_expiry_index = "GSI1PK" in value or "GSI1SK" in value
-    if record.state == "live" and record.expires_at_epoch_ms is not None:
+    if record.state == "staged" and record.control_version != LEGACY_CONTROL_VERSION:
+        if (
+            not has_expiry_index
+            or set(value) & {"GSI1PK", "GSI1SK"} != {"GSI1PK", "GSI1SK"}
+            or _av_string(value["GSI1PK"], "staging expiry partition") != STAGED_EXPIRY_PARTITION
+            or record.staging_expires_at_epoch_ms is None
+            or _av_int(value["GSI1SK"], "staging expiry sort key")
+            != record.staging_expires_at_epoch_ms
+        ):
+            raise ControlStoreError("DynamoDB staged expiry index drifted")
+    elif record.state == "live" and record.expires_at_epoch_ms is not None:
         if (
             set(value) & {"GSI1PK", "GSI1SK"} != {"GSI1PK", "GSI1SK"}
             or _av_string(value["GSI1PK"], "expiry partition") != EXPIRY_PARTITION
@@ -459,14 +494,15 @@ def _decode_control_item(value: object) -> ResultControlRecord:
             raise ControlStoreError("DynamoDB live expiry index drifted")
     elif record.state == "retiring" or (
         record.state == "retired" and record.cleanup_state == "pending"
-    ):
+    ) or (record.state == "abandoned" and record.cleanup_state == "pending"):
+        work_time = record.retired_at if record.state != "abandoned" else record.abandoned_at
         if (
             not has_expiry_index
             or set(value) & {"GSI1PK", "GSI1SK"} != {"GSI1PK", "GSI1SK"}
             or _av_string(value["GSI1PK"], "work partition") != WORK_PARTITION
-            or record.retired_at is None
+            or work_time is None
             or _av_int(value["GSI1SK"], "work sort key")
-            != timestamp_epoch_ms(record.retired_at, "retirement time")
+            != timestamp_epoch_ms(work_time, "lifecycle work time")
         ):
             raise ControlStoreError("DynamoDB pending-work index drifted")
     elif has_expiry_index:
@@ -563,6 +599,36 @@ def _validated_expiry_cursor(
                 "DynamoDB expiry query cursor is malformed"
             ) from error
         raise ValueError("expiry query cursor is invalid") from error
+
+
+def _validated_staged_cursor(
+    value: object,
+    *,
+    provider_response: bool,
+    maximum_epoch_ms: int,
+) -> dict[str, object]:
+    try:
+        if (
+            not isinstance(value, Mapping)
+            or set(value) != {"PK", "SK", "GSI1PK", "GSI1SK"}
+            or len(stable_json_bytes(value)) > 4096
+        ):
+            raise ValueError("cursor shape is invalid")
+        partition = _av_string(value["PK"], "cursor partition key")
+        if not partition.startswith("RESULT#"):
+            raise ValueError("cursor partition prefix drifted")
+        _validate_result_id(partition.removeprefix("RESULT#"))
+        if (
+            _av_string(value["SK"], "cursor sort key") != "CONTROL"
+            or _av_string(value["GSI1PK"], "cursor staged partition") != STAGED_EXPIRY_PARTITION
+            or _av_int(value["GSI1SK"], "cursor staged sort key") > maximum_epoch_ms
+        ):
+            raise ValueError("cursor identity or boundary drifted")
+        return dict(value)
+    except (ControlStoreError, KeyError, TypeError, ValueError) as error:
+        if provider_response:
+            raise ControlStoreError("DynamoDB staged query cursor is malformed") from error
+        raise ValueError("staged query cursor is invalid") from error
 
 
 def _validated_work_cursor(
@@ -846,11 +912,14 @@ class DynamoDBControlStore:
             "#revision = #revision + :one",
         ]
         condition = "#state = :staged AND #revision = :zero AND #identity = :identity"
+        if staged.staging_expires_at_epoch_ms is None:
+            raise ValueError("DynamoDB activation lacks the staging deadline")
+        names.update({"#stagingExpires": "stagingExpiresAtEpochMs", "#gsiPk": "GSI1PK", "#gsiSk": "GSI1SK"})
+        values.update({":stagingNow": _n(now_epoch_ms)})
+        condition += " AND #stagingExpires > :stagingNow"
         if staged.expires_at_epoch_ms is not None:
             names.update(
                 {
-                    "#gsiPk": "GSI1PK",
-                    "#gsiSk": "GSI1SK",
                     "#expires": "expiresAtEpochMs",
                 }
             )
@@ -867,7 +936,11 @@ class DynamoDBControlStore:
             response = self._client.update_item(
                 TableName=self._table,
                 Key=_key(staged.result_id),
-                UpdateExpression="SET " + ", ".join(updates),
+                UpdateExpression=(
+                    "SET " + ", ".join(updates)
+                    if staged.expires_at_epoch_ms is not None
+                    else "SET " + ", ".join(updates) + " REMOVE #gsiPk, #gsiSk"
+                ),
                 ConditionExpression=condition,
                 ExpressionAttributeNames=names,
                 ExpressionAttributeValues=values,
@@ -1289,38 +1362,40 @@ class DynamoDBControlStore:
         self,
         retired: ResultControlRecord,
     ) -> ResultControlRecord:
-        if not isinstance(retired, ResultControlRecord) or retired.state != "retired":
-            raise ValueError("cleanup completion requires a retired control record")
+        if not isinstance(retired, ResultControlRecord) or retired.state not in {"retired", "abandoned"}:
+            raise ValueError("cleanup completion requires a retired or abandoned control record")
+        abandoned = retired.state == "abandoned"
         if retired.cleanup_state == "complete":
             existing = self._read(retired.result_id)
             if (
                 existing is not None
-                and existing.state == "retired"
+                and existing.state == retired.state
                 and existing.cleanup_state == "complete"
-                and _retirement_binding_matches(existing, retired)
+                and (existing.control_identity_sha256 == retired.control_identity_sha256 if abandoned else _retirement_binding_matches(existing, retired))
             ):
                 return existing
             raise ControlConflictError("cleanup completion evidence did not converge")
-        if retired.cleanup_state != "pending" or retired.purge_state != "confirmed":
+        if retired.cleanup_state != "pending" or (not abandoned and retired.purge_state != "confirmed"):
             raise ValueError("cleanup completion requires confirmed retirement")
         names = {
             "#state": "state",
             "#identity": "controlIdentitySha256",
             "#cleanup": "cleanupState",
-            "#purgeState": "purgeState",
             "#revision": "revision",
             "#gsiPk": "GSI1PK",
             "#gsiSk": "GSI1SK",
         }
         values = {
-            ":retired": _s("retired"),
+            ":retired": _s(retired.state),
             ":identity": _s(retired.control_identity_sha256),
             ":pending": _s("pending"),
             ":complete": _s("complete"),
-            ":confirmed": _s("confirmed"),
             ":revision": _n(retired.revision),
             ":one": _n(1),
         }
+        if not abandoned:
+            names["#purgeState"] = "purgeState"
+            values[":confirmed"] = _s("confirmed")
         try:
             response = self._client.update_item(
                 TableName=self._table,
@@ -1330,6 +1405,9 @@ class DynamoDBControlStore:
                     "REMOVE #gsiPk, #gsiSk"
                 ),
                 ConditionExpression=(
+                    "#state = :retired AND #identity = :identity "
+                    "AND #cleanup = :pending AND #revision = :revision"
+                    if abandoned else
                     "#state = :retired AND #identity = :identity "
                     "AND #cleanup = :pending AND #purgeState = :confirmed "
                     "AND #revision = :revision"
@@ -1346,22 +1424,133 @@ class DynamoDBControlStore:
             existing = self._read(retired.result_id)
             if (
                 existing is not None
-                and existing.state == "retired"
+                and existing.state == retired.state
                 and existing.cleanup_state == "complete"
-                and _retirement_binding_matches(existing, retired)
+                and (existing.control_identity_sha256 == retired.control_identity_sha256 if abandoned else _retirement_binding_matches(existing, retired))
             ):
                 return existing
             raise ControlConflictError("cleanup completion did not converge") from error
         updated = self._updated(response, "cleanup completion")
         if (
-            updated.state != "retired"
+            updated.state != retired.state
             or updated.cleanup_state != "complete"
-            or not _retirement_binding_matches(updated, retired)
+            or (updated.control_identity_sha256 != retired.control_identity_sha256 if abandoned else not _retirement_binding_matches(updated, retired))
         ):
             raise ControlStoreError(
                 "DynamoDB cleanup completion returned the wrong evidence"
             )
         return updated
+
+    def abandon_staged(
+        self,
+        staged: ResultControlRecord,
+        *,
+        abandoned_at: str,
+        now_epoch_ms: int,
+    ) -> ResultControlRecord:
+        if not isinstance(staged, ResultControlRecord) or staged.state != "staged":
+            raise ValueError("DynamoDB abandonment requires a staged control record")
+        canonical_timestamp(abandoned_at, "abandonment time")
+        now_epoch_ms = _validate_epoch(now_epoch_ms, "abandonment timestamp")
+        if timestamp_epoch_ms(abandoned_at, "abandonment time") != now_epoch_ms:
+            raise ValueError("DynamoDB abandonment timestamps disagree")
+        deadline = staged.staging_expires_at_epoch_ms
+        if deadline is None or deadline > now_epoch_ms:
+            raise ControlNotExpiredError("staging deadline has not elapsed")
+        names = {
+            "#state": "state", "#identity": "controlIdentitySha256",
+            "#revision": "revision", "#deadline": "stagingExpiresAtEpochMs",
+            "#abandonedAt": "abandonedAt", "#cleanup": "cleanupState",
+            "#gsiPk": "GSI1PK", "#gsiSk": "GSI1SK",
+        }
+        values = {
+            ":staged": _s("staged"), ":abandoned": _s("abandoned"),
+            ":identity": _s(staged.control_identity_sha256), ":zero": _n(0),
+            ":one": _n(1), ":deadline": _n(deadline), ":now": _n(now_epoch_ms),
+            ":abandonedAt": _s(abandoned_at), ":pending": _s("pending"),
+            ":workPk": _s(WORK_PARTITION), ":workSk": _n(now_epoch_ms),
+        }
+        try:
+            response = self._client.update_item(
+                TableName=self._table, Key=_key(staged.result_id),
+                UpdateExpression=("SET #state = :abandoned, #abandonedAt = :abandonedAt, "
+                                 "#cleanup = :pending, #revision = #revision + :one, "
+                                 "#gsiPk = :workPk, #gsiSk = :workSk"),
+                ConditionExpression=("#state = :staged AND #revision = :zero "
+                                     "AND #identity = :identity AND #deadline = :deadline "
+                                     "AND #deadline <= :now"),
+                ExpressionAttributeNames=names, ExpressionAttributeValues=values,
+                ReturnValues="ALL_NEW", ReturnValuesOnConditionCheckFailure="ALL_OLD",
+                ReturnConsumedCapacity="TOTAL",
+            )
+        except Exception as error:
+            if not _is_conditional(error):
+                raise _provider_failure("DynamoDB staged abandonment failed", error) from error
+            existing = self._read(staged.result_id)
+            if existing is None:
+                raise ControlMissingError("staged control item disappeared") from error
+            if (existing.state == "abandoned" and existing.control_identity_sha256 == staged.control_identity_sha256
+                    and existing.abandoned_at == abandoned_at):
+                return existing
+            if existing.state == "staged" and existing.control_identity_sha256 == staged.control_identity_sha256:
+                if existing.staging_expires_at_epoch_ms is not None and existing.staging_expires_at_epoch_ms > now_epoch_ms:
+                    raise ControlNotExpiredError("staging deadline has not elapsed") from error
+            raise ControlConflictError("staged abandonment did not converge") from error
+        updated = self._updated(response, "staged abandonment")
+        if (updated.state != "abandoned" or updated.control_identity_sha256 != staged.control_identity_sha256
+                or updated.abandoned_at != abandoned_at or updated.cleanup_state != "pending"):
+            raise ControlStoreError("DynamoDB abandonment returned the wrong evidence")
+        return updated
+
+    def list_expired_staged(
+        self,
+        now_epoch_ms: int,
+        *,
+        limit: int = 100,
+        next_token: Mapping[str, Any] | None = None,
+    ) -> tuple[tuple[ResultControlRecord, ...], Mapping[str, Any] | None]:
+        now_epoch_ms = _validate_epoch(now_epoch_ms, "staged query boundary")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("staged query limit must be from 1 to 100")
+        args: dict[str, object] = {
+            "TableName": self._table, "IndexName": self._expiry_index,
+            "KeyConditionExpression": "#gpk = :stagedPk AND #gsk <= :now",
+            "ProjectionExpression": "#pk, #sk",
+            "ExpressionAttributeNames": {"#gpk": "GSI1PK", "#gsk": "GSI1SK", "#pk": "PK", "#sk": "SK"},
+            "ExpressionAttributeValues": {":stagedPk": _s(STAGED_EXPIRY_PARTITION), ":now": _n(now_epoch_ms)},
+            "Limit": limit, "ReturnConsumedCapacity": "TOTAL",
+        }
+        if next_token is not None:
+            args["ExclusiveStartKey"] = _validated_staged_cursor(next_token, provider_response=False, maximum_epoch_ms=now_epoch_ms)
+        try:
+            response = self._client.query(**args)
+        except Exception as error:
+            raise _provider_failure("DynamoDB staged query failed", error) from error
+        if not isinstance(response, Mapping) or not isinstance(response.get("Items", []), list):
+            raise ControlStoreError("DynamoDB staged query response is malformed")
+        items = response.get("Items", [])
+        if len(items) > limit:
+            raise ControlStoreError("DynamoDB staged query exceeded its requested limit")
+        ids: list[str] = []
+        for item in items:
+            if not isinstance(item, Mapping) or set(item) != {"PK", "SK"}:
+                raise ControlStoreError("DynamoDB staged candidate is malformed")
+            partition = _av_string(item["PK"], "staged candidate partition key")
+            if not partition.startswith("RESULT#") or _av_string(item["SK"], "staged candidate sort key") != "CONTROL":
+                raise ControlStoreError("DynamoDB staged candidate key drifted")
+            ids.append(_validate_result_id(partition.removeprefix("RESULT#")))
+        if len(set(ids)) != len(ids):
+            raise ControlStoreError("DynamoDB staged query repeated a result")
+        records = []
+        for result_id in ids:
+            record = self._read(result_id)
+            if (record is not None and record.state == "staged"
+                    and record.staging_expires_at_epoch_ms is not None
+                    and record.staging_expires_at_epoch_ms <= now_epoch_ms):
+                records.append(record)
+        cursor = response.get("LastEvaluatedKey")
+        token = None if cursor is None else _validated_staged_cursor(cursor, provider_response=True, maximum_epoch_ms=now_epoch_ms)
+        return tuple(records), token
 
     def list_expired(
         self,
@@ -1513,9 +1702,12 @@ class DynamoDBControlStore:
                 record is not None
                 and (record.state == "retiring" or (
                     record.state == "retired" and record.cleanup_state == "pending"
-                ))
-                and record.retired_at is not None
-                and timestamp_epoch_ms(record.retired_at, "retirement time") <= now_epoch_ms
+                ) or (record.state == "abandoned" and record.cleanup_state == "pending"))
+                and (record.abandoned_at is not None if record.state == "abandoned" else record.retired_at is not None)
+                and timestamp_epoch_ms(
+                    record.abandoned_at if record.state == "abandoned" else record.retired_at,
+                    "lifecycle work time",
+                ) <= now_epoch_ms
             ):
                 records.append(record)
         cursor = response.get("LastEvaluatedKey")

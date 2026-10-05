@@ -199,7 +199,9 @@ filesystem storage. The runtime fixes cache policy to `no-store` and configures
 no CloudFront purger. These proofs do not establish deployed AWS/IAM behavior,
 live multi-writer contention, or warmed-edge and in-flight stale-fill purge
 behavior. A read authorized before the retirement fence may finish after it;
-staged publication abandonment and discovery remain an operational gap. Local
+new staged publications now have indexed abandonment and cleanup recovery.
+Pre-control upload orphans and legacy staged-record recovery remain operational
+gaps. Local
 validators, renderer
 supervision, a 15/15 deterministic video run (5.317 s p50, 6.723 s max), and
 real-browser exact-byte downloads prove the current controlled path. The

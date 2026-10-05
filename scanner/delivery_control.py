@@ -23,13 +23,14 @@ from scanner.delivery_storage import (
 )
 
 
-CONTROL_VERSION = "result-control-v0.1.0"
+LEGACY_CONTROL_VERSION = "result-control-v0.1.0"
+CONTROL_VERSION = "result-control-v0.2.0"
 RESULT_ID_PATTERN = re.compile(r"^r_[0-9a-f]{32}$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 KEY_ID_PATTERN = re.compile(r"^[0-9a-f]{16}$")
 PURGE_ID_PATTERN = re.compile(r"^p_[0-9a-f]{32}$")
 
-ControlState = Literal["staged", "live", "retiring", "retired"]
+ControlState = Literal["staged", "live", "retiring", "retired", "abandoned"]
 PurgeState = Literal["pending", "confirmed"]
 CleanupState = Literal["pending", "complete"]
 
@@ -158,24 +159,31 @@ def _identity_sha256(
     deletion_digest_hmac_sha256: str,
     cache_control: str,
     public_paths: Sequence[str],
+    staging_expires_at: str | None = None,
+    staging_expires_at_epoch_ms: int | None = None,
+    control_version: str = CONTROL_VERSION,
 ) -> str:
+    identity = {
+        "controlVersion": control_version,
+        "resultId": result_id,
+        "publicationSha256": publication_sha256,
+        "objectsSha256": objects_sha256,
+        "bundleSha256": bundle_sha256,
+        "publishedAt": published_at,
+        "expiresAt": expires_at,
+        "expiresAtEpochMs": expires_at_epoch_ms,
+        "deletionKeyId": deletion_key_id,
+        "deletionDigestHmacSha256": deletion_digest_hmac_sha256,
+        "cacheControl": cache_control,
+        "publicPaths": list(public_paths),
+    }
+    # Preserve the v0.1.0 identity encoding for historical records which predate
+    # staging deadlines. New records bind the deadline into their identity.
+    if staging_expires_at is not None:
+        identity["stagingExpiresAt"] = staging_expires_at
+        identity["stagingExpiresAtEpochMs"] = staging_expires_at_epoch_ms
     return hashlib.sha256(
-        stable_json_bytes(
-            {
-                "controlVersion": CONTROL_VERSION,
-                "resultId": result_id,
-                "publicationSha256": publication_sha256,
-                "objectsSha256": objects_sha256,
-                "bundleSha256": bundle_sha256,
-                "publishedAt": published_at,
-                "expiresAt": expires_at,
-                "expiresAtEpochMs": expires_at_epoch_ms,
-                "deletionKeyId": deletion_key_id,
-                "deletionDigestHmacSha256": deletion_digest_hmac_sha256,
-                "cacheControl": cache_control,
-                "publicPaths": list(public_paths),
-            }
-        )
+        stable_json_bytes(identity)
     ).hexdigest()
 
 
@@ -219,6 +227,8 @@ class ResultControlRecord:
     cache_control: str
     objects: tuple[RegisteredDeliveryObject, ...]
     public_paths: tuple[str, ...]
+    staging_expires_at: str | None = None
+    staging_expires_at_epoch_ms: int | None = None
     activated_at: str | None = None
     retired_at: str | None = None
     purge_operation_id: str | None = None
@@ -229,11 +239,20 @@ class ResultControlRecord:
     purge_provider_request_id: str | None = None
     purge_confirmed_at: str | None = None
     cleanup_state: CleanupState | None = None
+    abandoned_at: str | None = None
+    control_version: str = CONTROL_VERSION
 
     def __post_init__(self) -> None:
+        if self.control_version not in {CONTROL_VERSION, LEGACY_CONTROL_VERSION}:
+            raise ValueError("control record has an invalid version")
+        if self.control_version == LEGACY_CONTROL_VERSION:
+            if self.staging_expires_at is not None or self.staging_expires_at_epoch_ms is not None or self.state == "abandoned":
+                raise ValueError("legacy control record has new lifecycle fields")
+        elif self.staging_expires_at is None:
+            raise ValueError("control record lacks its immutable staging deadline")
         if RESULT_ID_PATTERN.fullmatch(self.result_id) is None:
             raise ValueError("control record has an invalid result ID")
-        if self.state not in {"staged", "live", "retiring", "retired"}:
+        if self.state not in {"staged", "live", "retiring", "retired", "abandoned"}:
             raise ValueError("control record has an invalid state")
         if (
             isinstance(self.revision, bool)
@@ -271,6 +290,23 @@ class ResultControlRecord:
                 or parsed_expiry <= parsed_publication
             ):
                 raise ValueError("control expiry epoch is invalid")
+        if (self.staging_expires_at is None) != (self.staging_expires_at_epoch_ms is None):
+            raise ValueError("control staging expiry fields are incomplete")
+        parsed_staging_expiry = None
+        if self.staging_expires_at is not None:
+            canonical_timestamp(self.staging_expires_at, "staging expiry time")
+            parsed_staging_expiry = datetime.fromisoformat(
+                self.staging_expires_at.replace("Z", "+00:00")
+            )
+            if (
+                isinstance(self.staging_expires_at_epoch_ms, bool)
+                or not isinstance(self.staging_expires_at_epoch_ms, int)
+                or self.staging_expires_at_epoch_ms
+                != timestamp_epoch_ms(self.staging_expires_at, "staging expiry time")
+                or parsed_staging_expiry <= parsed_publication
+                or (self.expires_at is not None and parsed_staging_expiry > parsed_expiry)
+            ):
+                raise ValueError("control staging expiry is invalid")
         policy = _cache_policy(self.cache_control)
         if not isinstance(self.objects, tuple) or not 1 <= len(self.objects) <= 3:
             raise ValueError("control object registry is invalid")
@@ -315,6 +351,9 @@ class ResultControlRecord:
             deletion_digest_hmac_sha256=self.deletion_digest_hmac_sha256,
             cache_control=self.cache_control,
             public_paths=self.public_paths,
+            staging_expires_at=self.staging_expires_at,
+            staging_expires_at_epoch_ms=self.staging_expires_at_epoch_ms,
+            control_version=self.control_version,
         ):
             raise ValueError("control identity digest drifted")
 
@@ -330,11 +369,34 @@ class ResultControlRecord:
             self.cleanup_state,
         )
         if self.state == "staged":
-            if self.revision != 0 or self.activated_at is not None or any(
+            if self.revision != 0 or self.activated_at is not None or self.abandoned_at is not None or any(
                 value is not None for value in retirement_values
             ):
                 raise ValueError("staged control record has lifecycle evidence")
             return
+        if self.state == "abandoned":
+            if (
+                self.revision < 1
+                or self.activated_at is not None
+                or self.retired_at is not None
+                or self.purge_operation_id is not None
+                or self.purge_coverage_sha256 is not None
+                or self.purge_required is not None
+                or self.purge_provider_target_id is not None
+                or self.purge_state is not None
+                or self.purge_provider_request_id is not None
+                or self.purge_confirmed_at is not None
+                or self.cleanup_state not in {"pending", "complete"}
+                or self.staging_expires_at is None
+                or self.abandoned_at is None
+            ):
+                raise ValueError("abandoned control record has invalid lifecycle evidence")
+            canonical_timestamp(self.abandoned_at, "abandonment time")
+            if datetime.fromisoformat(self.abandoned_at.replace("Z", "+00:00")) < parsed_staging_expiry:
+                raise ValueError("control abandonment precedes staging expiry")
+            return
+        if self.abandoned_at is not None:
+            raise ValueError("non-abandoned control record has abandonment time")
         if self.activated_at is None:
             raise ValueError("active control record lacks activation time")
         canonical_timestamp(self.activated_at, "activation time")
@@ -343,6 +405,8 @@ class ResultControlRecord:
         )
         if parsed_activation < parsed_publication:
             raise ValueError("control activation precedes publication")
+        if parsed_staging_expiry is not None and parsed_activation >= parsed_staging_expiry:
+            raise ValueError("control activation does not precede staging expiry")
         if self.expires_at is not None:
             parsed_expiry = datetime.fromisoformat(
                 self.expires_at.replace("Z", "+00:00")
@@ -431,6 +495,7 @@ def build_staged_control(
     *,
     published_at: str,
     expires_at: str | None,
+    staging_expires_at: str,
     deletion_key_id: str,
     deletion_digest_hmac_sha256: str,
     cache_policy: DeliveryCachePolicy,
@@ -456,6 +521,7 @@ def build_staged_control(
     expires_at_epoch_ms: int | None = None
     if expires_at is not None:
         expires_at_epoch_ms = timestamp_epoch_ms(expires_at, "expiry time")
+    staging_expires_at_epoch_ms = timestamp_epoch_ms(staging_expires_at, "staging expiry time")
     objects = tuple(registered)
     objects_digest = object_registry_sha256(objects)
     bundle_sha256 = objects[0].reference.sha256
@@ -471,6 +537,8 @@ def build_staged_control(
         deletion_digest_hmac_sha256=deletion_digest_hmac_sha256,
         cache_control=cache_policy.value,
         public_paths=batch.public_paths,
+        staging_expires_at=staging_expires_at,
+        staging_expires_at_epoch_ms=staging_expires_at_epoch_ms,
     )
     return ResultControlRecord(
         result_id=batch.result_id,
@@ -483,6 +551,8 @@ def build_staged_control(
         published_at=published_at,
         expires_at=expires_at,
         expires_at_epoch_ms=expires_at_epoch_ms,
+        staging_expires_at=staging_expires_at,
+        staging_expires_at_epoch_ms=staging_expires_at_epoch_ms,
         deletion_key_id=deletion_key_id,
         deletion_digest_hmac_sha256=deletion_digest_hmac_sha256,
         cache_control=cache_policy.value,

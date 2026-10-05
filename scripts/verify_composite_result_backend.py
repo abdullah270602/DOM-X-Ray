@@ -23,7 +23,7 @@ from scanner.delivery_control import (  # noqa: E402
 from scanner.delivery_storage import PrivateObjectVersion, validate_object_payload  # noqa: E402
 from scanner.result_store import DeletionCapabilityKeyring, ResultStoreError  # noqa: E402
 from scanner.composite_result_backend import CompositeResultBackend  # noqa: E402
-from scripts.verify_result_store import fixture_bundle, with_result_id  # noqa: E402
+from scripts.verify_result_store import eligible_bundle, fixture_bundle, poster_png, with_result_id  # noqa: E402
 
 
 def require(condition: bool, message: str) -> None:
@@ -41,6 +41,7 @@ class FakeObjectStore:
         self.deleted: list[PrivateObjectVersion] = []
         self.put_order: list[str] = []
         self.fail_deletes = 0
+        self.fail_delete_kind: str | None = None
 
     def put(self, reference, payload: bytes) -> PrivateObjectVersion:
         validate_object_payload(reference, payload)
@@ -62,8 +63,9 @@ class FakeObjectStore:
 
     def delete(self, version: PrivateObjectVersion) -> None:
         current = self.controls.records.get(version.reference.result_id)
-        require(current is not None and current.state == "retired", "objects deleted before retirement")
-        if self.fail_deletes:
+        require(current is not None and current.state in {"retired", "abandoned"},
+                "objects deleted before retirement or staged abandonment")
+        if self.fail_deletes and (self.fail_delete_kind is None or version.reference.kind == self.fail_delete_kind):
             self.fail_deletes -= 1
             raise TimeoutError("simulated exact-version cleanup timeout")
         self.deleted.append(version)
@@ -76,8 +78,12 @@ class FakeControlStore:
         self.fail_activation_once = False
         self.activation_conflict_once = False
         self.fail_lookup_once = False
+        self.fail_abandon_once = False
+        self.activation_winner_abandoned = False
+        self.abandon_winner_live = False
         self.strong_rereads = 0
         self.transitions: list[str] = []
+        self.page_limits: list[tuple[str, int]] = []
 
     def get_control(self, result_id: str):
         self.strong_rereads += 1
@@ -113,6 +119,18 @@ class FakeControlStore:
         current = self.records[staged.result_id]
         if current.state == "live":
             return current
+        if self.activation_winner_abandoned:
+            self.activation_winner_abandoned = False
+            abandoned = replace(
+                current,
+                state="abandoned",
+                revision=current.revision + 1,
+                abandoned_at=current.staging_expires_at,
+                cleanup_state="pending",
+            )
+            self.records[abandoned.result_id] = abandoned
+            self.transitions.append("abandoned")
+            raise TimeoutError("abandonment won the activation race")
         require(current.state == "staged", "only staged controls can activate")
         require(current.expires_at_epoch_ms is None or current.expires_at_epoch_ms > now_epoch_ms,
                 "fake activated an expired result")
@@ -198,6 +216,7 @@ class FakeControlStore:
         return updated
 
     def list_expired(self, now_epoch_ms: int, *, limit: int = 100, next_token=None):
+        self.page_limits.append(("expired", limit))
         require(next_token is None, "fake only supports a single expiry page")
         found = tuple(
             record for record in self.records.values()
@@ -207,12 +226,56 @@ class FakeControlStore:
         )[:limit]
         return found, None
 
+    def list_expired_staged(self, now_epoch_ms: int, *, limit: int = 100, next_token=None):
+        self.page_limits.append(("staged", limit))
+        require(next_token is None, "fake only supports a single staged-expiry page")
+        found = tuple(
+            record for record in self.records.values()
+            if record.state == "staged"
+            and record.staging_expires_at_epoch_ms <= now_epoch_ms
+        )[:limit]
+        return found, None
+
+    def abandon_staged(self, staged, *, abandoned_at: str, now_epoch_ms: int):
+        if self.abandon_winner_live:
+            self.abandon_winner_live = False
+            current = self.records[staged.result_id]
+            live = replace(
+                current,
+                state="live",
+                revision=1,
+                activated_at=current.published_at,
+            )
+            self.records[live.result_id] = live
+            self.transitions.append("live")
+            raise TimeoutError("activation won the abandonment race")
+        if self.fail_abandon_once:
+            self.fail_abandon_once = False
+            raise TimeoutError("simulated abandonment timeout")
+        current = self.records[staged.result_id]
+        if current.state != "staged":
+            return current
+        require(current.staging_expires_at_epoch_ms <= now_epoch_ms,
+                "staged record abandoned before its exact deadline")
+        abandoned = replace(
+            current,
+            state="abandoned",
+            revision=current.revision + 1,
+            abandoned_at=abandoned_at,
+            cleanup_state="pending",
+        )
+        self.records[abandoned.result_id] = abandoned
+        self.transitions.append("abandoned")
+        return abandoned
+
     def list_pending_work(self, now_epoch_ms: int, *, limit: int = 100, next_token=None):
+        self.page_limits.append(("pending", limit))
         require(next_token is None, "fake only supports a single pending-work page")
         found = tuple(
             record for record in self.records.values()
             if record.state == "retiring"
             or (record.state == "retired" and record.cleanup_state == "pending")
+            or (record.state == "abandoned" and record.cleanup_state == "pending")
         )[:limit]
         return found, None
 
@@ -249,6 +312,12 @@ class FakePurger:
 
 class RepeatingCursorControlStore(FakeControlStore):
     def list_expired(self, now_epoch_ms: int, *, limit: int = 100, next_token=None):
+        return (), {"cursor": "same"}
+
+
+class RepeatingStagedCursorControlStore(FakeControlStore):
+    def list_expired_staged(self, now_epoch_ms: int, *, limit: int = 100, next_token=None):
+        self.page_limits.append(("staged", limit))
         return (), {"cursor": "same"}
 
 
@@ -441,6 +510,157 @@ def main() -> None:
             "activation conflict was not resolved from authoritative live state")
     require(conflict_controls.strong_rereads > rereads_before,
             "activation conflict did not perform a strong reread")
+
+    # A stage without a result-retention expiry still receives a finite lease.
+    # At deadline minus one millisecond it remains staged; at the exact
+    # millisecond boundary the control store atomically abandons it.
+    staged_poster = poster_png()
+    staged_bundle = eligible_bundle("r_" + "3" * 32, staged_poster)
+    staged_controls = FakeControlStore()
+    staged_objects = FakeObjectStore(staged_controls)
+    staged_purger = FakePurger(staged_controls)
+    staged_now = [now]
+    staged_backend = CompositeResultBackend(
+        staged_objects,
+        staged_controls,
+        keyring,
+        cache_policy=DeliveryCachePolicy.shared(s_maxage_seconds=60),
+        purger=staged_purger,
+        staging_timeout_seconds=10,
+        clock=lambda: staged_now[0],
+    )
+    staged_id = staged_bundle["result"]["resultId"]
+    staged_controls.fail_activation_once = True
+    try:
+        staged_backend.publish(staged_bundle, public_digest, {"poster": staged_poster})
+    except ResultStoreError:
+        pass
+    else:
+        raise AssertionError("failed staged publication unexpectedly activated")
+    staged_record = staged_controls.records[staged_id]
+    require(staged_record.expires_at is None, "no-retention fixture gained a result expiry")
+    require(staged_record.staging_expires_at_epoch_ms is not None,
+            "no-retention staged publication lacks a finite lease")
+    deadline = datetime.fromisoformat(staged_record.staging_expires_at.replace("Z", "+00:00"))
+    staged_now[0] = deadline - timedelta(milliseconds=1)
+    require(staged_backend.sweep() == 0, "staged result was abandoned before its exact deadline")
+    require(staged_controls.records[staged_id].state == "staged",
+            "staged result crossed the millisecond fence early")
+    require(staged_backend.get(staged_id) is None, "staged result became visible before abandonment")
+    staged_now[0] = deadline
+    # The staged-expiry page and later pending-work page both see the durable
+    # tombstone in this sweep, so hold both attempts pending and recover from
+    # the next backend instance.
+    staged_objects.fail_deletes = 2
+    staged_objects.fail_delete_kind = "poster"
+    require(staged_backend.sweep() == 0, "partial abandoned cleanup reported completion")
+    require(staged_controls.records[staged_id].state == "abandoned",
+            "exact-deadline stage was not durably abandoned")
+    require(staged_controls.records[staged_id].cleanup_state == "pending",
+            "partial abandoned cleanup was not kept pending")
+    require(len(staged_objects.items) == 1 and staged_objects.deleted[0].reference.kind == "bundle",
+            "cleanup fixture did not fail after deleting the first registered version")
+    require(not staged_purger.calls, "abandoned staged result invoked cache purge")
+    require(staged_backend.get(staged_id) is None, "abandoned result became visible")
+    restarted_backend = CompositeResultBackend(
+        staged_objects,
+        staged_controls,
+        keyring,
+        cache_policy=DeliveryCachePolicy.shared(s_maxage_seconds=60),
+        purger=staged_purger,
+        staging_timeout_seconds=10,
+        clock=lambda: staged_now[0],
+    )
+    require(restarted_backend.sweep() == 1,
+            "abandoned exact-version cleanup did not recover after backend restart")
+    require(staged_controls.records[staged_id].cleanup_state == "complete",
+            "restarted sweep did not persist abandoned cleanup completion")
+    deleted_bindings = {(item.reference.key, item.provider_version_id) for item in staged_objects.deleted}
+    require(deleted_bindings == {(item.reference.key, item.provider_version_id) for item in staged_record.objects},
+            "abandoned cleanup did not target every registered object version")
+    require(not staged_purger.calls, "abandoned cleanup invoked cache purge after restart")
+    try:
+        restarted_backend.publish(staged_bundle, public_digest, {"poster": staged_poster})
+    except ResultStoreError:
+        pass
+    else:
+        raise AssertionError("abandoned tombstone allowed result ID reuse")
+
+    # An activation that won before the abandonment CAS keeps all its data.
+    live_race_bundle = with_result_id(bundle, "r_" + "4" * 32)
+    live_race_controls = FakeControlStore()
+    live_race_objects = FakeObjectStore(live_race_controls)
+    live_race_now = [now]
+    live_race_backend = CompositeResultBackend(
+        live_race_objects,
+        live_race_controls,
+        keyring,
+        staging_timeout_seconds=1,
+        clock=lambda: live_race_now[0],
+    )
+    live_race_id = live_race_bundle["result"]["resultId"]
+    live_race_controls.fail_activation_once = True
+    try:
+        live_race_backend.publish(live_race_bundle, public_digest)
+    except ResultStoreError:
+        pass
+    else:
+        raise AssertionError("live-race fixture unexpectedly activated")
+    live_race_record = live_race_controls.records[live_race_id]
+    live_race_now[0] = datetime.fromisoformat(
+        live_race_record.staging_expires_at.replace("Z", "+00:00")
+    )
+    live_race_controls.abandon_winner_live = True
+    require(live_race_backend.sweep() == 0,
+            "abandonment CAS deleted objects after activation won")
+    require(live_race_controls.records[live_race_id].state == "live",
+            "activation winner did not remain live")
+    require(live_race_backend.get(live_race_id) is not None,
+            "activation winner lost its registered objects")
+    require(not live_race_objects.deleted,
+            "abandonment sweep deleted an activation winner's objects")
+
+    # If abandonment wins just before activation, strong reread observes the
+    # permanent tombstone and publication must leave its registered objects to
+    # durable cleanup work.
+    abandoned_race_bundle = with_result_id(bundle, "r_" + "5" * 32)
+    abandoned_race_controls = FakeControlStore()
+    abandoned_race_objects = FakeObjectStore(abandoned_race_controls)
+    abandoned_race_backend = CompositeResultBackend(
+        abandoned_race_objects,
+        abandoned_race_controls,
+        keyring,
+        clock=lambda: now,
+    )
+    abandoned_race_id = abandoned_race_bundle["result"]["resultId"]
+    abandoned_race_controls.activation_winner_abandoned = True
+    try:
+        abandoned_race_backend.publish(abandoned_race_bundle, public_digest)
+    except ResultStoreError:
+        pass
+    else:
+        raise AssertionError("abandoned activation winner was revived")
+    require(abandoned_race_controls.records[abandoned_race_id].state == "abandoned",
+            "activation race did not retain the abandoned tombstone")
+    require(len(abandoned_race_objects.items) == 1 and not abandoned_race_objects.deleted,
+            "publisher deleted objects registered by an abandonment winner")
+    require(abandoned_race_controls.strong_rereads > 0,
+            "activation/abandon race did not strongly reread its winner")
+
+    # The dedicated staged-expiry query is bounded and fails closed on a
+    # non-advancing cursor before any later sweep queue is queried.
+    repeated_staged = RepeatingStagedCursorControlStore()
+    repeated_staged_backend = CompositeResultBackend(
+        FakeObjectStore(repeated_staged), repeated_staged, keyring, clock=lambda: now
+    )
+    try:
+        repeated_staged_backend.sweep()
+    except ResultStoreError:
+        pass
+    else:
+        raise AssertionError("sweep accepted a repeated staged-expiry cursor")
+    require(repeated_staged.page_limits == [("staged", 100), ("staged", 100)],
+            "staged-expiry pagination exceeded its dedicated page budget")
 
     looping_controls = RepeatingCursorControlStore()
     looping_backend = CompositeResultBackend(

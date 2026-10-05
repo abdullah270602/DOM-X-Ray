@@ -161,7 +161,13 @@ fail-closed startup without filesystem fallback, and the fixed `no-store`/no
 purger configuration. These local proofs do not establish deployed AWS or IAM
 behavior, live multi-writer contention, or a warmed-edge and in-flight
 stale-fill purge drill. A read authorized before retirement may finish after
-the fence. Staged publication abandonment and discovery remain unimplemented.
+the fence. New staged controls now have finite immutable leases and indexed
+abandonment recovery. Focused verifiers cover the exact millisecond boundary,
+both activation/abandonment race winners, permanent non-reuse, no purge for
+never-live stages, and cleanup retry after backend restart. The codec preserves
+historical v0.1.0 records while new controls use v0.2.0. Legacy stages remain
+private and readable but require explicit operator recovery; uploads interrupted
+before control creation require a separate orphan-recovery design.
 Production additionally requires a dedicated table on which TTL has never been
 enabled and a runtime role without `dynamodb:UpdateTimeToLive`.
 
@@ -193,7 +199,8 @@ performance backlog item, not Gate 5 evidence.
 The composite backend, its credential-free contract verifier, explicit
 fail-closed HTTP selection, and DynamoDB discovery for retirement/incomplete
 cleanup work are now in place. Next, verify deployed S3/DynamoDB and IAM
-behavior and run the warmed/in-flight CloudFront purge drill. Staged-publication
-abandonment/recovery also needs an operational design. Follow with a current X
+behavior and run the warmed/in-flight CloudFront purge drill. Pre-control upload
+orphans and historical stage recovery still need operational handling.
+Follow with a current X
 web/mobile upload-and-recompression proof.
 None relaxes the Gate 0/Gate 3 public scanner blockers.

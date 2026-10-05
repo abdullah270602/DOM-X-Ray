@@ -149,8 +149,20 @@ object operations, control transitions, and purge/cleanup retries behind the
 selection and fail-closed provider preflight, with fixed no-store policy and no
 purger. These do not prove Botocore request-model acceptance in the installed
 deployment, live DynamoDB contention/consistency, or IAM isolation. A read
-authorized before retirement may finish after the fence. Staged publication
-abandonment and discovery remain unimplemented.
+authorized before retirement may finish after the fence. New staged controls
+use a finite lease, a dedicated `STAGED_EXPIRY` partition in the existing GSI,
+and a conditional `staged → abandoned` transition before exact-version cleanup.
+An abandoned publication has no activation or purge evidence and remains a
+permanent tombstone. Partial cleanup resumes through `DELIVERY_WORK`.
+
+New controls use `result-control-v0.2.0` and bind their staging deadline into
+the immutable identity. The decoder preserves original v0.1.0 identities and
+reads historical live/retiring/retired controls. Historical stages remain
+private and readable, but activation is rejected until explicit operator
+recovery: they have no trusted staging lease and are absent from the staged
+discovery partition. No automatic migration or table scan is performed.
+Uploads interrupted before control creation have no registry to discover and
+still require a separate orphan-recovery design.
 
 Before enabling shared caching, a deployed environment must warm every relevant
 route/variant, pause an origin fill across retirement, wait for the confirmed

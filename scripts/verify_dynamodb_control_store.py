@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import sys
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
@@ -16,11 +18,14 @@ from scanner.artifact_delivery import (  # noqa: E402
     build_delivery_batch,
 )
 from scanner.delivery_control import (  # noqa: E402
+    CONTROL_VERSION,
+    LEGACY_CONTROL_VERSION,
     ResultControlRecord,
     build_retirement_plan,
     build_staged_control,
     timestamp_epoch_ms,
 )
+from scanner.api_contract import stable_json_bytes  # noqa: E402
 from scanner.delivery_storage import PrivateObjectVersion  # noqa: E402
 from scanner.dynamodb_control_store import (  # noqa: E402
     ControlCollisionError,
@@ -217,14 +222,31 @@ class FakeDynamoClient:
                 condition = condition and self._number(
                     item[actual("#expires")]
                 ) > self._number(values[":now"])
+            if "#stagingExpires" in names:
+                condition = condition and self._number(item[actual("#stagingExpires")]) > self._number(values[":stagingNow"])
             if not condition:
                 self._conditional(item)
             set_value("#state", ":live")
             set_value("#activated", ":activated")
             increment_revision()
             if "#gsiPk" in names:
-                set_value("#gsiPk", ":expiryPk")
-                set_value("#gsiSk", ":expiryEpoch")
+                if ":expiryPk" in values and ":expiryEpoch" in values:
+                    set_value("#gsiPk", ":expiryPk")
+                    set_value("#gsiSk", ":expiryEpoch")
+                else:
+                    item.pop(actual("#gsiPk"), None)
+                    item.pop(actual("#gsiSk"), None)
+        elif expression.startswith("SET #state = :abandoned"):
+            if not (equals("#state", ":staged") and equals("#revision", ":zero")
+                    and equals("#identity", ":identity") and equals("#deadline", ":deadline")
+                    and self._number(item[actual("#deadline")]) <= self._number(values[":now"])):
+                self._conditional(item)
+            set_value("#state", ":abandoned")
+            set_value("#abandonedAt", ":abandonedAt")
+            set_value("#cleanup", ":pending")
+            increment_revision()
+            set_value("#gsiPk", ":workPk")
+            set_value("#gsiSk", ":workSk")
         elif expression.startswith("SET #state = :retiring"):
             condition = (
                 equals("#state", ":live")
@@ -302,8 +324,8 @@ class FakeDynamoClient:
                 equals("#state", ":retired")
                 and equals("#identity", ":identity")
                 and equals("#cleanup", ":pending")
-                and equals("#purgeState", ":confirmed")
                 and equals("#revision", ":revision")
+                and (":confirmed" not in values or equals("#purgeState", ":confirmed"))
             ):
                 self._conditional(item)
             set_value("#cleanup", ":complete")
@@ -322,15 +344,17 @@ class FakeDynamoClient:
         require("ConsistentRead" not in kwargs, "GSI query requested strong consistency")
         condition = kwargs.get("KeyConditionExpression")
         is_work_query = condition == "#gpk = :workPk AND #gsk <= :now"
+        is_staged_query = condition == "#gpk = :stagedPk AND #gsk <= :now"
         require(
             is_work_query
+            or is_staged_query
             or condition == "#gpk = :expiryPk AND #gsk <= :now",
             "lifecycle query condition drifted",
         )
         if self.query_response is not None:
             return copy.deepcopy(self.query_response)
         now_epoch_ms = self._number(kwargs["ExpressionAttributeValues"][":now"])
-        partition_name = ":workPk" if is_work_query else ":expiryPk"
+        partition_name = ":workPk" if is_work_query else ":stagedPk" if is_staged_query else ":expiryPk"
         query_partition = self._string(kwargs["ExpressionAttributeValues"][partition_name])
         candidates = sorted(
             (
@@ -413,6 +437,15 @@ def staged_record(
         versions,
         published_at="2026-09-27T12:00:00.000Z",
         expires_at=expires_at,
+        staging_expires_at=(
+            min(
+                datetime(2026, 9, 27, 12, 5, tzinfo=UTC),
+                datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                - timedelta(milliseconds=1),
+            ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            if expires_at is not None
+            else "2026-09-27T12:05:00.000Z"
+        ),
         deletion_key_id="a" * 16,
         deletion_digest_hmac_sha256=deletion_hmac,
         cache_policy=cache_policy,
@@ -420,6 +453,62 @@ def staged_record(
 
 
 def main() -> None:
+    staged = staged_record(
+        "r_" + "1" * 32,
+        cache_policy=DeliveryCachePolicy(value="no-store", purge_required=False),
+        expires_at=None,
+    )
+    require(
+        staged.staging_expires_at == "2026-09-27T12:05:00.000Z"
+        and staged.staging_expires_at_epoch_ms == timestamp_epoch_ms(
+            "2026-09-27T12:05:00.000Z", "test staging expiry"
+        ),
+        "staged control omitted its canonical immutable deadline",
+    )
+    capture_value_error(
+        lambda: replace(staged, activated_at="2026-09-27T12:05:00.000Z", state="live", revision=1),
+        "activation at the staging deadline was accepted",
+    )
+    abandoned = replace(
+        staged,
+        state="abandoned",
+        revision=1,
+        abandoned_at="2026-09-27T12:05:00.000Z",
+        cleanup_state="pending",
+    )
+    require(abandoned.state == "abandoned", "valid abandonment tombstone was rejected")
+    require(decode_control_item(encode_control_item(abandoned)) == abandoned,
+            "abandoned control lost evidence during codec roundtrip")
+    # Reconstruct the original v0.1 identity, independently of the new helper.
+    legacy_identity = hashlib.sha256(stable_json_bytes({
+        "controlVersion": LEGACY_CONTROL_VERSION,
+        "resultId": staged.result_id,
+        "publicationSha256": staged.publication_sha256,
+        "objectsSha256": staged.objects_sha256,
+        "bundleSha256": staged.bundle_sha256,
+        "publishedAt": staged.published_at,
+        "expiresAt": staged.expires_at,
+        "expiresAtEpochMs": staged.expires_at_epoch_ms,
+        "deletionKeyId": staged.deletion_key_id,
+        "deletionDigestHmacSha256": staged.deletion_digest_hmac_sha256,
+        "cacheControl": staged.cache_control,
+        "publicPaths": list(staged.public_paths),
+    })).hexdigest()
+    legacy = replace(staged, control_version=LEGACY_CONTROL_VERSION,
+                     staging_expires_at=None, staging_expires_at_epoch_ms=None,
+                     control_identity_sha256=legacy_identity)
+    require(decode_control_item(encode_control_item(legacy)) == legacy,
+            "historical staged control became unreadable")
+    legacy_live = replace(legacy, state="live", revision=1, activated_at=legacy.published_at)
+    require(decode_control_item(encode_control_item(legacy_live)) == legacy_live,
+            "historical live control became unreadable")
+    capture_value_error(lambda: replace(legacy, control_version=CONTROL_VERSION),
+                        "new control version accepted a missing staging deadline")
+    capture_value_error(
+        lambda: replace(abandoned, abandoned_at="2026-09-27T12:04:59.999Z"),
+        "abandonment before the staging deadline was accepted",
+    )
+
     table = "dom-xray-result-control"
     client = FakeDynamoClient()
     store = control_store(client, table)
@@ -536,6 +625,46 @@ def main() -> None:
         store.get_control(staged.result_id) == staged,
         "rejected capability drift changed the first writer's control identity",
     )
+    abandoned_candidate = staged_record(
+        "r_" + "7" * 32,
+        cache_policy=DeliveryCachePolicy.shared(s_maxage_seconds=3600),
+        expires_at=None,
+    )
+    store.create_staged(abandoned_candidate)
+    deadline_ms = abandoned_candidate.staging_expires_at_epoch_ms
+    assert deadline_ms is not None
+    capture_error(
+        lambda: store.abandon_staged(abandoned_candidate,
+            abandoned_at="2026-09-27T12:04:59.999Z", now_epoch_ms=deadline_ms - 1),
+        "staged abandonment crossed the deadline early",
+    )
+    capture_error(
+        lambda: store.activate(abandoned_candidate,
+            activated_at="2026-09-27T12:05:00.000Z", now_epoch_ms=deadline_ms),
+        "activation at the exact staging deadline succeeded",
+    )
+    staged_due, staged_cursor = store.list_expired_staged(deadline_ms)
+    require(any(record.result_id == abandoned_candidate.result_id for record in staged_due) and staged_cursor is None,
+            "staged-expiry GSI did not recover an expired candidate")
+    abandoned_record = store.abandon_staged(
+        abandoned_candidate,
+        abandoned_at="2026-09-27T12:05:00.000Z",
+        now_epoch_ms=deadline_ms,
+    )
+    require(abandoned_record.state == "abandoned" and abandoned_record.revision == 1
+            and abandoned_record.cleanup_state == "pending",
+            "staged abandonment did not atomically create cleanup work")
+    pending_abandonments, _ = store.list_pending_work(deadline_ms)
+    require(any(record.result_id == abandoned_candidate.result_id for record in pending_abandonments),
+            "abandoned cleanup was absent from pending-work discovery")
+    cleaned_abandonment = store.mark_cleanup_complete(abandoned_record)
+    require(cleaned_abandonment.cleanup_state == "complete",
+            "abandoned exact-object cleanup receipt was not recorded")
+    capture_error(lambda: store.create_staged(abandoned_candidate),
+                  "abandoned tombstone allowed result ID reuse")
+    pending_abandonments, _ = store.list_pending_work(deadline_ms)
+    require(all(record.result_id != abandoned_candidate.result_id for record in pending_abandonments),
+            "cleaned abandonment remained in the recovery index")
     competing_expiry = staged_record(
         staged.result_id,
         cache_policy=DeliveryCachePolicy.no_store(),

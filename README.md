@@ -43,8 +43,9 @@ fails closed without falling back to filesystem storage. The HTTP runtime uses
 `no-store` and no CloudFront purger. These local fake-provider/runtime proofs do
 not establish live AWS/IAM behavior, multi-writer contention, or warmed-edge and
 stale-fill purge behavior. Reads authorized before the retirement fence may
-finish afterward, and staged publications still lack indexed
-abandonment/recovery.
+finish afterward. New staged publications have a finite lease and indexed
+abandonment/cleanup recovery; objects uploaded before control creation still
+need a separate orphan-recovery design.
 Partial captures disclose their exact limitation and neutral captures remain
 link-only. Arbitrary public scanning remains honestly disabled. This is
 executable product progress, not a production-scanner claim: public egress,
