@@ -163,9 +163,19 @@ actual Chromium through the fixed proxy bridge and user/network/PID namespace
 wrapper. Native integration evidence covers normal HTTPS/service-worker capture
 (3,694 / 3,477 ms), live-browser timeout (14,518 / 14,504 ms), distinct browser network namespace,
 and parent-owned relay/scan-file cleanup. See `docs/EGRESS_CAPTURE_WORKER.md` and
-`docs/BROWSER_NAMESPACE.md`. Filesystem/other Unix sockets, whole-worker resource
+`docs/BROWSER_NAMESPACE.md`. Deployment identity/runtime integrity, whole-worker resource
 bounds, patched deployment images, API/queue adoption and public-corpus evidence
 remain open; arbitrary public scanning is still disabled.
+
+The subsequent Gate 3 checkpoint adopts an explicit private browser filesystem root:
+read-only runtime mounts, detached old root, a bounded private NSS snapshot,
+private IPC, only the fixed proxy socket, and scoped browser profile/data paths.
+Native canaries deny host files and unrelated Unix sockets, including a deeper
+user-namespace attempt to unlock runtime mounts. Actual Chromium capture,
+timeout/profile cleanup and six direct-network bypass denials pass; see
+`docs/BROWSER_FILESYSTEM.md`. Immutable patched images, separate broker/worker
+identities, whole-worker cgroup/disk bounds and public-corpus/deployment evidence
+remain required. This is not public-scan enablement.
 
 ## Gate 4 — Public exploration loop
 

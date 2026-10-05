@@ -54,7 +54,8 @@ def main():
          NamespaceBridge(proxy.server_address[1]) as bridge, \
          sync_playwright() as playwright:
         wrapper = write_namespace_wrapper(Path(trust.environment["HOME"]), executable=executable,
-                                           bridge_path=bridge.path, port=proxy.server_address[1])
+            bridge_path=bridge.path, port=proxy.server_address[1],
+            filesystem_runtime_directories=[executable.parent, libraries])
         browser = playwright.chromium.launch(executable_path=str(wrapper), headless=True, chromium_sandbox=True,
             env=trust.environment, proxy={"server": proxy.url}, args=["--disable-quic"], timeout=5_000)
         try:
@@ -138,7 +139,8 @@ def main():
     print("Verified actual pinned sandboxed Chromium in a distinct network/PID namespace with zero capabilities/no-new-privs: "
           "normal private NSS TLS, complete schema+semantic HTTPS capture, one-shot initial pinning, later validation and "
           "service-worker bootstrap via the fixed Unix proxy bridge; six actual Chromium direct-proxy-bypass targets denied, "
-          "including host loopback with zero listener contacts. Filesystem/other Unix sockets and production containment remain open.")
+          "including host loopback with zero listener contacts. The explicit filesystem root is enabled; "
+          "runtime integrity, quotas and production containment remain open.")
 
 
 if __name__ == "__main__":

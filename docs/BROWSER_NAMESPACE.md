@@ -107,9 +107,11 @@ env PYTHONPATH="$task_native/python" \
 ## Still required before public capture
 
 This is a direct-IP network boundary for the tested topology, **not** a complete
-container or browser-escape boundary. The filesystem is still shared. Pathname
-Unix sockets, host files, same-UID sibling processes, writable code/config, and
-scanner signing keys need independent filesystem/process isolation. Same-UID
+container or browser-escape boundary. The stock capture lifecycle now also opts
+into the explicit filesystem root documented in `BROWSER_FILESYSTEM.md`; the
+standalone network-only fixture mode still shares its filesystem. Same-UID
+sibling processes, mutable runtime sources, and scanner broker/signing-key
+processes need independent deployment identity/integrity protection. Same-UID
 peers can reach the fixed bridge; UID checks do not authenticate a particular
 scan. No private-key confidentiality or cross-worker isolation claim follows
 from this proof. The kernel, binaries, packages and mount layout also require
@@ -117,7 +119,7 @@ reviewed patched deployment images, quotas, and runtime integrity controls.
 
 The stock supervised capture lifecycle now uses this wrapper; its integrated
 normal-capture and live-browser timeout evidence is in `EGRESS_CAPTURE_WORKER.md`.
-Next: isolate the filesystem/Unix-socket surface and add deployment resource
+Next: enforce runtime-image integrity and whole-worker resource/identity
 bounds, then repeat hostile network, file, sibling, teardown and public-corpus
 tests. The seeded API was not switched to arbitrary public capture, and the
 reserved-target guard remains enforced. Arbitrary public scans remain disabled.

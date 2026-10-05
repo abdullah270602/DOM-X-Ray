@@ -169,7 +169,9 @@ def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pin
          NamespaceBridge(proxy.server_address[1], temporary_parent=temporary_parent) as bridge, \
          sync_playwright() as playwright:
         wrapper = write_namespace_wrapper(Path(trust.environment["HOME"]), executable=runtime.chromium,
-            bridge_path=bridge.path, port=proxy.server_address[1])
+            bridge_path=bridge.path, port=proxy.server_address[1],
+            filesystem_runtime_directories=[runtime.chromium.parent,
+                *([] if runtime.library_directory is None else [runtime.library_directory])])
         browser = playwright.chromium.launch(headless=True, chromium_sandbox=True,
             executable_path=str(wrapper), env=trust.environment,
             proxy={"server": proxy.url}, args=["--disable-quic"], timeout=5_000)

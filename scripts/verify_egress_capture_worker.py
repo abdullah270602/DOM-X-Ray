@@ -101,6 +101,13 @@ def main():
                         if row["chromium"] and "networkNamespace" in row]
             require(observed and all(value != marker["hostNetworkNamespace"] for value in observed),
                     "transport did not launch Chromium through isolated networking")
+            for key, host_key in (("mountNamespace", "hostMountNamespace"), ("ipcNamespace", "hostIpcNamespace")):
+                observed = [row[key] for row in marker["descendants"] if row["chromium"] and key in row]
+                require(observed and all(value != marker[host_key] for value in observed),
+                        "actual Chromium retained host mount/IPC namespace")
+            profiles = [Path(row["profilePath"]) for row in marker["descendants"] if row["chromium"] and "profilePath" in row]
+            require(profiles and all(profile.is_relative_to(marker["configHome"]) and not profile.exists() for profile in profiles),
+                    "actual Chromium profile was not parent-owned and cleaned up")
             if not hang:
                 require(transport.admitted and transport.record["status"] == "complete"
                         and marker["lookupCount"] > 0 and marker["requestCount"] > 1,
@@ -177,7 +184,7 @@ def main():
             raise AssertionError("symlink worker config was accepted")
     print("Verified native sandboxed Chromium capture through grant-file launch, supervisor, normal private NSS "
           "trust, HTTPS proxy/service-worker capture, schema+semantic admission, minimal secret-free env, "
-          "strict config rejection, isolated browser network namespace, live-browser post-capture timeout, "
+          "strict config rejection, isolated browser network/mount/IPC namespaces and profile, live-browser post-capture timeout, "
           "descendant kill and parent-owned bridge/scan-file cleanup. "
           "Public capture and full filesystem/container containment remain disabled/unproven.")
 

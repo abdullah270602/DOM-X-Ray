@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import time
+import traceback
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -34,6 +35,13 @@ def descendants():
                 owned.append({"pid": pid, "startTicks": started, "chromium": chromium})
                 try:
                     owned[-1]["networkNamespace"] = os.readlink(f"/proc/{pid}/ns/net")
+                    owned[-1]["mountNamespace"] = os.readlink(f"/proc/{pid}/ns/mnt")
+                    owned[-1]["ipcNamespace"] = os.readlink(f"/proc/{pid}/ns/ipc")
+                    arguments = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+                    profiles = [argument.decode().split("=", 1)[1] for argument in arguments
+                                if argument.startswith(b"--user-data-dir=")]
+                    if profiles:
+                        owned[-1]["profilePath"] = profiles[0]
                     owned[-1]["commandName"] = Path(f"/proc/{pid}/comm").read_text().strip()
                     process_stat = Path(f"/proc/{pid}/stat").read_text()
                     process_fields = process_stat[process_stat.rfind(")") + 2:].split()
@@ -66,6 +74,8 @@ def main():
         namespace_config = json.loads((home / "namespace-config.json").read_text())
         marker["bridgePath"] = namespace_config["bridgePath"]
         marker["hostNetworkNamespace"] = os.readlink("/proc/self/ns/net")
+        marker["hostMountNamespace"] = os.readlink("/proc/self/ns/mnt")
+        marker["hostIpcNamespace"] = os.readlink("/proc/self/ns/ipc")
         if not Path(marker["bridgePath"]).is_relative_to(result_path.parent):
             raise AssertionError("bridge socket escaped transport-owned cleanup")
         observed = [row["networkNamespace"] for row in marker["descendants"]
@@ -87,4 +97,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        Path(os.environ["DOM_XRAY_FIXTURE_MARKER"]).with_suffix(".phase.json").with_suffix(".trace.txt").write_text(traceback.format_exc())
+        raise SystemExit(2) from None

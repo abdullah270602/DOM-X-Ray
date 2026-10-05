@@ -38,6 +38,9 @@ or deployment packaging, not an API/visitor setting.
    private TMPDIR. Launch pinned Chromium 140.0.7339.16 through the trusted
    user/network/PID namespace wrapper, with sandboxing, normal certificate
    verification, private trust environment, and the namespace-local proxy relay.
+   Before capability drop, pivot to the explicit filesystem root described in
+   `BROWSER_FILESYSTEM.md`, with read-only runtime mounts, private NSS snapshot,
+   scoped writable browser data/profile, private IPC and only the proxy socket.
 6. Run the real browser probe with its ledger/block/truncation evidence.
 7. Close Chromium, Playwright, bridge/proxy handlers, trust profile, and certificate
    issuer before writing the atomic, bounded nonce result envelope.
@@ -155,5 +158,10 @@ Neither the seeded API nor the public probe gate was relaxed by this checkpoint.
 
 The network/PID namespace wrapper has independent native kernel and actual
 Chromium bypass evidence in `BROWSER_NAMESPACE.md` and is now adopted by this
-stock lifecycle. Filesystem/other Unix sockets, same-UID sibling
-access, whole-worker quotas and deployment containment remain open.
+stock lifecycle. The browser filesystem/socket surface is now separately tested
+by the explicit root in `BROWSER_FILESYSTEM.md`, also adopted by stock capture.
+Host same-UID activity, mutable runtime sources, whole-worker quotas and
+deployment identity containment remain open. The final filesystem-root run
+completed capture in 3,884 ms and forced timeout in 14,509 ms, with actual
+mount/IPC/network namespace and profile cleanup assertions. The proxy-bypass
+suite also passed under this root; arbitrary public scans remain disabled.

@@ -1,7 +1,8 @@
 """Trusted namespace init: loopback setup, cap drop, relay, then non-root child.
 
-Invoked only through the reviewed unshare wrapper. Network/PID isolation is not
-filesystem isolation. The child is never allowed setup privileges or host IP fds.
+Invoked only through the reviewed unshare wrapper. Filesystem isolation is an
+explicit trusted option, adopted by stock capture but not network-only fixtures.
+The child is never allowed setup privileges or host directory/IP descriptors.
 """
 
 import ctypes
@@ -43,7 +44,8 @@ def drop_capabilities():
         raise ValueError("namespace-capability-postcondition")
 
 
-def write_namespace_wrapper(directory, *, executable, bridge_path, port, preserve_pipes=True):
+def write_namespace_wrapper(directory, *, executable, bridge_path, port, preserve_pipes=True,
+                            filesystem_runtime_directories=None):
     """Generated runtime wrapper, with all paths from trusted program config."""
     import shlex
     directory = Path(directory)
@@ -55,7 +57,10 @@ def write_namespace_wrapper(directory, *, executable, bridge_path, port, preserv
         raise ValueError("namespace-wrapper-configuration")
     config, wrapper = directory / "namespace-config.json", directory / "browser-wrapper"
     payload = {"executable": str(executable), "bridgePath": str(bridge_path),
-               "port": port, "preservePipes": preserve_pipes}
+               "port": port, "preservePipes": preserve_pipes, "filesystem": None}
+    if filesystem_runtime_directories is not None:
+        from scanner.browser_filesystem import filesystem_config
+        payload["filesystem"] = filesystem_config(directory, filesystem_runtime_directories)
     with config.open("x") as stream:
         json.dump(payload, stream)
     config.chmod(0o600)
@@ -77,7 +82,7 @@ def launch_namespace():
     # Parent death before prctl would otherwise miss the notification.
     if os.getppid() != parent:
         raise ValueError("namespace-launch-parent-changed")
-    command = ["/usr/bin/unshare", "--user", "--map-current-user", "--net", "--pid", "--fork",
+    command = ["/usr/bin/unshare", "--user", "--map-current-user", "--net", "--pid", "--ipc", "--fork",
                "--mount-proc", "--kill-child", "--keep-caps", "/usr/bin/python3", "-I",
                str(Path(__file__).resolve()), *sys.argv[2:]]
     os.execv(command[0], command)
@@ -88,7 +93,7 @@ def main():
     if config_path.is_symlink() or not config_path.is_file() or config_path.stat().st_size > 16_384:
         raise ValueError("namespace-config")
     config = json.loads(config_path.read_text())
-    if not isinstance(config, dict) or set(config) != {"executable", "bridgePath", "port", "preservePipes"}:
+    if not isinstance(config, dict) or set(config) != {"executable", "bridgePath", "port", "preservePipes", "filesystem"}:
         raise ValueError("namespace-config")
     if (os.getpid() != 1 or os.getuid() == 0 or not isinstance(config["port"], int)
             or isinstance(config["port"], bool) or not 1 <= config["port"] <= 65535
@@ -101,6 +106,10 @@ def main():
                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
     if socket_interfaces() != {"lo"}:
         raise ValueError("namespace-interface-postcondition")
+    if config["filesystem"] is not None:
+        from scanner.browser_filesystem import enter_browser_filesystem
+        config["bridgePath"] = str(enter_browser_filesystem(config["filesystem"], config["bridgePath"],
+            preserve_pipes=config["preservePipes"], child_arguments=sys.argv[2:]))
     drop_capabilities()
     relay = NamespaceRelay(config["bridgePath"], config["port"])
     thread = Thread(target=relay.serve_forever, daemon=True)
