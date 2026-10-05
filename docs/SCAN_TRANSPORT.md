@@ -111,3 +111,9 @@ and [TLS context/socket](https://docs.python.org/3/library/ssl.html).
 Browser proxy integration, request/byte admission, service-worker coverage,
 grant lifetime, production resolution, and container egress still need tests.
 Arbitrary scanning remains disabled.
+
+The origin-side HTTP integration is now in `scanner/origin_exchange.py`.
+It enforces anonymous requests, strict response framing, scan-wide wire-byte
+limits, and redirect revalidation over the pinned connector. See
+`docs/ORIGIN_EXCHANGE.md` for its verifier and real HTTPS HEAD evidence.
+It still needs the browser-facing TLS interception proxy and containment.

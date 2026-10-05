@@ -52,6 +52,13 @@ rejected grants, TLS failures, fallback, and cleanup. One public TLS handshake
 succeeded on 2026-10-05. Browser proxy integration, request/byte enforcement,
 production resolution, and container egress remain required before public scans.
 
+The bounded origin exchange now applies anonymous header policy, raw HTTP byte
+budgets, strict response framing, redirect DNS revalidation, and a socket I/O
+deadline over that connector. Its deterministic adversarial suite and one real
+HTTPS HEAD smoke test are recorded in `docs/ORIGIN_EXCHANGE.md`. Browser HTTPS
+interception, request/block-ledger integration, service-worker coverage, bounded
+production DNS, and independent egress enforcement remain open.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

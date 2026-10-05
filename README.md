@@ -95,6 +95,7 @@ python scripts/verify_capture_worker.py
 python scripts/verify_destination_policy.py
 python scripts/verify_scan_transport.py
 python scripts/verify_pinned_connector.py
+python scripts/verify_origin_exchange.py
 python scripts/verify_scan_api_contract.py
 python scripts/verify_result_store.py
 python scripts/verify_artifact_delivery.py
