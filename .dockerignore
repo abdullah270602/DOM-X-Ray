@@ -1,0 +1,13 @@
+**
+!scanner/
+!scanner/**
+!scripts/
+!scripts/**
+!docs/
+!docs/**
+!fixtures/
+!fixtures/**
+!containers/
+!containers/**
+**/__pycache__/
+**/*.pyc

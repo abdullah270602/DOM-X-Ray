@@ -54,7 +54,7 @@ def main():
          NamespaceBridge(proxy.server_address[1]) as bridge, \
          sync_playwright() as playwright:
         wrapper = write_namespace_wrapper(Path(trust.environment["HOME"]), executable=executable,
-            bridge_path=bridge.path, port=proxy.server_address[1],
+            bridge_path=bridge.path, port=proxy.server_address[1], readonly_launcher=True,
             filesystem_runtime_directories=[executable.parent, libraries])
         browser = playwright.chromium.launch(executable_path=str(wrapper), headless=True, chromium_sandbox=True,
             env=trust.environment, proxy={"server": proxy.url}, args=["--disable-quic"], timeout=5_000)

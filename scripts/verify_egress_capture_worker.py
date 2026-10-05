@@ -38,7 +38,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runtime-root", type=Path, default=ROOT / ".dom-xray-data/linux-trust",
                         help="explicit trusted prepared runtime, optionally on native Linux storage")
-    base = parser.parse_args().runtime_root.resolve(strict=True)
+    parser.add_argument('--container-limits', action='store_true',
+                        help='require the exact bounded Docker fixture limits and host-side process flags')
+    options = parser.parse_args()
+    base = options.runtime_root.resolve(strict=True)
+    if options.container_limits:
+        for name, expected in (('memory.max', '1073741824'), ('memory.swap.max', '0'),
+                               ('pids.max', '128'), ('cpu.max', '100000 100000')):
+            require((Path('/sys/fs/cgroup') / name).read_text().strip() == expected,
+                    f'container kernel limit mismatch: {name}')
+        status = dict(line.split(':', 1) for line in Path('/proc/self/status').read_text().splitlines() if ':' in line)
+        require(os.getuid() == 10001 and status['NoNewPrivs'].strip() == '1' and status['Seccomp'].strip() == '2'
+                and all(int(status[key].strip(), 16) == 0 for key in ('CapEff', 'CapPrm', 'CapBnd')),
+                'container verifier identity/capabilities/filter mismatch')
     runtime = CaptureRuntime(Path("/usr/bin/openssl"), base / "root/usr/bin/certutil",
         base / "browsers/chromium_headless_shell-1187/chrome-linux/headless_shell",
         base / "root/usr/lib/x86_64-linux-gnu")
@@ -83,8 +95,23 @@ def main():
                 raise AssertionError(f"unexpected supervised result: {transport.outcome}; last phase: {observed}\n{stack}")
             require(len(initial_dns) == 1 and len(launch_environments) == 1, "initial launch grant resolved twice")
             marker = json.loads(marker_path.read_text())
+            require(marker.get('sandboxWitness') is True, 'active offline sandbox witness missing')
+            if options.container_limits:
+                counters = marker['cgroupCounters']
+                require(counters['memory.current'] < 1073741824 and counters['pids.current'] <= 128,
+                        'live capture exceeded its fixture limit')
+                print('Live capture cgroup counters: ' + json.dumps(counters, sort_keys=True), flush=True)
             require(marker["descendants"] and any(row["chromium"] for row in marker["descendants"]),
                     "real capture did not observe live Chromium descendants")
+            chromium_rows = [row for row in marker['descendants'] if row['chromium'] and 'seccomp' in row]
+            require(chromium_rows and all(row['noNewPrivileges'] == 1
+                                          and not row['sandboxDisabled'] for row in chromium_rows),
+                    'actual Chromium lacked NNP or used --no-sandbox')
+            require(any(row['seccomp'] == 2 for row in chromium_rows),
+                    'no actual Chromium process had a syscall filter')
+            if options.container_limits:
+                require(all(row['seccomp'] == 2 for row in chromium_rows),
+                        'container Chromium process lacked the inherited syscall filter')
             # Signal delivery/exit transitions are asynchronous. Observe exact
             # process instances for a bounded interval, not just one scheduler tick.
             stopped_deadline = time.monotonic() + 0.4

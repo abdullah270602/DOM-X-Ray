@@ -186,6 +186,17 @@ See `docs/CONTAINER_RESOURCE_PROOF.md`. This is native quota evidence, not scann
 adoption or independent detached-descendant/cgroup-empty proof; those boundaries
 and actual Chromium budgets remain open. Arbitrary public scanning stays disabled.
 
+The next Gate 3 checkpoint runs actual sandboxed Chromium capture in a baked,
+non-root, read-only Docker fixture with no network/host mounts, one CPU, 1 GiB/no
+swap and 128 tasks. Complete capture, live-renderer filter observations, timeout
+without admission, six direct-network bypass denials and scoped cleanup pass.
+A read-only launcher allows non-executable scratch, including the inner mounts;
+an empty browser sbin directory avoids Docker's locked init submount without a
+recursive fallback. See `docs/CONTAINER_CAPTURE_FIXTURE.md`. The historical
+browser and broad inherited fixture filter are not production-approved; trusted
+engine-side launcher/result transfer, independent teardown, patched image,
+identity/egress/API adoption and public-corpus proof remain open.
+
 ## Gate 4 — Public exploration loop
 
 **Question:** Can a newcomer complete the core journey without help?

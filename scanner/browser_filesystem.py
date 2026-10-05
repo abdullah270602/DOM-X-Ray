@@ -12,7 +12,7 @@ import platform
 import stat
 import subprocess
 
-SYSTEM_RUNTIME = ("/usr/bin", "/usr/sbin", "/usr/lib/x86_64-linux-gnu", "/usr/lib64", "/usr/lib/python3.12")
+SYSTEM_RUNTIME = ("/usr/bin", "/usr/lib/x86_64-linux-gnu", "/usr/lib64", "/usr/lib/python3.12")
 OPTIONAL_RUNTIME = ("/usr/lib/locale", "/usr/share/fonts", "/usr/share/fontconfig", "/usr/share/zoneinfo")
 
 
@@ -91,7 +91,7 @@ def enter_browser_filesystem(config, bridge_path, *, preserve_pipes, child_argum
             except OSError:
                 pass
     _mount("--make-rprivate", "/")
-    options = f"size=16m,mode=0700,uid={os.getuid()},gid={os.getgid()},nosuid,nodev"
+    options = f"size=16m,mode=0700,uid={os.getuid()},gid={os.getgid()},nosuid,nodev,noexec"
     _mount("-t", "tmpfs", "-o", options, "tmpfs", root)
 
     def target(path, directory=True):
@@ -106,7 +106,7 @@ def enter_browser_filesystem(config, bridge_path, *, preserve_pipes, child_argum
     def bind(source, destination, *, readonly=True, device=False):
         path = target(destination, Path(source).is_dir())
         _mount("--bind", source, path)  # deliberately non-recursive
-        flags = "remount,bind,nosuid" + (",ro" if readonly else "") + ("" if device else ",nodev")
+        flags = "remount,bind,nosuid" + (",ro" if readonly else ",noexec") + ("" if device else ",nodev")
         _mount("-o", flags, path)
 
     # Do not bind all /usr: WSL carries nested host-driver mounts there, and
@@ -115,6 +115,11 @@ def enter_browser_filesystem(config, bridge_path, *, preserve_pipes, child_argum
         if not Path(directory).is_dir():
             raise ValueError("browser-filesystem-system-runtime")
         bind(directory, directory)
+    # Networking setup has already used ip outside this root. Browser/runtime
+    # execution needs no sbin tools. Docker --init has a locked docker-init child
+    # mount under /usr/sbin; a non-recursive parent bind cannot unmask it. Keep an
+    # empty sbin directory, rather than recursively exposing that extra runtime.
+    target('/usr/sbin')
     for directory in OPTIONAL_RUNTIME:
         if Path(directory).is_dir():
             bind(directory, directory)

@@ -22,7 +22,8 @@ This does not rely on `chroot` alone: [chroot caveats](https://man7.org/linux/ma
 
 | Visible surface | Access / source |
 | --- | --- |
-| `/usr/bin`, `/usr/sbin`, x86-64 libraries, Python 3.12 | Required, non-recursive read-only runtime mounts |
+| `/usr/bin`, x86-64 libraries, Python 3.12 | Required, non-recursive read-only runtime mounts |
+| `/usr/sbin` | Empty directory; setup uses networking tools before pivot, avoiding Docker's locked init child mount |
 | Locale, font, fontconfig and timezone directories | Read-only when present; no whole-`/usr` mount |
 | Chromium executable directory and explicit custom libraries | Read-only, canonical trusted runtime paths |
 | Browser HOME config/data/cache/tmp | Only these private per-scan directories, read-write |
@@ -99,6 +100,12 @@ native Linux storage and run preparation plus verification in one WSL session
 as shown in `EGRESS_CAPTURE_WORKER.md`.
 
 ## Still open before public capture
+
+The Docker integration checkpoint now uses a read-only executable launcher and
+marks inner writable scratch/profile/data mounts `noexec`. Scratch execution
+canaries, actual Chromium capture/timeout and direct-network denials pass in the
+bounded local fixture image; see `CONTAINER_CAPTURE_FIXTURE.md`. This does not
+close the production filter/image/identity/launcher gates below.
 
 Read-only binds prevent writes *from this namespace*, not changes by the host.
 Host runtime/library/font sources need immutable, reviewed, patched deployment

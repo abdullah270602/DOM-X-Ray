@@ -84,6 +84,7 @@ def main():
                     require(run.outcome == ("timeout" if hang else "completed"), f"filesystem worker outcome {run.outcome}: {detail}")
                     require(marker.exists(), "filesystem child did not reach boundary proof")
                     proof = json.loads(marker.read_text())
+                    require(proof.get('scratchExecutionDenied') is True, 'writable scratch exec denial missing')
                     require(proof["mount"] != os.readlink("/proc/self/ns/mnt")
                             and proof["ipc"] != os.readlink("/proc/self/ns/ipc"), "host mount/IPC namespace reused")
                     require(proof["nestedRemountDenied"], "nested namespace remount denial missing")

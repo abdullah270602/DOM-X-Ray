@@ -2,7 +2,7 @@
 
 Status: native kernel and actual Chromium network-bypass proof; not complete deployment containment.
 
-`scanner/browser_namespace.py` generates a trusted executable wrapper around
+`scanner/browser_namespace.py` prepares private config and a trusted launcher around
 pinned Chromium. `unshare` creates new user, network, PID, and private-proc mount
 namespaces, mapping the current non-root UID/GID to itself. A trusted Python
 host launcher first sets a SIGKILL parent-death signal and rechecks its parent

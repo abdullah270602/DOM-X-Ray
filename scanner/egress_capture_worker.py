@@ -145,7 +145,9 @@ def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pin
     """Compose normal TLS, per-scan trust, policy, proxy and actual probe.
 
     Reserved .test targets only until public containment/parser gates pass.
-    after_capture is an internal test lifecycle hook, never a config field.
+    after_capture is an internal test lifecycle hook receiving (probe, private
+    trust HOME, live browser), never a config field. The probe's page/context is
+    already closed; a fixture may create a fixed offline sandbox witness.
     """
     from playwright.sync_api import sync_playwright
     from scanner.browser_probe import probe_page, validate_fixture_target
@@ -170,6 +172,7 @@ def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pin
          sync_playwright() as playwright:
         wrapper = write_namespace_wrapper(Path(trust.environment["HOME"]), executable=runtime.chromium,
             bridge_path=bridge.path, port=proxy.server_address[1],
+            readonly_launcher=True,
             filesystem_runtime_directories=[runtime.chromium.parent,
                 *([] if runtime.library_directory is None else [runtime.library_directory])])
         browser = playwright.chromium.launch(headless=True, chromium_sandbox=True,
@@ -184,7 +187,7 @@ def capture_granted_page(grant, runtime, *, resolver=None, connector=connect_pin
                 egress_correlation_key=proxy.correlation_key,
                 egress_observations_truncated=lambda: proxy.ledger.truncated or proxy.events_truncated)
             if after_capture is not None:
-                after_capture(probe, Path(trust.environment["HOME"]))
+                after_capture(probe, Path(trust.environment["HOME"]), browser)
         finally:
             browser.close()
     return probe.record

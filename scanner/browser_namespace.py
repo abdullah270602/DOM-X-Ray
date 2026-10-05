@@ -45,14 +45,15 @@ def drop_capabilities():
 
 
 def write_namespace_wrapper(directory, *, executable, bridge_path, port, preserve_pipes=True,
-                            filesystem_runtime_directories=None):
-    """Generated runtime wrapper, with all paths from trusted program config."""
+                            filesystem_runtime_directories=None, readonly_launcher=False):
+    """Private config and trusted launcher; stock capture uses read-only code."""
     import shlex
     directory = Path(directory)
     executable = Path(executable)
     if (sys.platform != "linux" or not directory.is_absolute() or not directory.is_dir()
             or directory.stat().st_mode & 0o077 or not executable.is_absolute() or not executable.is_file()
-            or not isinstance(preserve_pipes, bool) or not isinstance(port, int) or isinstance(port, bool)
+            or not isinstance(preserve_pipes, bool) or not isinstance(readonly_launcher, bool)
+            or not isinstance(port, int) or isinstance(port, bool)
             or not 1 <= port <= 65535 or not Path(bridge_path).is_absolute()):
         raise ValueError("namespace-wrapper-configuration")
     config, wrapper = directory / "namespace-config.json", directory / "browser-wrapper"
@@ -64,6 +65,11 @@ def write_namespace_wrapper(directory, *, executable, bridge_path, port, preserv
     with config.open("x") as stream:
         json.dump(payload, stream)
     config.chmod(0o600)
+    if readonly_launcher:
+        launcher = Path(__file__).resolve().with_name('browser_launcher.py')
+        if not launcher.is_file() or not os.access(launcher, os.X_OK):
+            raise ValueError('namespace-readonly-launcher-runtime')
+        return launcher
     command = ["/usr/bin/python3", "-I", str(Path(__file__).resolve()), "--launch", str(config)]
     with wrapper.open("x") as stream:
         stream.write("#!/bin/sh\nexec " + " ".join(shlex.quote(item) for item in command) + ' "$@"\n')
@@ -147,5 +153,15 @@ if __name__ == "__main__":
             launch_namespace()
         else:
             main()
-    except Exception:
+    except Exception as error:
+        # Bounded infrastructure-only diagnostics: never include exception text,
+        # commands, target URLs, private paths, configuration values or page data.
+        frames, current = [], error.__traceback__
+        while current is not None:
+            code = current.tb_frame.f_code
+            if Path(code.co_filename).parent == ROOT / 'scanner':
+                frames.append(f'{Path(code.co_filename).stem}:{current.tb_lineno}')
+            current = current.tb_next
+        print('namespace-setup-failed:' + type(error).__name__ + ':' +
+              ','.join(frames[-3:]), file=sys.stderr)
         raise SystemExit(2) from None

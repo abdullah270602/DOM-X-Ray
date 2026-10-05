@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import subprocess
 import sys
 import time
 import traceback
@@ -44,6 +45,16 @@ for readonly in config["readonlyFiles"]:
     else:
         raise AssertionError("readonly mount was writable")
 Path(config["writableFile"]).write_bytes(b"scan-only-data")
+for parent in (Path(config['writableFile']).parent, Path('/tmp')):
+    executable = parent / 'scratch-exec-canary'
+    executable.write_bytes(b'#!/bin/sh\nexit 0\n')
+    executable.chmod(0o700)
+    try:
+        subprocess.run([str(executable)], check=True, timeout=1)
+    except OSError as error:
+        require(error.errno == errno.EACCES, 'scratch exec denied for wrong reason')
+    else:
+        raise AssertionError('writable browser scratch was executable')
 require(Path(config["privateNssFile"]).read_bytes() == b"public-root-only", "NSS snapshot copy drifted")
 Path(config["privateNssFile"]).write_bytes(b"private-browser-NSS")
 # Chromium can create deeper user namespaces with capabilities scoped there.
@@ -89,6 +100,7 @@ require(response.startswith(b"HTTP/1.1 200 ") and b"TLS proxy works" in response
 proof = {"mount": os.readlink("/proc/self/ns/mnt"), "ipc": os.readlink("/proc/self/ns/ipc"),
          "pid": os.readlink("/proc/self/ns/pid"), "hostFilesHidden": True, "runtimeReadonly": True,
          "nestedRemountDenied": True, "nestedNamespaceCreated": os.WEXITSTATUS(nested_status) == 10}
+proof['scratchExecutionDenied'] = True
 Path(config["marker"]).write_text(json.dumps(proof))
 if config["hang"]:
     time.sleep(60)

@@ -24,7 +24,7 @@ def descendants():
         try:
             text = (path / "stat").read_text()
             fields = text[text.rfind(")") + 2:].split()
-            rows[int(path.name)] = (int(fields[1]), fields[19], "chrome" in text or "headless" in text)
+            rows[int(path.name)] = (int(fields[1]), fields[19], "chrome" in text.lower() or "headless" in text.lower())
         except (OSError, ValueError, IndexError):
             continue
     owned, pending = [], [os.getpid()]
@@ -34,10 +34,15 @@ def descendants():
             if ppid == parent:
                 owned.append({"pid": pid, "startTicks": started, "chromium": chromium})
                 try:
+                    status = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines()
+                                  if ':' in line)
+                    owned[-1]['seccomp'] = int(status['Seccomp'].strip())
+                    owned[-1]['noNewPrivileges'] = int(status['NoNewPrivs'].strip())
+                    arguments = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+                    owned[-1]['sandboxDisabled'] = b'--no-sandbox' in arguments
                     owned[-1]["networkNamespace"] = os.readlink(f"/proc/{pid}/ns/net")
                     owned[-1]["mountNamespace"] = os.readlink(f"/proc/{pid}/ns/mnt")
                     owned[-1]["ipcNamespace"] = os.readlink(f"/proc/{pid}/ns/ipc")
-                    arguments = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
                     profiles = [argument.decode().split("=", 1)[1] for argument in arguments
                                 if argument.startswith(b"--user-data-dir=")]
                     if profiles:
@@ -65,12 +70,26 @@ def main():
         grants.append(destination)
         phase.write_text(json.dumps({"phase": "origin-contact", "requestCount": len(grants), "hostname": destination.hostname}))
         return FixtureOrigin(destination, requests)
-    def after_capture(probe, home):
+    def after_capture(probe, home, browser):
+        # The probe has already closed its page/context. Keep a fixed offline
+        # renderer alive solely to observe its actual sandbox/filter status;
+        # this performs no target request and cannot alter the captured record.
+        witness = browser.new_context()
+        page = witness.new_page()
+        page.set_content('<div>Offline sandbox witness</div>')
+        if page.evaluate('1 + 1') != 2:
+            raise AssertionError('offline renderer did not execute')
         if grants[0] != grant.destination or any(value.addresses != ("1.0.0.1",) for value in grants[1:]):
             raise AssertionError("fixture grant pinning drifted")
         marker = {"profileHome": str(home), "configHome": str(result_path.parent),
                   "requestCount": len(requests), "lookupCount": len(dns),
                   "descendants": descendants(), "status": probe.record["status"]}
+        marker['sandboxWitness'] = True
+        marker['cgroupCounters'] = {}
+        for name in ('memory.current', 'memory.peak', 'pids.current', 'pids.peak'):
+            path = Path('/sys/fs/cgroup') / name
+            if path.is_file():
+                marker['cgroupCounters'][name] = int(path.read_text().strip())
         namespace_config = json.loads((home / "namespace-config.json").read_text())
         marker["bridgePath"] = namespace_config["bridgePath"]
         marker["hostNetworkNamespace"] = os.readlink("/proc/self/ns/net")
@@ -88,6 +107,7 @@ def main():
         phase.write_text(json.dumps({"phase": "capture-complete", "hang": os.environ.get("DOM_XRAY_FIXTURE_HANG")}))
         if os.environ.get("DOM_XRAY_FIXTURE_HANG") == "1":
             time.sleep(60)
+        witness.close()
     record = capture_granted_page(grant, runtime,
         resolver=lambda h, p: dns.append((h, p)) or ["1.0.0.1"],
         connector=connector, after_capture=after_capture)
