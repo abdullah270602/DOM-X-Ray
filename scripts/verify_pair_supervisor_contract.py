@@ -256,6 +256,24 @@ def main():
                 raise AssertionError('visitor capability accepted')
         require(not value._call.called, 'malformed input reached engine')
         print('visitor capability/invalid grant: zero engine contact', flush=True)
+
+        for remains_running in (False, True):
+            value = instance()
+            running = scoped_row(value, 'worker')
+            running['State'].update(Running=True, Pid=321)
+            fresh = copy.deepcopy(running)
+            if not remains_running:
+                fresh['State'].update(Running=False, Pid=0)
+            value._inspect = Mock(side_effect=[running, fresh])
+            value._call = Mock(side_effect=[WorkerContainmentError('docker-control-failed'), '', ''])
+            try:
+                state = value._cleanup(running['Name'][1:], TOKEN, IDS['worker'], 999999999999.0)
+            except WorkerContainmentError:
+                require(remains_running and value._call.call_count == 1, 'failed kill bypassed state proof')
+            else:
+                require(not remains_running and state['ExitCode'] == 0 and value._call.call_count == 3,
+                        'inspect-to-kill exit race not safely reconciled')
+        print('kill error: fresh owned stopped proof reconciles exit race; still-running state rejects', flush=True)
     print('Verified mocked pair-supervisor contract; not engine or recovery evidence.')
 
 

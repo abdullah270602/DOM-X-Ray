@@ -90,6 +90,13 @@ credential rejection. Durable controller-death/orphan recovery, independent
 cgroup-empty proof, actual public broker egress and production API adoption still
 remain open; fixture timings are not public-corpus latency evidence.
 
+The `docs/LEASE_JOURNAL.md` checkpoint adds content-free durable intent/ID/removal
+records to the pair lease, local OS ownership locking, bounded SQLite storage and
+fail-closed state dependencies. Journal owner termination/lock handoff and actual
+journal fault injection are verified; a replacement Docker reaper, automatic
+watchdog and real controller-crash cleanup evidence are still required. Public
+scanning remains disabled rather than treating journal persistence as recovery.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

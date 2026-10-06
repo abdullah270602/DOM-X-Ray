@@ -5,6 +5,7 @@ recovery. A failed cleanup is never converted into a successful scan.
 """
 
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import time
 from scanner.docker_worker_supervisor import (DockerWorkerSupervisor, _PipeProcess, _require,
     _pairs, _invalid_constant, _valid_output, LABEL, MAX_INPUT_BYTES, CONTROL_BYTES)
 from scanner.scan_transport import WorkerLaunch, decode_public_scan_grant
+from scanner.lease_journal import LeaseJournal
 from scanner.worker_supervisor import (WorkerContainmentError, WorkerRun,
     MAX_WORKER_RESULT_BYTES, _artifact_is_valid, _validated_deadline)
 
@@ -22,11 +24,20 @@ from scanner.worker_supervisor import (WorkerContainmentError, WorkerRun,
 class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
     """Three fixed operator commands, one fresh socket volume, one absolute lease."""
 
-    def __init__(self, *, initializer_command, broker_command, **configuration):
+    def __init__(self, *, initializer_command, broker_command, lease_journal=None, **configuration):
         super().__init__(**configuration)
         self.roles = {'worker': self}
         for role, command in [('initialize', initializer_command), ('broker', broker_command)]:
             self.roles[role] = DockerWorkerSupervisor(**{**configuration, 'command': command})
+        if lease_journal is not None and type(lease_journal) is not LeaseJournal:
+            raise ValueError('docker-pair-journal-configuration')
+        self.journal = lease_journal
+
+    def runtime_fingerprint(self):
+        raw = json.dumps({'policy': 'pair-policy-1', 'docker': self.prefix, 'image': self.image_id,
+            'profile': self.profile, 'commands': {role: controller.command for role, controller in self.roles.items()}},
+            sort_keys=True, separators=(',', ':')).encode()
+        return hashlib.sha256(raw).hexdigest()
 
     def _preflight_role(self, row, role, name, token, identifier, volume):
         config, host = row['Config'], row['HostConfig']
@@ -81,6 +92,34 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
     def _held_pipe(self, arguments, payload):
         return _PipeProcess([*self.prefix, *arguments], payload, CONTROL_BYTES, keep_stdin=True)
 
+    def _cleanup(self, name, token, identifier, deadline):
+        if identifier is None:
+            return super()._cleanup(name, token, identifier, deadline)
+        # A known immutable ID needs no preliminary name lookup. Inspect still
+        # proves name/token/ID ownership before every destructive operation.
+        row = self._inspect(identifier, deadline)
+        self._ownership(row, name, token, identifier)
+        if row['State']['Running']:
+            try:
+                self._call(['kill', identifier], deadline)
+            except (WorkerContainmentError, TimeoutError):
+                # A process may exit after inspect but before kill reaches the
+                # engine. Only a fresh positive stopped/ownership observation
+                # can reconcile the failed control call; absence is not proof.
+                row = self._inspect(identifier, deadline)
+                self._ownership(row, name, token, identifier)
+                _require(not row['State']['Running'] and row['State']['Pid'] == 0,
+                         'docker-pair-kill-failed-unproven-stop')
+            else:
+                row = self._inspect(identifier, deadline)
+                self._ownership(row, name, token, identifier)
+        _require(not row['State']['Running'] and row['State']['Pid'] == 0, 'docker-pair-container-survived-kill')
+        state = row['State']
+        self._call(['rm', identifier], deadline)
+        _require(not self._call(['container', 'ls', '-aq', '--no-trunc', '--filter', f'name=^/{name}$'], deadline),
+                 'docker-pair-container-survived-removal')
+        return state
+
     @staticmethod
     def _broker_report(output):
         _require(len(output) <= CONTROL_BYTES and output.startswith(b'ready\n')
@@ -97,6 +136,13 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
         return report
 
     def run(self, launch, result_path, deadline_seconds):
+        journal = getattr(self, 'journal', None)
+        if journal is None:
+            return self._run(launch, result_path, deadline_seconds)
+        with journal.hold():
+            return self._run(launch, result_path, deadline_seconds)
+
+    def _run(self, launch, result_path, deadline_seconds):
         deadline_seconds = _validated_deadline(deadline_seconds)
         if (not isinstance(launch, WorkerLaunch) or tuple(launch.command) != self.command
                 or launch.environment is not None or launch.cwd is not None
@@ -121,18 +167,30 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
         attempted, identifiers, pipes, states = set(), {}, {}, {}
         volume_attempted = volume_known = timed_out = overflow = False
         failure, output, report, worker_code = None, b'', None, None
+        journal = getattr(self, 'journal', None)
+        def note(method, *arguments):
+            if journal is not None:
+                _require(time.monotonic() < deadline, 'docker-pair-journal-deadline')
+                getattr(journal, method)(token, *arguments)
+                _require(time.monotonic() < deadline, 'docker-pair-journal-deadline')
         try:
+            note('create', self.runtime_fingerprint(), int(time.time() * 1000 + max(0, deadline - time.monotonic()) * 1000))
             engine = json.loads(self._call(['info', '--format', '{{json .}}'], execution_deadline))
             _require(engine['OSType'] == 'linux' and engine['CgroupVersion'] == '2', 'docker-pair-engine')
+            note('engine', engine.get('ID'))
+            note('intent', 'volume')
             volume_attempted = True
             created = self._call(['volume', 'create', '--driver=local', '--label', f'{LABEL}={token}', volume], execution_deadline)
             _require(created == volume, 'docker-pair-volume-create')
+            note('created', 'volume')
             self._volume_row(volume, token, execution_deadline)
             volume_known = True
             for role in ('initialize', 'broker', 'worker'):
+                note('intent', role)
                 attempted.add(role)
                 identifier = self._create_role(role, names[role], token, volume, execution_deadline)
                 identifiers[role] = identifier
+                note('created', role, identifier)
                 self._preflight_role(self._inspect(identifier, execution_deadline), role, names[role], token, identifier, volume)
                 if role == 'initialize':
                     pipes[role] = self._pipe(['start', '--attach', '--interactive', identifier], b'', CONTROL_BYTES)
@@ -173,18 +231,24 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
                     state = self._cleanup(names[role], token, identifiers.get(role), deadline)
                     _require(state is not None, 'docker-pair-create-ownership-unresolved')
                     states[role] = state
+                    note('removed', role)
                 except Exception as error:
                     cleanup_ok, failure = False, error
             if volume_attempted:
                 if cleanup_ok:
                     try:
                         self._remove_volume(volume, token, volume_known, deadline)
+                        note('removed', 'volume')
                     except Exception as error:
                         failure = error
                 else:
                     failure = WorkerContainmentError('docker-pair-volume-retained-unproven-containers')
         if failure is not None or time.monotonic() >= deadline:
             raise WorkerContainmentError('docker-pair-control-or-cleanup-unproven') from None
+        try:
+            note('finish')
+        except Exception:
+            raise WorkerContainmentError('docker-pair-journal-completion-unproven') from None
         state = states.get('worker')
         code = None if state is None else state['ExitCode']
         if timed_out:

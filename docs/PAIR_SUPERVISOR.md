@@ -96,6 +96,11 @@ guarantee that engine stalls can always be recovered inside a lease.
 
 ## Remaining gates
 
+Follow-up: `LEASE_JOURNAL.md` records optional operator-supplied durable intents,
+IDs and cleanup proofs plus a process-lifetime ownership lock. Journal process
+crash persistence is verified, but automatic Docker recovery/watchdog adoption
+and a killed-Docker-controller cleanup proof remain open.
+
 Engine-reported stopped/PID-zero/absence checks are not independent host cgroup
 `populated=0` proof. Durable lease journaling/watchdog recovery, controller death,
 late engine creates/outages, concurrency and userns/rootless variants still need
