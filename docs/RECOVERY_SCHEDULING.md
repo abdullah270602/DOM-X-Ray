@@ -77,7 +77,9 @@ overall controller-death bound. Independent Linux cgroup emptiness and all publi
 scanner deployment, policy and product gates remain open. Public arbitrary-URL
 scanning stays disabled.
 
-The subsequent [polling component](RECOVERY_POLLER.md) carries this cursor in
-memory, distinguishes busy acquisition from authority faults and backs off on
-retained obligations. Durable cursor/restart behavior and service deployment
-remain open; it does not supersede the limitations above.
+The subsequent [polling component](RECOVERY_POLLER.md) distinguishes busy
+acquisition from authority faults and backs off on retained obligations.
+The [journal cursor checkpoint](RECOVERY_CURSOR.md) persists its position and
+tests local process death and simulated restart fairness. Service deployment and
+native watchdog restart remain open; the native/overall-deadline limitations
+above still apply.

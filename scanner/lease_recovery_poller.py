@@ -77,7 +77,9 @@ class LeaseRecoveryPoller:
                     supervisor = self.factory(journal)
                     _require(isinstance(supervisor, DockerBrokerPairSupervisor) and supervisor.journal is journal
                              and supervisor.runtime_fingerprint() == self.fingerprint, 'recovery-poller-runtime-drift')
-                    report = recover_expired_leases(supervisor, after_token=self.cursor)
+                    after = journal.recovery_cursor(self.fingerprint)
+                    report = recover_expired_leases(supervisor, after_token=after)
+                    journal.save_recovery_cursor(self.fingerprint, report.next_after)
                     self.cursor = report.next_after
                 if report.retained:
                     return self._fault('retained', report)

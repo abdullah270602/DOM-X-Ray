@@ -136,3 +136,10 @@ termination with a live Chromium witness, delayed creates after an empty lookup,
 partial removal crashes, engine outages, ownership mismatches and concurrency.
 Independent cgroup-empty proof, public broker egress, production adoption and all
 remaining product/human/platform gates are still unproven.
+
+The later [polling checkpoint](RECOVERY_POLLER.md) adds a single-journal polling
+component, not a deployed watchdog. Its [cursor checkpoint](RECOVERY_CURSOR.md)
+extends the exact schema with an optional, transactionally created singleton
+scheduling table. Legacy journals remain readable; unexpected schema still
+rejects. Cursor persistence does not confer cleanup ownership or close the
+remaining native/deployment gates above.

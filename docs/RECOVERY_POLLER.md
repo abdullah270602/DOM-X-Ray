@@ -20,8 +20,9 @@ reported as `busy`; a factory failure is `fault`. A busy owner is not displaced,
 and its database is not treated as empty or healthy. Schema inspection waits for
 ownership. Existing file/ACL safety checks remain fail-closed.
 
-One local mutex serializes passes. The volatile lexical cursor carries fairness
-across passes in this process. The default interval is 0.5 seconds, configurable
+One local mutex serializes passes. The lexical cursor now persists in the same
+private journal; see the [restart checkpoint](RECOVERY_CURSOR.md).
+The default interval is 0.5 seconds, configurable
 from 0.25 to 5 seconds. Faults or retained obligations increase exponential delay,
 capped at 30 seconds and a failure counter of 10. Busy ownership uses the regular
 interval without clearing failure history; a validated non-retained pass resets
@@ -76,8 +77,8 @@ python -O scripts/verify_native_recovery_poller.py
 ## Remaining release gates
 
 The fixture poller survives only the producer Job's death; it is not a deployed,
-self-supervised watchdog. No durable runtime/journal registry, persisted cursor,
-watchdog restart proof, native multi-lease/crash/race matrix, or service health
+self-supervised watchdog. No durable runtime/journal registry,
+native watchdog restart proof, native multi-lease/crash/race matrix, or service health
 integration is established. A continuously busy hung owner is never reclaimed
 by this component. Independent controller deadline enforcement is still needed.
 Local filesystem, factory and SQLite operations are not forcibly preemptible.

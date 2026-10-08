@@ -128,6 +128,11 @@ an independent-process native fixture. It does not install a service, displace
 live owners, persist cursors or establish an overall controller-death deadline.
 Final native evidence and the remaining deployment gates are tracked there.
 
+`docs/RECOVERY_CURSOR.md` subsequently persists the poller's runtime-bound cursor
+in the existing private journal. Transaction rollback, owner process death and
+simulated restart fairness are verified. Native watchdog restart, service/registry
+deployment and overall controller-death deadline enforcement remain open.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

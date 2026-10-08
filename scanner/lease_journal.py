@@ -26,6 +26,8 @@ MAX_ROWS = 1000
 MAX_BYTES = 4_194_304
 APP_ID = 0x4458524C
 TABLE = 'CREATE TABLE leases (token TEXT PRIMARY KEY, payload TEXT NOT NULL)'
+CURSOR_TABLE = ('CREATE TABLE recovery_cursor (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), '
+                'runtimeFingerprint TEXT NOT NULL, afterToken TEXT)')
 
 
 class LeaseJournalBusy(OSError):
@@ -267,8 +269,43 @@ class LeaseJournal:
 
     @staticmethod
     def _schema(connection):
-        require(connection.execute('SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name').fetchall()
-                == [('index', 'sqlite_autoindex_leases_1', 'leases', None), ('table', 'leases', 'leases', TABLE)])
+        rows = connection.execute('SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name').fetchall()
+        legacy = [('index', 'sqlite_autoindex_leases_1', 'leases', None), ('table', 'leases', 'leases', TABLE)]
+        extended = legacy + [('table', 'recovery_cursor', 'recovery_cursor', CURSOR_TABLE)]
+        require(rows in (legacy, extended))
+        if rows == extended:
+            cursor = connection.execute('SELECT singleton,runtimeFingerprint,afterToken FROM recovery_cursor LIMIT 2').fetchall()
+            require(len(cursor) == 1 and type(cursor[0][0]) is int and cursor[0][0] == 1)
+            _hex(cursor[0][1], 64)
+            if cursor[0][2] is not None:
+                _hex(cursor[0][2], 32)
+
+    def recovery_cursor(self, fingerprint):
+        """Read scheduling state, never cleanup authority; legacy journals read None."""
+        _hex(fingerprint, 64)
+        with self._db() as connection:
+            present = connection.execute("SELECT 1 FROM sqlite_schema WHERE name='recovery_cursor'").fetchone()
+            if present is None:
+                return None
+            stored, after = connection.execute('SELECT runtimeFingerprint,afterToken FROM recovery_cursor').fetchone()
+            require(stored == fingerprint)
+            return after
+
+    def save_recovery_cursor(self, fingerprint, after):
+        """Atomically extend a validated legacy schema and bind one runtime cursor."""
+        _hex(fingerprint, 64)
+        if after is not None:
+            _hex(after, 32)
+        with self._db() as connection:
+            require(self.active == 0)
+            present = connection.execute("SELECT 1 FROM sqlite_schema WHERE name='recovery_cursor'").fetchone()
+            if present is None:
+                connection.execute(CURSOR_TABLE)
+                connection.execute('INSERT INTO recovery_cursor VALUES (1,?,?)', (fingerprint, after))
+            else:
+                stored, = connection.execute('SELECT runtimeFingerprint FROM recovery_cursor').fetchone()
+                require(stored == fingerprint)
+                connection.execute('UPDATE recovery_cursor SET afterToken=? WHERE singleton=1', (after,))
 
     @contextmanager
     def hold(self):
