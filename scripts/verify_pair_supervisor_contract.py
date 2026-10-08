@@ -26,10 +26,12 @@ class Pipe:
     def __init__(self, output, *, code=0, timeout=False):
         self.output, self.code, self.timeout = output, code, timeout
         self.closed = self.stopped = False
+        self.finished = False
 
     def finish(self, deadline):
         if self.timeout:
             raise TimeoutError('fixture timeout')
+        self.finished = True
         return self.code, self.output
 
     def wait_prefix(self, prefix, deadline):
@@ -64,12 +66,12 @@ def scoped_row(value, role):
     return result
 
 
-def engine(value, *, broker_output=None, worker_code=0, worker_timeout=False):
+def engine(value, *, broker_output=None, worker_code=0, worker_timeout=False, initializer_code=0):
     reports = b'ready\n' + json.dumps(REPORT).encode() + b'\n' if broker_output is None else broker_output
     worker = Pipe(json.dumps({'supervisorNonce': NONCE, 'result': {'record': {}}}).encode(),
                   code=worker_code, timeout=worker_timeout)
     broker = Pipe(reports)
-    initializer = Pipe(b'')
+    initializer = Pipe(b'', code=initializer_code)
     events, deadlines, removed = [], [], False
     started_pipes = []
     volume_row = {'Name': VOLUME, 'Labels': {LABEL: TOKEN}, 'Driver': 'local', 'Options': {}, 'Scope': 'local'}
@@ -91,7 +93,12 @@ def engine(value, *, broker_output=None, worker_code=0, worker_timeout=False):
             return VOLUME
         raise AssertionError('unexpected mock control call')
     value._call = call
-    value._create_role = lambda role, *_args: IDS[role]
+    def create(role, *_args):
+        if role != 'initialize':
+            require(initializer in started_pipes and not initializer.finished,
+                    'stopped-role creation did not overlap initializer startup')
+        return IDS[role]
+    value._create_role = create
     value._inspect = lambda identifier, _deadline: scoped_row(value, next(role for role in IDS if IDS[role] == identifier))
     def pipe(arguments, payload, limit):
         if arguments[-1] == IDS['initialize']:
@@ -102,6 +109,8 @@ def engine(value, *, broker_output=None, worker_code=0, worker_timeout=False):
         started_pipes.append(worker)
         return worker
     def held(*_args):
+        require(initializer.finished and initializer.code == 0,
+                'broker started without successful initializer completion')
         started_pipes.append(broker)
         return broker
     value._pipe, value._held_pipe = pipe, held
@@ -132,6 +141,13 @@ def main():
                 'setup did not share execution deadline')
         require(len(set(deadlines)) == 2 and max(deadlines) - min(deadlines) == 5.0, 'cleanup reserve not shared')
         print('valid pair: cleanup and shared reserve before artifact', flush=True)
+
+        value = instance()
+        worker, broker, _, _ = engine(value, initializer_code=2)
+        run(value, root / 'initializer-failed.json', reject=True)
+        require(not worker.stopped and not broker.stopped and value._cleanup.call_count == 3,
+                'failed initializer started consumers or skipped stopped-role cleanup')
+        print('overlapped initializer failure: consumers never started; all stopped roles cleaned', flush=True)
 
         for name, output in [('wrong-uid', b'ready\n' + json.dumps({**REPORT, 'uid': 10001}).encode() + b'\n'),
                              ('extra-line', b'ready\n{}\n{}\n'), ('missing-report', b'ready\n'),

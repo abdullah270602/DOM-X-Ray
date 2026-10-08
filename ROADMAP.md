@@ -102,6 +102,10 @@ pass with full runtime readback and 18 actual-journal simulated-daemon cases.
 Automatic watchdog deployment and native controller-death proof remain open;
 fresh Docker capture attempts on 2026-10-08 timed out and are not counted as passes.
 
+`docs/PAIR_LATENCY.md` narrows that timeout to the post-navigation probe interval
+and records guarded initializer startup overlap. Runtime/image containment and
+measurement limits are unchanged; successful fresh capture remains unproven.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

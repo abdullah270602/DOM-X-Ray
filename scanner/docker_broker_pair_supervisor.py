@@ -194,10 +194,13 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
                 self._preflight_role(self._inspect(identifier, execution_deadline), role, names[role], token, identifier, volume)
                 if role == 'initialize':
                     pipes[role] = self._pipe(['start', '--attach', '--interactive', identifier], b'', CONTROL_BYTES)
-                    code, data = pipes[role].finish(execution_deadline)
-                    state = self._inspect(identifier, execution_deadline)['State']
-                    _require(code == 0 and not data and state['ExitCode'] == 0 and not state['OOMKilled']
-                             and not state['Running'] and state['Pid'] == 0, 'docker-pair-initializer-exit')
+            # Creating stopped roles may overlap the initializer's attach/start
+            # round trip. Neither consumer starts until initialization has a
+            # positive zero-exit/PID-zero proof. All intents remain serialized.
+            code, data = pipes['initialize'].finish(execution_deadline)
+            state = self._inspect(identifiers['initialize'], execution_deadline)['State']
+            _require(code == 0 and not data and state['ExitCode'] == 0 and not state['OOMKilled']
+                     and not state['Running'] and state['Pid'] == 0, 'docker-pair-initializer-exit')
             pipes['broker'] = self._held_pipe(['start', '--attach', '--interactive', identifiers['broker']], job)
             pipes['broker'].wait_prefix(b'ready\n', execution_deadline)
             pipes['worker'] = self._pipe(['start', '--attach', '--interactive', identifiers['worker']], job, MAX_WORKER_RESULT_BYTES)

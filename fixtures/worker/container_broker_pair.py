@@ -26,6 +26,32 @@ DIRECTORY = Path('/run/dxr-broker')
 SOCKET = DIRECTORY / 'origin.sock'
 
 
+def install_profile():
+    """Reserved fixture diagnostics only; prefixed stdout is never an artifact."""
+    import scanner.egress_capture_worker as capture
+    import scanner.browser_probe as probe
+    import scanner.namespace_bridge as bridge
+    from playwright.sync_api import BrowserType, Page
+    started = time.monotonic()
+    def wrap(owner, name, label):
+        original = getattr(owner, name)
+        def measured(*args, **kwargs):
+            before = time.monotonic()
+            print(f'profile {label}-begin 0', flush=True)
+            try:
+                return original(*args, **kwargs)
+            finally:
+                print(f'profile {label}-end {int((time.monotonic() - before) * 1000)}', flush=True)
+        setattr(owner, name, measured)
+    wrap(capture.ScanCertificateIssuer, '__init__', 'issuer')
+    wrap(capture.LinuxBrowserTrust, '__init__', 'trust')
+    wrap(bridge.NamespaceBridge, '__init__', 'bridge')
+    wrap(BrowserType, 'launch', 'browser')
+    wrap(Page, 'goto', 'navigation')
+    wrap(probe, 'probe_page', 'probe')
+    print(f'profile installed {int((time.monotonic() - started) * 1000)}', flush=True)
+
+
 def require(value):
     if not value:
         raise ValueError('container-broker-fixture')
@@ -107,7 +133,9 @@ def main():
             print('denied', flush=True)
             return
         raise ValueError('container-broker-auth-not-denied')
-    require(mode in ('worker', 'worker-hang'))
+    require(mode in ('worker', 'worker-hang', 'worker-profile'))
+    if mode == 'worker-profile':
+        install_profile()
     with tempfile.TemporaryDirectory(prefix='dxr-container-pair-', dir='/tmp') as temporary:
         os.environ.clear()
         os.environ.update(PATH='/usr/bin:/bin', LANG='C.UTF-8', LC_ALL='C.UTF-8', HOME=temporary, TMPDIR=temporary)
