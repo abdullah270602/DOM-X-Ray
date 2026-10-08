@@ -33,6 +33,8 @@ def main():
     parser.add_argument('--runtime-regressions', action='store_true',
                         help='also run current-candidate NSS and sandboxed measurement regressions')
     parser.add_argument('--origin-broker', action='store_true', help='also run native Unix origin-broker protocol tests')
+    parser.add_argument('--case', choices=('listener-shutdown', 'filesystem-root'),
+                        help='run one focused containment regression instead of the standard matrix')
     options = parser.parse_args()
     profile = json.loads(options.seccomp.read_text(encoding='utf-8'))
     fingerprint = hashlib.sha256(json.dumps(profile, sort_keys=True,
@@ -60,6 +62,8 @@ def main():
         cases = (*cases, 'nss-trust', 'measurement-regressions')
     if options.origin_broker:
         cases = (*cases, 'origin-broker')
+    if options.case:
+        cases = (options.case,)
     for case in cases:
         token = secrets.token_hex(16)
         name = 'dom-x-ray-capture-fixture-' + token
@@ -81,6 +85,10 @@ def main():
                            '--expected-chromium-version', '153.0.8010.12', '--sandbox']
             if case == 'origin-broker':
                 command = ['python3', 'scripts/verify_origin_broker.py']
+            if case == 'listener-shutdown':
+                command = ['python3', 'scripts/verify_listener_shutdown.py']
+            if case == 'filesystem-root':
+                command = ['python3', 'scripts/verify_browser_filesystem.py', '--noexec-temp']
             identifier = docker('create', '--pull=never', '--name', name,
                 '--label', f'{LABEL}={token}', '--init', '--network=none', '--read-only',
                 '--user=10001:10001', '--cap-drop=ALL', '--security-opt=no-new-privileges=true',
@@ -137,6 +145,10 @@ def main():
                             'current-browser measurement regression verifier did not finish')
                 elif case == 'origin-broker':
                     require('Verified native origin-broker RPC' in logs, 'origin-broker protocol verifier did not finish')
+                elif case == 'listener-shutdown':
+                    require('Verified native idle/active listener termination' in logs, 'listener verifier did not finish')
+                elif case == 'filesystem-root':
+                    require('Verified native private mount/IPC root' in logs, 'filesystem verifier did not finish')
             print(f'{case}: {logs}', flush=True)
             report['cases'].append({'case': case, 'exit_code': exit_code, 'container_stopped': True})
         finally:

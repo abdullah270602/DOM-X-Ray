@@ -1,5 +1,6 @@
 """Native mount-root, host file/socket denial, and hard-kill cleanup evidence."""
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,10 @@ def require(value, message):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--noexec-temp', action='store_true',
+                        help='interpret the fixed trusted fixture wrapper without executing a /tmp file')
+    options = parser.parse_args()
     require(sys.platform == "linux", "native Linux filesystem proof required")
     for hang in (False, True):
         with tempfile.TemporaryDirectory(prefix="dxr-fs-", dir="/tmp") as temporary:
@@ -75,9 +80,10 @@ def main():
                             port=proxy.server_address[1], preserve_pipes=False, filesystem_runtime_directories=[runtime])
                     finally:
                         namespace.__file__ = original_entrypoint
+                    wrapper_command = ['/bin/sh', str(wrapper)] if options.noexec_temp else [str(wrapper)]
                     diagnostic = home / "data/setup-diagnostic.txt"
                     run = run_worker_command([sys.executable, "-I", str(ROOT / "fixtures/worker/detached_namespace_parent.py"),
-                        "--leak-directory", str(directory), str(wrapper), "-I", str(fixture), str(config), str(result)], result_path=result,
+                        "--leak-directory", str(directory), *wrapper_command, "-I", str(fixture), str(config), str(result)], result_path=result,
                         environment={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "DXR_FILESYSTEM_DIAGNOSTIC": str(diagnostic)},
                         deadline_seconds=4 if hang else 10)
                     detail = diagnostic.read_text() if diagnostic.exists() else "no trusted setup diagnostic"
@@ -120,7 +126,7 @@ def main():
                              ("symlink", ["--user-data-dir=" + str(profile_link)], "browser-filesystem-private-directory")]
                     for label, arguments, expected_error in cases:
                         diagnostic.unlink(missing_ok=True)
-                        rejected = run_worker_command([str(wrapper), *arguments], result_path=home / f"data/rejected-{label}.json",
+                        rejected = run_worker_command([*wrapper_command, *arguments], result_path=home / f"data/rejected-{label}.json",
                             environment={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "DXR_FILESYSTEM_DIAGNOSTIC": str(diagnostic)},
                             deadline_seconds=5)
                         require(rejected.outcome == "crashed" and not rejected.artifact_eligible
@@ -139,7 +145,7 @@ def main():
                             else:
                                 extra.write_bytes(b"x" * 1_048_577)
                             diagnostic.unlink(missing_ok=True)
-                            rejected = run_worker_command([str(wrapper), "-I", str(fixture), str(config)],
+                            rejected = run_worker_command([*wrapper_command, "-I", str(fixture), str(config)],
                                 result_path=home / f"data/rejected-nss-{label}.json",
                                 environment={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "DXR_FILESYSTEM_DIAGNOSTIC": str(diagnostic)},
                                 deadline_seconds=5)

@@ -166,7 +166,7 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
             raise ValueError('docker-pair-job-size')
         attempted, identifiers, pipes, states = set(), {}, {}, {}
         volume_attempted = volume_known = timed_out = overflow = False
-        failure, output, report, worker_code = None, b'', None, None
+        failure, output, report, worker_code, broker_code = None, b'', None, None, None
         journal = getattr(self, 'journal', None)
         def note(method, *arguments):
             if journal is not None:
@@ -209,9 +209,10 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
             _require(not worker_state['Running'] and worker_state['Pid'] == 0, 'docker-pair-worker-not-stopped')
             pipes['broker'].close_input(execution_deadline)
             broker_code, broker_output = pipes['broker'].finish(execution_deadline)
-            broker_state = self._inspect(identifiers['broker'], execution_deadline)['State']
-            _require(broker_code == 0 and broker_state['ExitCode'] == 0 and not broker_state['OOMKilled']
-                     and not broker_state['Running'] and broker_state['Pid'] == 0, 'docker-pair-broker-exit')
+            _require(broker_code == 0, 'docker-pair-broker-exit')
+            # The exact-owned stopped cleanup inspection below supplies the
+            # broker engine exit/OOM proof before artifact admission. Avoid a
+            # duplicate control round trip at the execution cutoff.
             report = self._broker_report(broker_output)
         except TimeoutError:
             timed_out = True
@@ -253,12 +254,15 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
         except Exception:
             raise WorkerContainmentError('docker-pair-journal-completion-unproven') from None
         state = states.get('worker')
+        broker_state = states.get('broker')
         code = None if state is None else state['ExitCode']
         if timed_out:
             outcome = 'timeout'
         elif overflow:
             outcome = 'invalid-result'
-        elif code != 0 or worker_code != 0 or state is None or state['OOMKilled']:
+        elif (code != 0 or worker_code != 0 or state is None or state['OOMKilled']
+              or broker_code != 0 or broker_state is None or broker_state['ExitCode'] != 0
+              or broker_state['OOMKilled']):
             outcome = 'crashed'
         else:
             outcome = 'invalid-result'

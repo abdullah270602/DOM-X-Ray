@@ -1,8 +1,9 @@
 # Startup-inclusive Docker broker-pair lease
 
 The [2026-10-08 latency investigation](PAIR_LATENCY.md) adds guarded initializer
-startup overlap and content-free diagnostic timings. Fresh capture still times
-out; historical successful fixtures below are not a current pass.
+startup overlap, responsive listener teardown and content-free diagnostic timings.
+A fresh four-case pair matrix now passes on the code-overlay candidate; the
+original runtime tag is unchanged and public scanning remains disabled.
 
 `DockerBrokerPairSupervisor` now plugs into the existing public-scan transport
 as a trusted worker-supervisor provider. This is a network-none reserved-origin

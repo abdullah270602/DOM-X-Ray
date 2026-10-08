@@ -282,7 +282,8 @@ class _Handler(BaseRequestHandler):
 @contextmanager
 def run_browser_egress_proxy(**configuration):
     proxy = BrowserEgressProxy(**configuration)
-    thread = Thread(target=proxy.serve_forever, name="dom-xray-browser-proxy", daemon=True)
+    thread = Thread(target=proxy.serve_forever, kwargs={'poll_interval': 0.05},
+                    name="dom-xray-browser-proxy", daemon=True)
     thread.start()
     try:
         yield proxy

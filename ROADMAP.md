@@ -100,11 +100,13 @@ scanning remains disabled rather than treating journal persistence as recovery.
 The `docs/LEASE_RECOVERY.md` checkpoint implements the operator-only replacement
 pass with full runtime readback and 18 actual-journal simulated-daemon cases.
 Automatic watchdog deployment and native controller-death proof remain open;
-fresh Docker capture attempts on 2026-10-08 timed out and are not counted as passes.
+initial Docker capture attempts on 2026-10-08 timed out and are not counted as passes.
 
-`docs/PAIR_LATENCY.md` narrows that timeout to the post-navigation probe interval
-and records guarded initializer startup overlap. Runtime/image containment and
-measurement limits are unchanged; successful fresh capture remains unproven.
+`docs/PAIR_LATENCY.md` records the subsequent responsive listener teardown fix
+and reuse of the existing broker cleanup engine proof. A fresh four-case native
+pair matrix, idle/active listener tests and filesystem canaries pass on a separate
+code-overlay image. Containment and measurement limits are unchanged; production
+runtime adoption, controller-death recovery and independent emptiness remain open.
 
 ## Gate 1 — Visual proof with deterministic fixtures
 

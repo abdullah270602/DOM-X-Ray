@@ -149,6 +149,18 @@ def main():
                 'failed initializer started consumers or skipped stopped-role cleanup')
         print('overlapped initializer failure: consumers never started; all stopped roles cleaned', flush=True)
 
+        for label, broker_state in (
+                ('nonzero', {'ExitCode': 2, 'OOMKilled': False}),
+                ('oom', {'ExitCode': 0, 'OOMKilled': True})):
+            value = instance()
+            engine(value)
+            value._cleanup.side_effect = [{'ExitCode': 0, 'OOMKilled': False}, broker_state,
+                                         {'ExitCode': 0, 'OOMKilled': False}]
+            result = run(value, root / ('broker-engine-' + label + '.json'))
+            require(result.outcome == 'crashed' and not result.artifact_eligible,
+                    'broker cleanup engine failure admitted an artifact')
+            print('broker engine ' + label + ': cleanup proof rejects zero attach', flush=True)
+
         for name, output in [('wrong-uid', b'ready\n' + json.dumps({**REPORT, 'uid': 10001}).encode() + b'\n'),
                              ('extra-line', b'ready\n{}\n{}\n'), ('missing-report', b'ready\n'),
                              ('duplicate-key', b'ready\n' + json.dumps(REPORT).encode()[:-1] + b',"uid":10002}\n'),

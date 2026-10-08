@@ -32,6 +32,9 @@ PROFILE_STAGES = ('issuer', 'trust', 'bridge', 'browser', 'navigation', 'probe',
 def print_profile(pipes):
     allowed = {'installed'} | {stage + '-' + phase for stage in PROFILE_STAGES
                                for phase in ('begin', 'end', 'error')}
+    allowed |= {'listener-alive'} | {'listener-frame-' + name for name in
+        ('serve-forever', 'process-request', '-handle-request-noblock', 'select', 'start',
+         'wait', 'accept', 'get-request', '--enter--', 'other')}
     markers = set()
     for pipe in pipes:
         for line in bytes(pipe.data).splitlines():

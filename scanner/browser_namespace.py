@@ -118,7 +118,7 @@ def main():
             preserve_pipes=config["preservePipes"], child_arguments=sys.argv[2:]))
     drop_capabilities()
     relay = NamespaceRelay(config["bridgePath"], config["port"])
-    thread = Thread(target=relay.serve_forever, daemon=True)
+    thread = Thread(target=relay.serve_forever, kwargs={'poll_interval': 0.05}, daemon=True)
     thread.start()
     pipes = (3, 4) if config["preservePipes"] else ()
     for descriptor in pipes:

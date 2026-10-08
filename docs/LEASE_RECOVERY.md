@@ -52,6 +52,8 @@ Docker context stable during a pass.
 Deploy an independent automatic watchdog; prove recovery after killing the real
 controller with a live Chromium witness; test delayed creates, daemon outages,
 partial-removal crashes and cursor paging natively. Independently prove cgroup
-emptiness and resolve native capture timeouts. Production egress, parser, API
+emptiness. The later [latency checkpoint](PAIR_LATENCY.md) resolves fresh fixture
+capture timeouts on a separate code-overlay candidate, not the stock runtime tag.
+Production egress, parser, API
 adoption, security/policy and product gates remain open. Public arbitrary-URL
 scanning stays disabled.

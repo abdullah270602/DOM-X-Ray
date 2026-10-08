@@ -1,8 +1,66 @@
 # Gate 3 — Native pair latency investigation
 
+## Verified responsiveness fix — 2026-10-08
+
+The fresh fixture timeout is resolved on the code-overlay candidate. Listener
+loops for the browser namespace relay, outer Unix bridge and browser proxy now
+use a 50 ms shutdown poll, matching the existing origin broker. Python documents
+that [serve_forever polls for shutdown at this interval](https://docs.python.org/3.12/library/socketserver.html#socketserver.BaseServer.serve_forever).
+The live listener stack showed `select` inside `serve_forever`, not a proven
+deadlock. Default half-second polling consumed part of the tight execution margin.
+Shutdown order, handler/socket termination checks, buffers, capture settling,
+resource limits and the 15-second lease are unchanged.
+
+The broker's duplicate post-attach engine inspection is replaced by its existing
+exact-owned stopped cleanup inspection. Before admission, its returned state must
+have zero engine exit and no OOM alongside zero attach exit and a validated broker
+report. Cleanup itself requires stopped/PID-zero status, removal and exact-name
+absence. Worker stop is still inspected before closing broker input. New mocked
+nonzero/OOM broker engine states reject a zero attach exit. No proof is omitted.
+
+Final tested overlay image:
+`sha256:d495bf5f6e49090faf092e80d04d3b3dc180ba189a3fbe18f93e8809468b4f15`.
+Docker Desktop engine 28.3.2; seccomp fixture JSON SHA remains
+`242cbd13aa6babf1f163ffa712ee00b0ce95e48c8bb3675d82eb213230b4ff48`.
+
+`python scripts/verify_pair_transport.py --journal --image dom-x-ray-runtime-candidate:gate3-profile`
+passes all four cases on this image:
+
+| Fixture | Outcome | Startup through cleanup |
+| --- | --- | ---: |
+| Normal HTTPS capture | admitted | 9,899 ms |
+| Live-renderer hang | worker-timeout | 13,118 ms |
+| Wrong capability | worker-invalid-result | 7,497 ms |
+| Wrong worker UID | worker-invalid-result | 7,395 ms |
+
+The harness verifies the real renderer marker in the hang case, empty journal
+after cleanup, no host result leftovers, and unchanged labeled-container/volume
+inventory. An earlier full candidate matrix also passed (9,459/13,120/7,012/7,141
+ms), while an individual traced capture took 13,336 ms. These are fixture
+observations, not representative-public-corpus latency claims.
+
+Focused native `--case listener-shutdown` tests on the final image prove idle and
+active proxy/bridge termination in 41–51 ms, empty tracked handlers/sockets, closed
+listeners, and removal of the private Unix socket directory. `--case filesystem-root`
+also passes hidden host-file/proc-root/symlink and Unix-socket canaries, readonly
+runtime, private NSS copy, zero capabilities, nested remount denial and normal/
+timeout cleanup. Its first attempt failed before diagnostics because the old
+fixture directly executed its `/tmp` wrapper under `noexec`. An explicit
+fixture-only `--noexec-temp` option interprets that fixed trusted wrapper with
+`/bin/sh`; the mount remains noexec and stock capture still uses readonly launcher
+code. This is not a change to visitor execution policy.
+
+Normal/optimized pair and actual-journal fault regressions, recovery tests and
+profile framing/privacy tests pass. A Docker overlay export initially reported a
+missing parent snapshot; a no-cache rebuild of only the small overlay succeeded.
+No Docker data was pruned. The original dependency image remains unchanged.
+
+Native controller-death recovery, watchdog deployment and independent cgroup-empty
+proof remain open. Arbitrary public scanning remains disabled.
+
 ## Evidence, 2026-10-08
 
-Fresh reserved HTTPS capture still times out on Windows Docker Desktop. The
+Initial fresh reserved HTTPS capture timed out on Windows Docker Desktop. The
 absolute lease remains 15 seconds including setup and cleanup, with five seconds
 reserved for teardown. No security, TLS, resource or measurement limits changed.
 
@@ -74,7 +132,9 @@ python scripts/verify_pair_transport.py --journal --case profile --trace --image
 An initial full-candidate build lacked cache and began refreshing OS layers. Its
 exact task-owned build CLI was stopped before it replaced the original tag. The
 small overlay uses existing dependencies. No unrelated resources were stopped
-or pruned. No successful native capture or controller-death recovery is claimed.
+or pruned. This earlier investigation did not prove successful native capture;
+the later responsiveness fix above supplies fresh fixture evidence, not
+controller-death recovery.
 
 Public arbitrary-URL scanning, watchdog deployment, real controller-death recovery
 and independent cgroup-empty proof remain gated.

@@ -37,7 +37,20 @@ def install_profile():
         original = getattr(owner, name)
         def measured(*args, **kwargs):
             before = time.monotonic()
-            print(f'profile {label}-begin 0', flush=True)
+            print(f'profile {label}-begin {int((before - started) * 1000)}', flush=True)
+            if label == 'bridge-listener-stop':
+                listener = args[0]._thread
+                print(f'profile listener-alive {int(listener.is_alive())}', flush=True)
+                frame = sys._current_frames().get(listener.ident)
+                known = {'serve_forever', 'process_request', '_handle_request_noblock',
+                         'select', 'start', 'wait', 'accept', 'get_request', '__enter__'}
+                for _ in range(10):
+                    if frame is None:
+                        break
+                    function = frame.f_code.co_name
+                    tag = function.replace('_', '-') if function in known else 'other'
+                    print(f'profile listener-frame-{tag} 1', flush=True)
+                    frame = frame.f_back
             try:
                 return original(*args, **kwargs)
             except Exception:

@@ -177,7 +177,7 @@ class NamespaceBridge(_BoundedHandlers, ThreadingUnixStreamServer):
                 raise ValueError("namespace-bridge-path-limit")
             super().__init__(str(self.path), _BridgeHandler)
             self.path.chmod(0o600)
-            self._thread = Thread(target=self.serve_forever, daemon=True)
+            self._thread = Thread(target=self.serve_forever, kwargs={'poll_interval': 0.05}, daemon=True)
             self._thread.start()
         except Exception:
             self._temporary.cleanup()
