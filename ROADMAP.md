@@ -138,6 +138,11 @@ per-entry retry timing and round-robin due visits. Actual-journal/OS-lock tests
 prove busy and damaged entries yield to other due roots. Durable registration,
 service supervision, native multi-root behavior and hard deadlines remain open.
 
+`docs/RECOVERY_CONFIGURATION.md` adds separately hash-pinned private registry
+loading and an operator foreground launcher. Real private-file/ACL and child
+process tests prove reload bindings and content-free rejection, not installed
+service supervision or native Docker cleanup. Public scanning remains disabled.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

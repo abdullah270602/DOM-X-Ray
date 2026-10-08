@@ -63,3 +63,7 @@ controller-death deadline enforcement remain open. Docker's diagnosed startup
 failure still prevents the final native verification. No host Docker files were
 changed. Public arbitrary-URL scanning and all other production/product gates
 remain disabled or open as previously documented.
+
+The subsequent [private loader and foreground launcher](RECOVERY_CONFIGURATION.md)
+reconstructs explicit registrations from separately hash-pinned private metadata.
+It does not install an independently supervised service or close native gates.
