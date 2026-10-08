@@ -67,6 +67,16 @@ and its engine remained unavailable after attempting to start the installed app.
 Final-version native verification is therefore open at this checkpoint; the
 local normal/optimized contracts do not substitute for it.
 
+Startup diagnosis on 2026-10-08: the last backend log reports failure while
+initializing the inference manager's `dockerInference` Unix socket: removal
+fails with "The file cannot be accessed by the system." The corresponding
+zero-length entry in Docker's local `run` directory is a reparse point, not an
+ordinary file. The Linux-engine named pipe is absent and no Desktop/backend
+process was found; disk free space is ample. This identifies a startup failure,
+not proof that the socket is safe to delete. No Docker data/settings, sockets,
+images or volumes were removed. Host-runtime repair requires user direction;
+factory reset, broad cleanup and weakening scanner isolation are not alternatives.
+
 ```powershell
 python scripts/verify_recovery_poller.py
 python -O scripts/verify_recovery_poller.py
