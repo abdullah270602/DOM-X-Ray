@@ -73,6 +73,20 @@ afterEach(() => {
 });
 
 describe("published result ownership", () => {
+  it.each(["https://example.com/?", "https://example.com/#"])("rejects empty target delimiters before submission: %s", async (target) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    const input = screen.getByRole("textbox");
+    await user.clear(input);
+    await user.type(input, target);
+    await user.click(screen.getByRole("button", { name: "START X-RAY" }));
+    expect(screen.getByText("Remove query parameters and fragments before scanning.")).toBeTruthy();
+    expect(input).toBe(document.activeElement);
+    expect(input).toHaveProperty("value", target);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it("keeps deletion authority local, survives reload storage, and recovers after deletion", async () => {
     const fixture = fixtures["image-heavy"];
     const resultId = fixture.result.resultId;

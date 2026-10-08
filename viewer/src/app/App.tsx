@@ -37,6 +37,7 @@ import { EvidenceDrawer } from "./EvidenceDrawer";
 import { InstrumentRail } from "./InstrumentRail";
 import { TextScene } from "./TextScene";
 import { ShareDialog } from "../share/ShareDialog";
+import { parsePublicUrl } from "../../../shared/public_url.mjs";
 
 const InstrumentScene = lazy(async () => {
   const module = await import("../scene/InstrumentScene");
@@ -295,18 +296,15 @@ export function App() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("Unsupported protocol");
-      if (parsed.username || parsed.password) throw new Error("Credentials are not accepted");
-      if (parsed.search || parsed.hash) {
-        setFieldError("Remove query parameters and fragments before scanning.");
-        inputRef.current?.focus();
-        return;
-      }
-    } catch {
-      setFieldError("Enter a complete public HTTP or HTTPS URL.");
+    const parsed = parsePublicUrl(url);
+    if (!parsed.ok) {
+      setFieldError(parsed.code === "initial-target-data"
+        ? "Remove query parameters and fragments before scanning."
+        : parsed.code === "credentials"
+          ? "Remove the username and password from the URL."
+          : parsed.code === "disallowed-port"
+            ? "Use a public HTTP or HTTPS URL on port 80 or 443."
+            : "Enter a complete public HTTP or HTTPS URL.");
       inputRef.current?.focus();
       return;
     }

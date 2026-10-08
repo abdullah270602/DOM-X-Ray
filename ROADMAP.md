@@ -160,6 +160,12 @@ and keeps unknown page boundaries unknown through scene/share result admission.
 Real Chromium verifies tenant separation and a truthful derived display identity;
 production parser/snapshot/image/egress/API adoption remains open.
 
+The [shared URL policy checkpoint](docs/SHARED_URL_POLICY.md) now uses one
+structural policy source in the form and an operator-pinned Node helper. Actual
+Node/Chromium comparison, malformed replies, timeout cleanup and preserved-input
+desktop/mobile error states pass. This is not full standards conformance,
+production parser containment, DNS/egress authorization or broker/API adoption.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

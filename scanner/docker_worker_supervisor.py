@@ -59,10 +59,10 @@ def _valid_output(output, nonce):
 class _PipeProcess:
     """One bounded pipe reader and finite stdin writer; never communicate()."""
 
-    def __init__(self, command, payload, limit, *, keep_stdin=False):
+    def __init__(self, command, payload, limit, *, keep_stdin=False, environment=None):
         options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE if payload is not None else subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=False, **options)
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, shell=False, env=environment, **options)
         self.data = bytearray()
         self.overflow = False
         self.failed = False
