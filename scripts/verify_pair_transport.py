@@ -24,6 +24,24 @@ from scripts.verify_docker_transport import PROFILE_SHA, require
 
 ENTRY = '/opt/dom-xray/fixtures/worker/container_broker_pair.py'
 
+PROFILE_STAGES = ('issuer', 'trust', 'bridge', 'browser', 'navigation', 'probe',
+                  'issuer-cleanup', 'trust-cleanup', 'bridge-cleanup', 'browser-cleanup',
+                  'bridge-listener-stop', 'bridge-handlers-stop')
+
+
+def print_profile(pipes):
+    allowed = {'installed'} | {stage + '-' + phase for stage in PROFILE_STAGES
+                               for phase in ('begin', 'end', 'error')}
+    markers = set()
+    for pipe in pipes:
+        for line in bytes(pipe.data).splitlines():
+            if re.fullmatch(rb'profile [a-z-]+ [0-9]{1,8}', line):
+                label = line.split()[1].decode('ascii')
+                if label in allowed:
+                    markers.add(label)
+                    print(line.decode('ascii'), flush=True)
+    return markers
+
 
 def trace_supervisor(supervisor):
     """Fixture-only timings: never print payloads, IDs, URLs or daemon errors."""
@@ -101,12 +119,8 @@ def main():
                 launch_worker=supervisor.launch, worker_supervisor=supervisor.run,
                 schema_validator=schema, semantic_validator=semantic, temporary_root=results, deadline_seconds=15)
             if case == 'profile':
-                markers = set()
-                for pipe in observed:
-                    for line in bytes(pipe.data).splitlines():
-                        if re.fullmatch(rb'profile [a-z-]+ [0-9]{1,8}', line):
-                            markers.add(line.split()[1])
-                            print(line.decode('ascii'), flush=True)
+                print(f'profile transport outcome: {result.outcome}', flush=True)
+                markers = print_profile(observed)
                 require({'installed', 'browser-end', 'navigation-end'} <= markers,
                         'profile did not reach actual sandboxed Chromium navigation')
                 require(result.outcome in ('worker-timeout', 'worker-invalid-result'),

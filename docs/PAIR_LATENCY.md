@@ -44,6 +44,23 @@ settling/measurement. This does not prove quiet-state tracking is the sole cause
 Next gather bounded quiet-state/network-event evidence, preserving actual service
 worker observation and capture semantics. Do not shorten settling to obtain a pass.
 
+Later observations refine that provisional diagnosis: probe returned in about
+1,818–2,001 ms and browser close in 289–369 ms. Bridge cleanup began but its
+listener `shutdown()` had not returned before the worker execution cutoff; the
+handler-stop phase had not begun. The current target is bridge listener teardown,
+not a demonstrated permanent page-settling stall. Why shutdown waits is still
+unproven. One late diagnostic run also returned `supervisor-failed`; no labeled
+containers or volumes remained in the subsequent direct engine inventory, but
+that does not establish successful journal completion or independent emptiness.
+
+The new verifier initially compared byte labels with text labels and falsely
+rejected launch/navigation markers. It now normalizes ASCII and has a portable
+regression test, including rejection of unknown labels, extra fields, oversized
+numbers and arbitrary envelope content. A subsequent diagnostic run passed as
+`worker-timeout` at 13,712 ms; this is truthful timeout/no-admission evidence,
+not successful capture. Timing wrappers now emit a separate static error marker
+so an exception exit cannot be mistaken for successful stage completion.
+
 ## Reproduction
 
 Check the base tag matches the ID above before building:

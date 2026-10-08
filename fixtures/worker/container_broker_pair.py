@@ -31,7 +31,7 @@ def install_profile():
     import scanner.egress_capture_worker as capture
     import scanner.browser_probe as probe
     import scanner.namespace_bridge as bridge
-    from playwright.sync_api import BrowserType, Page
+    from playwright.sync_api import BrowserType, Browser, Page
     started = time.monotonic()
     def wrap(owner, name, label):
         original = getattr(owner, name)
@@ -40,13 +40,22 @@ def install_profile():
             print(f'profile {label}-begin 0', flush=True)
             try:
                 return original(*args, **kwargs)
+            except Exception:
+                print(f'profile {label}-error 1', flush=True)
+                raise
             finally:
                 print(f'profile {label}-end {int((time.monotonic() - before) * 1000)}', flush=True)
         setattr(owner, name, measured)
     wrap(capture.ScanCertificateIssuer, '__init__', 'issuer')
+    wrap(capture.ScanCertificateIssuer, '__exit__', 'issuer-cleanup')
     wrap(capture.LinuxBrowserTrust, '__init__', 'trust')
+    wrap(capture.LinuxBrowserTrust, '__exit__', 'trust-cleanup')
     wrap(bridge.NamespaceBridge, '__init__', 'bridge')
+    wrap(bridge.NamespaceBridge, '__exit__', 'bridge-cleanup')
+    wrap(bridge.NamespaceBridge, 'shutdown', 'bridge-listener-stop')
+    wrap(bridge._BoundedHandlers, 'close_handlers', 'bridge-handlers-stop')
     wrap(BrowserType, 'launch', 'browser')
+    wrap(Browser, 'close', 'browser-cleanup')
     wrap(Page, 'goto', 'navigation')
     wrap(probe, 'probe_page', 'probe')
     print(f'profile installed {int((time.monotonic() - started) * 1000)}', flush=True)
