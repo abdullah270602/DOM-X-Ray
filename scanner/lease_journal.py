@@ -8,6 +8,7 @@ deployment requirement, not established by this module's settings alone.
 from contextlib import contextmanager
 import csv
 import ctypes
+import errno
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,10 @@ MAX_ROWS = 1000
 MAX_BYTES = 4_194_304
 APP_ID = 0x4458524C
 TABLE = 'CREATE TABLE leases (token TEXT PRIMARY KEY, payload TEXT NOT NULL)'
+
+
+class LeaseJournalBusy(OSError):
+    """Only a validated journal's nonblocking ownership-lock contention."""
 
 
 def require(value):
@@ -81,7 +86,8 @@ def _dump(record):
 class LeaseJournal:
     """One private local directory, one non-inherited process-lifetime lock."""
 
-    def __init__(self, root):
+    def __init__(self, root, *, create=True):
+        require(type(create) is bool)
         self.root = Path(root)
         require(self.root.is_absolute() and self.root.parent.resolve(strict=True) == self.root.parent)
         self.closed, self.lock_fd, self.owner_pid, self.mutex = True, None, os.getpid(), RLock()
@@ -95,6 +101,7 @@ class LeaseJournal:
             require(len(rows) == 1 and len(rows[0]) == 2 and re.fullmatch('S-1-[0-9-]{1,180}', rows[0][1]))
             self.sid = rows[0][1]
         fresh = not self.root.exists()
+        require(create or not fresh)
         if fresh:
             self.root.mkdir(mode=0o700)
             if os.name == 'nt':
@@ -106,24 +113,39 @@ class LeaseJournal:
         self.root_identity = metadata.st_dev, metadata.st_ino
         try:
             lock = self.root / 'owner.lock'
+            require(create or (lock.exists() and (self.root / 'leases.sqlite3').exists()))
+            if not create:
+                self._safe(self.root / 'leases.sqlite3')
             if lock.exists():
                 self._safe(lock)
-            self.lock_fd = os.open(lock, os.O_CREAT | os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+            self.lock_fd = os.open(lock, (os.O_CREAT if create else 0) | os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0), 0o600)
             os.set_inheritable(self.lock_fd, False)
             require(os.fstat(self.lock_fd).st_nlink == 1)
             if os.name == 'nt':
                 import msvcrt
+                require(create or os.fstat(self.lock_fd).st_size > 0)
                 if os.fstat(self.lock_fd).st_size == 0:
                     os.write(self.lock_fd, b'0')
                     os.fsync(self.lock_fd)
                 os.lseek(self.lock_fd, 0, os.SEEK_SET)
-                msvcrt.locking(self.lock_fd, msvcrt.LK_NBLCK, 1)
+                try:
+                    msvcrt.locking(self.lock_fd, msvcrt.LK_NBLCK, 1)
+                except OSError as error:
+                    if error.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise LeaseJournalBusy('lease-journal-busy') from None
+                    raise
             else:
                 import fcntl
-                fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                try:
+                    fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError as error:
+                    if error.errno in (errno.EACCES, errno.EAGAIN):
+                        raise LeaseJournalBusy('lease-journal-busy') from None
+                    raise
             self.closed = False
             self.path = self.root / 'leases.sqlite3'
             new_db = not self.path.exists()
+            require(create or not new_db)
             if new_db:
                 fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600)
                 os.close(fd)

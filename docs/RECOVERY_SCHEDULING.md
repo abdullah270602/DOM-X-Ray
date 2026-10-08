@@ -76,3 +76,8 @@ backoff and health reporting, native multi-lease/crash/race tests, and a demonst
 overall controller-death bound. Independent Linux cgroup emptiness and all public
 scanner deployment, policy and product gates remain open. Public arbitrary-URL
 scanning stays disabled.
+
+The subsequent [polling component](RECOVERY_POLLER.md) carries this cursor in
+memory, distinguishes busy acquisition from authority faults and backs off on
+retained obligations. Durable cursor/restart behavior and service deployment
+remain open; it does not supersede the limitations above.

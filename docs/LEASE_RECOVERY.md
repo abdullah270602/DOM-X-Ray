@@ -64,3 +64,7 @@ capture timeouts on a separate code-overlay candidate, not the stock runtime tag
 Production egress, parser, API
 adoption, security/policy and product gates remain open. Public arbitrary-URL
 scanning stays disabled.
+
+The later [polling component](RECOVERY_POLLER.md) automates replacement passes
+for one registered existing journal. Its separate-process fixture is distinct
+from watchdog deployment and overall controller-death deadline enforcement.

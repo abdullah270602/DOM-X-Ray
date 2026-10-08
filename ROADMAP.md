@@ -122,6 +122,12 @@ simulated daemons. It establishes a scheduler contract, not a deployed watchdog
 or native multi-lease/outage proof. Watchdog ownership, restart/cursor behavior
 and native overall controller-death bounds remain required.
 
+`docs/RECOVERY_POLLER.md` adds existing-authority-only, single-journal polling,
+typed busy ownership, pinned runtime/file identities, bounded retry health and
+an independent-process native fixture. It does not install a service, displace
+live owners, persist cursors or establish an overall controller-death deadline.
+Final native evidence and the remaining deployment gates are tracked there.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

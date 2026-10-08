@@ -143,7 +143,7 @@ def main():
             rejects(lambda: replacement.finish(TOKEN))
             require(len(replacement.snapshot()) == 1, 'unresolved intent silently forgotten')
         print('forced owner termination: lock released, replacement retains committed ID and unresolved intent')
-    print('Verified local journal persistence; automatic Docker recovery, power-loss and watchdog deployment remain unproven.')
+    print('Verified local journal persistence; Docker recovery has separate verifiers, power-loss and watchdog deployment remain unproven.')
 
 
 if __name__ == '__main__':

@@ -58,8 +58,10 @@ def witness_pipe_factory(original, cleaning, notify, phase_lock):
     return pipe
 
 
-def child(image, journal_root, results):
+def child(image, journal_root, results, *, announce_owner=False):
     with LeaseJournal(journal_root) as journal:
+        if announce_owner:
+            print('controller-owned', flush=True)
         supervisor = controller(image, journal)
         original_call = supervisor._call
         def diagnostic_call(arguments, deadline):
@@ -165,10 +167,11 @@ def main():
     parser.add_argument('--child', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--journal-root', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--results', type=Path, help=argparse.SUPPRESS)
+    parser.add_argument('--announce-owner', action='store_true', help=argparse.SUPPRESS)
     options = parser.parse_args()
     if options.child:
         require(options.journal_root is not None and options.results is not None, 'child configuration missing')
-        return child(options.image, options.journal_root, options.results)
+        return child(options.image, options.journal_root, options.results, announce_owner=options.announce_owner)
     require(sys.platform == 'win32', 'this controller-tree fixture requires Windows Job Objects')
     executable = shutil.which('docker')
     require(executable is not None, 'Docker CLI missing')

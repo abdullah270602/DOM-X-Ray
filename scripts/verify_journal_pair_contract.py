@@ -65,7 +65,7 @@ def main():
                     if case == 'finish':
                         require(all(r['state'] == 'removed' for r in resources.values()), 'finish failure lost cleanup proof')
                 print(case + ': journal/engine ordering verified, no failed artifact')
-    print('Verified actual-journal fault injection against mocked Docker. Automatic recovery remains pending.')
+    print('Verified actual-journal fault injection against mocked Docker. Automatic watchdog deployment remains pending.')
 
 
 if __name__ == '__main__':
