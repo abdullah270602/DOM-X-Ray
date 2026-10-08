@@ -29,8 +29,10 @@ and a caller-carried token cursor. Checks surround control calls and journal
 transitions. Local SQLite commits/lock waits are not forcibly preemptible: an
 already committed finish is reported resolved even if its transaction crosses
 the deadline. This is not a hard-real-time watchdog guarantee. The cursor is a
-fairness hint, not a durable completeness marker; multi-lease paging remains an
-evidence gap. Clock changes affect eligibility only. The operator must keep its
+fairness hint, not a durable completeness marker. The later
+[scheduling checkpoint](RECOVERY_SCHEDULING.md) verifies multi-lease paging with
+actual journals and simulated daemons; native scheduling evidence remains open.
+Clock changes affect eligibility only. The operator must keep its
 Docker context stable during a pass.
 
 ## Evidence — 2026-10-08

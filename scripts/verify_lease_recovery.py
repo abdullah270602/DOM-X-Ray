@@ -17,10 +17,16 @@ from scripts.verify_pair_supervisor_contract import instance, scoped_row, IDS, T
 
 
 class Daemon:
-    def __init__(self, controller):
+    def __init__(self, controller, *, token=TOKEN, identifiers=None):
         self.controller = controller
-        self.rows = {role: scoped_row(controller, role) for role in IDS}
-        self.present = set(IDS)
+        self.token, self.identifiers = token, IDS if identifiers is None else identifiers
+        self.rows = {role: scoped_row(controller, role) for role in self.identifiers}
+        for role, row in self.rows.items():
+            row['Id'] = self.identifiers[role]
+            row['Name'] = '/' + _name(token, role)
+            row['Config']['Labels']['org.dom-x-ray.worker-lease'] = token
+            row['Mounts'][0]['Name'] = _name(token, 'volume')
+        self.present = set(self.identifiers)
         self.volume = True
         self.engine_id = 'fixture-engine'
         self.calls, self.removed, self.fail_role = [], [], None
@@ -28,19 +34,19 @@ class Daemon:
         controller._inspect = lambda identifier, _deadline: copy.deepcopy(self.rows[self.role(identifier)])
 
     def role(self, identifier):
-        return next(role for role, expected in IDS.items() if identifier == expected)
+        return next(role for role, expected in self.identifiers.items() if identifier == expected)
 
     def call(self, args, deadline):
         self.calls.append(args)
         if args[0] == 'info':
             return json.dumps({'OSType': 'linux', 'CgroupVersion': '2', 'ID': self.engine_id})
         if args[:2] == ['container', 'ls']:
-            role = next(role for role in IDS if args[-1] == f'name=^/{_name(TOKEN, role)}$')
-            return IDS[role] if role in self.present else ''
+            role = next(role for role in self.identifiers if args[-1] == f'name=^/{_name(self.token, role)}$')
+            return self.identifiers[role] if role in self.present else ''
         if args[:2] == ['volume', 'ls']:
-            return _name(TOKEN, 'volume') if self.volume else ''
+            return _name(self.token, 'volume') if self.volume else ''
         if args[:2] == ['volume', 'inspect']:
-            return json.dumps([{'Name': _name(TOKEN, 'volume'), 'Labels': {'org.dom-x-ray.worker-lease': TOKEN},
+            return json.dumps([{'Name': _name(self.token, 'volume'), 'Labels': {'org.dom-x-ray.worker-lease': self.token},
                                 'Driver': 'local', 'Options': {}, 'Scope': 'local'}])
         if args[:2] == ['volume', 'rm']:
             require(not self.present, 'volume removed while container retained')
@@ -60,15 +66,16 @@ class Daemon:
         raise AssertionError('unexpected recovery control call')
 
 
-def seed(journal, controller, *, worker_intent=False):
-    journal.create(TOKEN, controller.runtime_fingerprint(), int(time.time() * 1000) + 15000)
-    journal.engine(TOKEN, 'fixture-engine')
-    journal.intent(TOKEN, 'volume')
-    journal.created(TOKEN, 'volume')
+def seed(journal, controller, *, worker_intent=False, token=TOKEN, identifiers=None, lifetime_ms=15000):
+    identifiers = IDS if identifiers is None else identifiers
+    journal.create(token, controller.runtime_fingerprint(), int(time.time() * 1000) + lifetime_ms)
+    journal.engine(token, 'fixture-engine')
+    journal.intent(token, 'volume')
+    journal.created(token, 'volume')
     for role in ('initialize', 'broker', 'worker'):
-        journal.intent(TOKEN, role)
+        journal.intent(token, role)
         if not (role == 'worker' and worker_intent):
-            journal.created(TOKEN, role, IDS[role])
+            journal.created(token, role, identifiers[role])
 
 
 def main():

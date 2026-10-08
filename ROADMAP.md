@@ -116,6 +116,12 @@ Automatic watchdog deployment, broader native crash/race coverage and independen
 Linux cgroup emptiness remain open. This does not prove the original 15-second
 bound under controller death or enable arbitrary public scanning.
 
+`docs/RECOVERY_SCHEDULING.md` verifies multi-lease cursor fairness, mixed eligibility,
+outage/budget retention and strict daemon-number parsing with actual journals and
+simulated daemons. It establishes a scheduler contract, not a deployed watchdog
+or native multi-lease/outage proof. Watchdog ownership, restart/cursor behavior
+and native overall controller-death bounds remain required.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

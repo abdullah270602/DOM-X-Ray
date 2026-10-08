@@ -6,11 +6,12 @@ Unknown/absent intents are retained for later observation, not aged out.
 
 from dataclasses import dataclass
 import json
+import math
 import re
 import time
 
 from scanner.docker_broker_pair_supervisor import DockerBrokerPairSupervisor
-from scanner.docker_worker_supervisor import _require
+from scanner.docker_worker_supervisor import _require, _pairs, _invalid_constant
 from scanner.lease_journal import LeaseJournal
 from scanner.worker_supervisor import _validated_deadline
 
@@ -30,6 +31,12 @@ def _name(token, role):
 
 def _remaining(deadline):
     _require(time.monotonic() < deadline, 'lease-recovery-deadline')
+
+
+def _finite_float(raw):
+    value = float(raw)
+    _require(math.isfinite(value), 'lease-recovery-nonfinite-engine-number')
+    return value
 
 
 def _note(supervisor, deadline, method, *args):
@@ -125,8 +132,11 @@ def recover_expired_leases(supervisor, *, budget_seconds=15, grace_seconds=5, ma
                     resolved += 1
                     continue
                 if engine_id is None:
-                    info = json.loads(supervisor._call(['info', '--format', '{{json .}}'], deadline))
+                    info = json.loads(supervisor._call(['info', '--format', '{{json .}}'], deadline),
+                                      object_pairs_hook=_pairs, parse_constant=_invalid_constant,
+                                      parse_float=_finite_float)
                     _remaining(deadline)
+                    _require(isinstance(info, dict), 'lease-recovery-engine-shape')
                     _require(info['OSType'] == 'linux' and info['CgroupVersion'] == '2', 'lease-recovery-engine')
                     engine_id = info.get('ID')
                     _require(isinstance(engine_id, str) and bool(engine_id), 'lease-recovery-engine-identity')
