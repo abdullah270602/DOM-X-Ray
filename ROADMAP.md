@@ -133,6 +133,11 @@ in the existing private journal. Transaction rollback, owner process death and
 simulated restart fairness are verified. Native watchdog restart, service/registry
 deployment and overall controller-death deadline enforcement remain open.
 
+`docs/RECOVERY_REGISTRY.md` adds an explicit one-to-eight journal registry with
+per-entry retry timing and round-robin due visits. Actual-journal/OS-lock tests
+prove busy and damaged entries yield to other due roots. Durable registration,
+service supervision, native multi-root behavior and hard deadlines remain open.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

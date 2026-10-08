@@ -97,3 +97,7 @@ The orphan intentionally outlives its original 15-second lease during expiry,
 grace and cleanup. This is not an overall controller-death bound. Windows Job
 emptiness is not Linux cgroup emptiness. Production runtime/egress/parser/API,
 policy and product gates remain open; arbitrary public-URL scanning stays disabled.
+
+The subsequent [bounded registry](RECOVERY_REGISTRY.md) schedules up to eight
+explicitly registered pollers. It is not filesystem discovery, durable operator
+configuration, service installation or hard-real-time isolation between entries.
