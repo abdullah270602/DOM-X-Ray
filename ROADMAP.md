@@ -143,6 +143,11 @@ loading and an operator foreground launcher. Real private-file/ACL and child
 process tests prove reload bindings and content-free rejection, not installed
 service supervision or native Docker cleanup. Public scanning remains disabled.
 
+`docs/WATCHDOG_PROCESS_RESTART.md` proves actual foreground-launcher Job death,
+same pinned config reload and saved-position wrap with real private journals and
+unrequested leases. It creates no Docker resources and is not installed service
+supervision, native Docker orphan cleanup or an overall controller-death bound.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

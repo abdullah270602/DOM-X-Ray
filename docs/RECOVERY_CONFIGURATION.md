@@ -95,3 +95,8 @@ management, native multi-root/crash/outage evidence, controller-death deadline
 enforcement, Linux cgroup emptiness and production/public product gates remain
 open. Docker startup repair still awaits user approval; no Docker host files,
 images or volumes were changed by this checkpoint.
+
+The subsequent [process-restart fixture](WATCHDOG_PROCESS_RESTART.md) proves
+forced launcher death, same-configuration reload and durable paging with real
+Windows processes and unrequested leases. Native Docker restart and installed
+independent supervision remain distinct, unfinished requirements.

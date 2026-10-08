@@ -34,29 +34,34 @@ def write_fixture(path, raw):
     return hashlib.sha256(raw).hexdigest()
 
 
+def make_fixture_configuration(parent, *, root_count=2):
+    config_root = parent / 'private-config'
+    with LeaseJournal(config_root):
+        pass  # provision the fixture directory's exact private ACL/mode
+    profile = parent / 'profile.json'
+    profile_value = {'defaultAction': 'SCMP_ACT_ERRNO', 'syscalls': []}
+    profile.write_text(json.dumps(profile_value), encoding='utf-8')
+    profile_digest = hashlib.sha256(json.dumps(profile_value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    runtime = {'docker_executable': str(Path(sys.executable).resolve()), 'context': 'fixture-context',
+        'image_id': 'sha256:' + 'a' * 64, 'seccomp_path': str(profile), 'seccomp_sha256': profile_digest,
+        'command': ['/usr/bin/python3', '-I', '/fixture.py', 'worker'],
+        'initializer_command': ['/usr/bin/python3', '-I', '/fixture.py', 'initialize'],
+        'broker_command': ['/usr/bin/python3', '-I', '/fixture.py', 'broker']}
+    entries = []
+    for index in range(root_count):
+        root = parent / f'journal-{index}'
+        with LeaseJournal(root):
+            pass
+        poller = LeaseRecoveryPoller(root, lambda journal: DockerBrokerPairSupervisor(**runtime, lease_journal=journal))
+        entries.append({'root': str(root), 'identities': [list(item) for item in poller.identities],
+            'runtimeFingerprint': poller.fingerprint, 'runtime': copy.deepcopy(runtime)})
+    return config_root, runtime, entries
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix='dxr-recovery-config-') as temporary:
         parent = Path(temporary).resolve()
-        config_root = parent / 'private-config'
-        with LeaseJournal(config_root):
-            pass  # provision the fixture directory's exact private ACL/mode
-        profile = parent / 'profile.json'
-        profile_value = {'defaultAction': 'SCMP_ACT_ERRNO', 'syscalls': []}
-        profile.write_text(json.dumps(profile_value), encoding='utf-8')
-        profile_digest = hashlib.sha256(json.dumps(profile_value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        runtime = {'docker_executable': str(Path(sys.executable).resolve()), 'context': 'fixture-context',
-            'image_id': 'sha256:' + 'a' * 64, 'seccomp_path': str(profile), 'seccomp_sha256': profile_digest,
-            'command': ['/usr/bin/python3', '-I', '/fixture.py', 'worker'],
-            'initializer_command': ['/usr/bin/python3', '-I', '/fixture.py', 'initialize'],
-            'broker_command': ['/usr/bin/python3', '-I', '/fixture.py', 'broker']}
-        entries = []
-        for index in range(2):
-            root = parent / f'journal-{index}'
-            with LeaseJournal(root):
-                pass
-            poller = LeaseRecoveryPoller(root, lambda journal: DockerBrokerPairSupervisor(**runtime, lease_journal=journal))
-            entries.append({'root': str(root), 'identities': [list(item) for item in poller.identities],
-                'runtimeFingerprint': poller.fingerprint, 'runtime': copy.deepcopy(runtime)})
+        config_root, runtime, entries = make_fixture_configuration(parent)
         manifest = {'version': 1, 'entries': entries}
         path = config_root / 'registry.json'
         def load(value):
