@@ -97,6 +97,11 @@ journal fault injection are verified; a replacement Docker reaper, automatic
 watchdog and real controller-crash cleanup evidence are still required. Public
 scanning remains disabled rather than treating journal persistence as recovery.
 
+The `docs/LEASE_RECOVERY.md` checkpoint implements the operator-only replacement
+pass with full runtime readback and 18 actual-journal simulated-daemon cases.
+Automatic watchdog deployment and native controller-death proof remain open;
+fresh Docker capture attempts on 2026-10-08 timed out and are not counted as passes.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

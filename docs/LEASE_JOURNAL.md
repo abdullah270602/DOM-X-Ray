@@ -119,6 +119,10 @@ no public scanning was enabled, and no automatic-recovery proof is claimed.
 
 ## Next evidence required
 
+See [LEASE_RECOVERY.md](LEASE_RECOVERY.md) for the 2026-10-08 operator-only reaper
+implementation and its explicitly limited evidence. The requirements below
+remain release gates, not claims of completion.
+
 Implement the replacement-controller reaper and watchdog scheduling. It must
 acquire local ownership first, bind the actual daemon/runtime, respect eligibility,
 derive only exact recorded names, validate labels/image/IDs, attempt remaining

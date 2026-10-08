@@ -259,6 +259,19 @@ class LeaseJournal:
             with self.mutex:
                 self.active -= 1
 
+    @contextmanager
+    def recovery_hold(self):
+        # Hold the mutex for the whole pass: no local launcher may start while
+        # recovery acts on its journal. The OS lock also excludes other owners.
+        with self.mutex:
+            self._guard()
+            require(self.active == 0)
+            self.active += 1
+            try:
+                yield
+            finally:
+                self.active -= 1
+
     def create(self, token, fingerprint, expires_at_ms):
         record = {'version': 1, 'token': token, 'runtimeFingerprint': fingerprint, 'engineId': None,
             'expiresAtMs': expires_at_ms, 'resources': {role: {'state': 'unrequested', 'id': None} for role in ROLES}}

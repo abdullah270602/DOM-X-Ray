@@ -216,7 +216,7 @@ class DockerWorkerSupervisor:
                  and re.fullmatch(r'[0-9a-f]{64}', row['Id'])
                  and (identifier is None or row['Id'] == identifier), 'docker-container-ownership')
 
-    def _preflight(self, row, name, token, identifier):
+    def _preflight(self, row, name, token, identifier, *, require_unstarted=True):
         self._ownership(row, name, token, identifier)
         host, config = row['HostConfig'], row['Config']
         _require(row['Image'] == self.image_id and config['User'] == '10001:10001'
@@ -240,7 +240,8 @@ class DockerWorkerSupervisor:
                     for item in options if item.startswith('seccomp=')]
         _require(len(options) == 2 and any(item in ('no-new-privileges', 'no-new-privileges=true') for item in options)
                  and profiles == [self.profile], 'docker-security-readback')
-        _require(not row['State']['Running'] and row['State']['Pid'] == 0, 'docker-started-before-preflight')
+        if require_unstarted:
+            _require(not row['State']['Running'] and row['State']['Pid'] == 0, 'docker-started-before-preflight')
 
     def _cleanup(self, name, token, identifier, deadline):
         found = self._call(['container', 'ls', '-aq', '--no-trunc', '--filter', f'name=^/{name}$'], deadline)

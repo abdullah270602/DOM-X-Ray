@@ -39,7 +39,7 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
             sort_keys=True, separators=(',', ':')).encode()
         return hashlib.sha256(raw).hexdigest()
 
-    def _preflight_role(self, row, role, name, token, identifier, volume):
+    def _preflight_role(self, row, role, name, token, identifier, volume, *, require_unstarted=True):
         config, host = row['Config'], row['HostConfig']
         expected_uid = {'initialize': '0:0', 'broker': '10002:10001', 'worker': '10001:10001'}[role]
         _require(config['User'] == expected_uid and not host.get('GroupAdd'), 'docker-pair-identity')
@@ -54,7 +54,7 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
         normalized['Config']['User'] = '10001:10001'
         normalized['HostConfig']['CapAdd'] = []
         normalized['Mounts'] = []
-        self.roles[role]._preflight(normalized, name, token, identifier)
+        self.roles[role]._preflight(normalized, name, token, identifier, require_unstarted=require_unstarted)
 
     def _volume_row(self, name, token, deadline):
         rows = json.loads(self._call(['volume', 'inspect', name], deadline), object_pairs_hook=_pairs,
