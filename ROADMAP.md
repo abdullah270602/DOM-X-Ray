@@ -148,6 +148,12 @@ same pinned config reload and saved-position wrap with real private journals and
 unrequested leases. It creates no Docker resources and is not installed service
 supervision, native Docker orphan cleanup or an overall controller-death bound.
 
+The subsequent Gate 0 [offline PSL checkpoint](docs/PUBLIC_SUFFIX.md) implements
+pinned ICANN/PRIVATE domain boundaries and verifies a full immutable official
+snapshot. It does not replace the fixture grouping helper, complete shared
+WHATWG URL semantics or adopt public scanning; deployment/capture integration
+and cross-language compatibility remain open.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?
