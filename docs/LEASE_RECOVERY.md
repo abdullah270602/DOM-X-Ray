@@ -49,8 +49,13 @@ Docker context stable during a pass.
 
 ## Open release gates
 
-Deploy an independent automatic watchdog; prove recovery after killing the real
-controller with a live Chromium witness; test delayed creates, daemon outages,
+The later [native controller-crash checkpoint](CONTROLLER_CRASH_RECOVERY.md)
+proves one actual renderer/controller-tree termination and replacement-owner
+cleanup scenario. It is not automatic scheduling, a complete crash/race matrix
+or independent Linux cgroup-empty evidence.
+
+Deploy an independent automatic watchdog; extend the native crash proof to
+delayed creates, daemon outages,
 partial-removal crashes and cursor paging natively. Independently prove cgroup
 emptiness. The later [latency checkpoint](PAIR_LATENCY.md) resolves fresh fixture
 capture timeouts on a separate code-overlay candidate, not the stock runtime tag.

@@ -108,6 +108,14 @@ pair matrix, idle/active listener tests and filesystem canaries pass on a separa
 code-overlay image. Containment and measurement limits are unchanged; production
 runtime adoption, controller-death recovery and independent emptiness remain open.
 
+`docs/CONTROLLER_CRASH_RECOVERY.md` now proves one actual Chromium/controller-tree
+kill and replacement-owner recovery on Windows/Docker Desktop. The host Job is
+empty while the owned Linux worker is positively observed running; the replacement
+then removes the exact resources and resolves the durable lease without a result.
+Automatic watchdog deployment, broader native crash/race coverage and independent
+Linux cgroup emptiness remain open. This does not prove the original 15-second
+bound under controller death or enable arbitrary public scanning.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

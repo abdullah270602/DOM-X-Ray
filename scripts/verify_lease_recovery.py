@@ -162,7 +162,7 @@ def main():
                     require(report.resolved == 1 and not journal.snapshot() and not daemon.volume,
                             'later owned create did not resolve retained intent')
                 print(case + ': verified recovery/retention decisions')
-    print('Verified 18 actual-journal simulated-daemon recovery cases; native controller-death proof remains open.')
+    print('Verified 18 actual-journal simulated-daemon recovery cases; native evidence is in the separate controller-crash verifier.')
 
 
 if __name__ == '__main__':

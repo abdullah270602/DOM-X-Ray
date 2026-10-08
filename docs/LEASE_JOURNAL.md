@@ -123,6 +123,10 @@ See [LEASE_RECOVERY.md](LEASE_RECOVERY.md) for the 2026-10-08 operator-only reap
 implementation and its explicitly limited evidence. The requirements below
 remain release gates, not claims of completion.
 
+[CONTROLLER_CRASH_RECOVERY.md](CONTROLLER_CRASH_RECOVERY.md) adds one native
+live-renderer/controller-tree death and replacement recovery proof. Automatic
+scheduling, the broader crash matrix and independent Linux emptiness remain open.
+
 Implement the replacement-controller reaper and watchdog scheduling. It must
 acquire local ownership first, bind the actual daemon/runtime, respect eligibility,
 derive only exact recorded names, validate labels/image/IDs, attempt remaining
