@@ -154,6 +154,12 @@ snapshot. It does not replace the fixture grouping helper, complete shared
 WHATWG URL semantics or adopt public scanning; deployment/capture integration
 and cross-language compatibility remain open.
 
+The [capture adoption checkpoint](docs/CAPTURE_DOMAIN_GROUPING.md) wires a trusted
+PSL classifier into reserved-host capture, records exact rule/snapshot provenance,
+and keeps unknown page boundaries unknown through scene/share result admission.
+Real Chromium verifies tenant separation and a truthful derived display identity;
+production parser/snapshot/image/egress/API adoption remains open.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

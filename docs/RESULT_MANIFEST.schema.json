@@ -222,8 +222,16 @@
           "maxLength": 253,
           "pattern": "^(?![\\s\\S]*[\\u0000-\\u001F\\u007F<>])[^\\s/?#]+$"
         },
-        "recordRef": { "const": "#/page/registrableDomain" }
-      }
+        "recordRef": { "enum": ["#/page/registrableDomain", "#/finalUrl"] },
+        "derivation": { "const": "url-hostname-v1" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "recordRef": { "const": "#/finalUrl" } } },
+          "then": { "required": ["derivation"] },
+          "else": { "not": { "required": ["derivation"] } }
+        }
+      ]
     },
     "statusPresentation": {
       "type": "object",

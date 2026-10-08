@@ -127,6 +127,15 @@ def validate_semantics(
     )
 
     capture = record["capture"]
+    domain_grouping = capture.get('domainGrouping')
+    if domain_grouping is not None:
+        require(isinstance(domain_grouping, dict) and set(domain_grouping) == {'rule', 'pslSha256', 'idnaVersion'}
+                and domain_grouping['rule'] == 'registrable-domain-psl-private-v1'
+                and domain_grouping['idnaVersion'] == '3.15'
+                and isinstance(domain_grouping['pslSha256'], str)
+                and re.fullmatch('[0-9a-f]{64}', domain_grouping['pslSha256']), f'{label} invalid domain grouping provenance')
+    require(record['page']['registrableDomain'] is not None or domain_grouping is not None,
+            f'{label} unknown page domain lacks grouping provenance')
     popup_attempt_count = capture["popupAttemptCount"]
     download_attempt_count = capture["downloadAttemptCount"]
     auxiliary_event_limit = capture["auxiliaryEventLimit"]
@@ -262,8 +271,12 @@ def validate_semantics(
             allow_trusted_loopback=allow_trusted_loopback,
         )
         require(bool(resource["partyRule"]), f"{label} resource has no party rule: {resource['id']}")
+        if domain_grouping is not None:
+            require(resource['partyRule'] == domain_grouping['rule'], f'{label} resource domain rule drift')
         registrable_domain = resource["registrableDomain"]
-        if registrable_domain is None:
+        if record["page"]["registrableDomain"] is None:
+            require(resource["party"] == "unknown", f"{label} unknown page domain has classified resource")
+        elif registrable_domain is None:
             require(resource["party"] == "unknown", f"{label} null registrable domain has known party")
         elif registrable_domain == record["page"]["registrableDomain"]:
             require(resource["party"] == "first", f"{label} same-site resource is not first party")

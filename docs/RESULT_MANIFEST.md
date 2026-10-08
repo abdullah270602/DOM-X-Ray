@@ -68,7 +68,9 @@ for a deletion token, original query/fragment, target resource URL, selector,
 page title, target HTML, script, font, SVG, or live asset reference. Copied public
 strings reject control characters and angle brackets; every renderer must still
 render each string as inert text rather than HTML. The page identity is the
-bounded registrable-domain label plus its scan-record pointer. The implemented
+bounded registrable-domain label plus its scan-record pointer. An explicitly
+unknown domain instead uses the final URL hostname with `#/finalUrl` and the
+`url-hostname-v1` derivation, never an invented registrable domain. The implemented
 no-login deletion capability is separately generated and never enters this
 manifest or public route.
 

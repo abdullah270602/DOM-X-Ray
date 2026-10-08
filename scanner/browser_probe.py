@@ -467,7 +467,22 @@ def probe_page(
     max_inspected_elements: int = MAX_INSPECTED_ELEMENTS,
     max_geometry_candidates: int = MAX_GEOMETRY_CANDIDATES,
     max_auxiliary_events: int = MAX_AUXILIARY_EVENTS,
+    domain_classifier: Any = None,
 ) -> ProbeResult:
+    domain_for_host = registrable_domain_for_fixture
+    party_rule = 'registrable-domain-v1-fixture'
+    if domain_classifier is not None:
+        from scanner.public_suffix import PinnedPublicSuffixList
+        if type(domain_classifier) is not PinnedPublicSuffixList:
+            raise ValueError('capture-domain-classifier')
+        party_rule = 'registrable-domain-psl-private-v1'
+        def domain_for_host(hostname):
+            if not hostname:
+                return None
+            try:
+                return domain_classifier.classify(hostname).registrable_domain
+            except ValueError:
+                return None
     for name, value, ceiling in (
         ("max_requests", max_requests, MAX_REQUESTS),
         ("max_response_bytes", max_response_bytes, MAX_RESPONSE_BYTES),
@@ -1099,7 +1114,7 @@ def probe_page(
             },
         )
 
-        final_page_domain = registrable_domain_for_fixture(urlsplit(page_state["finalUrl"]).hostname)
+        final_page_domain = domain_for_host(urlsplit(page_state["finalUrl"]).hostname)
         exact_targets: dict[str, list[str]] = {}
         for item in page_state["nodes"]:
             for resource_url in item["exactResourceUrls"]:
@@ -1157,7 +1172,7 @@ def probe_page(
                 "scheme",
             }:
                 continue
-            resource_domain = registrable_domain_for_fixture(parsed.hostname)
+            resource_domain = domain_for_host(parsed.hostname)
             transfer_source = classify_transfer_source(
                 from_service_worker=item["fromServiceWorker"],
                 from_cache=item["fromDiskCache"],
@@ -1190,8 +1205,9 @@ def probe_page(
                     "type": _resource_type(item["type"]),
                     "initiatorType": item["initiatorType"],
                     "requestOwner": item["requestOwner"],
-                    "party": "first" if resource_domain == final_page_domain else "third",
-                    "partyRule": "registrable-domain-v1-fixture",
+                    "party": ("unknown" if resource_domain is None or final_page_domain is None else
+                              "first" if resource_domain == final_page_domain else "third"),
+                    "partyRule": party_rule,
                     "transferSource": transfer_source,
                     "transferredBytes": item["transferredBytes"],
                     "decodedBodyBytes": item["decodedBodyBytes"],
@@ -1709,7 +1725,8 @@ def probe_page(
             },
             "page": {
                 "title": page_state["title"],
-                "registrableDomain": final_page_domain or "unknown.test",
+                "registrableDomain": (final_page_domain if domain_classifier is not None else
+                                      final_page_domain or "unknown.test"),
                 "document": page_state["document"],
                 "rawDomNodeCount": page_state["rawDomNodeCount"],
                 "maxDomDepth": page_state["rawMaxDomDepth"],
@@ -1722,6 +1739,10 @@ def probe_page(
             "insights": [],
             "limitations": limitations,
         }
+        if domain_classifier is not None:
+            record['capture']['domainGrouping'] = {
+                'rule': party_rule, 'pslSha256': domain_classifier.sha256, 'idnaVersion': '3.15',
+            }
         record["insights"] = select_hero_insight(record)
         return ProbeResult(
             record=record,

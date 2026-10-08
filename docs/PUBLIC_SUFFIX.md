@@ -59,3 +59,7 @@ python -m venv .dom-xray-data/domain-venv
 Snapshot deployment packaging/license/update policy, cross-language shared
 WHATWG URL/UTS #46 compatibility, capture provenance/party-rule adoption and
 representative-browser comparison remain open. No public URL scanner was enabled.
+
+The later [controlled-capture checkpoint](CAPTURE_DOMAIN_GROUPING.md) adds opt-in
+PSL grouping, exact snapshot provenance and unknown-domain propagation through
+scan, scene and result contracts. Public parser/runtime/API adoption remains open.

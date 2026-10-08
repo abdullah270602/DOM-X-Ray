@@ -215,6 +215,16 @@
         "cachePolicy": { "enum": ["cold", "warm", "mixed", "unknown"] },
         "timezone": { "type": "string", "minLength": 1 },
         "region": { "type": ["string", "null"] },
+        "domainGrouping": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rule", "pslSha256", "idnaVersion"],
+          "properties": {
+            "rule": { "const": "registrable-domain-psl-private-v1" },
+            "pslSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "idnaVersion": { "const": "3.15" }
+          }
+        },
         "inspectedNodeCount": {
           "description": "Document elements actually evaluated against the candidate rule.",
           "type": "integer",
@@ -325,7 +335,7 @@
       ],
       "properties": {
         "title": { "type": "string" },
-        "registrableDomain": { "type": "string", "minLength": 1 },
+        "registrableDomain": { "type": ["string", "null"], "minLength": 1 },
         "document": {
           "type": "object",
           "additionalProperties": false,

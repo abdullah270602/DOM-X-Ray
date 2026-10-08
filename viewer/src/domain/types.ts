@@ -145,7 +145,7 @@ export interface ResultManifest {
     heroSha256: string;
     resultBindingSha256: string;
   };
-  pageIdentity: { label: string; recordRef: string };
+  pageIdentity: { label: string; recordRef: string; derivation?: "url-hostname-v1" };
   status: string;
   failureCode: string | null;
   statusPresentation: { label: string; partialLabelRequired: boolean };
@@ -227,7 +227,7 @@ export interface ScanRecord {
     renderedRegionCount: number;
   };
   page: Record<string, unknown> & {
-    registrableDomain: string;
+    registrableDomain: string | null;
     title: string;
   };
   nodes: Array<Record<string, unknown>>;

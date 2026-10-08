@@ -8,6 +8,7 @@ import json
 import re
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
 from scanner.scene_manifest import (
     DEFAULT_MAPPING_REGISTRY,
@@ -290,7 +291,12 @@ def build_result_manifest(
         required_layers.append("partial-status")
         required_layers.append("limitation-disclosure")
 
-    page_label = _safe_public_text(record["page"]["registrableDomain"], "page identity")
+    page_identity = {'recordRef': '#/page/registrableDomain'}
+    page_domain = record['page']['registrableDomain']
+    if page_domain is None:
+        page_domain = urlsplit(record['finalUrl']).hostname
+        page_identity = {'recordRef': '#/finalUrl', 'derivation': 'url-hostname-v1'}
+    page_label = _safe_public_text(page_domain, "page identity")
     _require(
         len(page_label) <= 253 and not re.search(r"[\s/?#]", page_label),
         "invalid public page identity",
@@ -307,7 +313,7 @@ def build_result_manifest(
         "sourceHashes": source_hashes,
         "pageIdentity": {
             "label": page_label,
-            "recordRef": "#/page/registrableDomain",
+            **page_identity,
         },
         "status": record["status"],
         "failureCode": record["failureCode"],
