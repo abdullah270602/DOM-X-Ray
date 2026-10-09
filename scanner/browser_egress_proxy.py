@@ -233,11 +233,12 @@ class _Handler(BaseRequestHandler):
                 raise OriginExchangeError("egress-ledger-limit")
             if method not in {"GET", "HEAD", "OPTIONS"}:
                 raise OriginExchangeError("method")
+            purpose = self.server.exchange.request_purpose(url, self.server.initial_url)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise OriginExchangeError("timeout")
             result = self.server.exchange.fetch(url, method=method,
-                purpose=self.server.exchange.request_purpose(url, self.server.initial_url),
+                purpose=purpose,
                 headers=headers, timeout_seconds=remaining)
             response = f"HTTP/1.1 {result.status} Origin Response\r\n".encode("ascii")
             response += b"".join(f"{name}: {value}\r\n".encode("iso-8859-1") for name, value in result.headers)

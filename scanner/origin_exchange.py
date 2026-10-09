@@ -198,6 +198,7 @@ class OriginExchange:
 
     def validate_initial_target(self, url):
         """Proxy setup must bind to the launch target without re-resolving it."""
+        url = self._policy.canonical_url(url, purpose="initial")
         if self._initial_grant is None:
             return self._policy.validate(url, purpose="initial")
         if not public_scan_target_matches(url, self._initial_grant):
@@ -205,6 +206,8 @@ class OriginExchange:
         return self._initial_grant.destination
 
     def request_purpose(self, url, initial_url):
+        url = self._policy.canonical_url(url, purpose="subresource")
+        initial_url = self._policy.canonical_url(initial_url, purpose="initial")
         if self._initial_grant is not None:
             return "initial" if public_scan_target_matches(url, self._initial_grant) else "subresource"
         return "initial" if url == initial_url else "subresource"
@@ -215,6 +218,7 @@ class OriginExchange:
         Pending initial authority uses supplied answers for syntax/policy checks.
         No origin request borrows this result; fetch owns one-shot pinning.
         """
+        url = self._policy.canonical_url(url, purpose="subresource")
         with self._lock:
             initial = self._initial_grant if not self._initial_consumed else None
         if initial is not None:
@@ -273,6 +277,8 @@ class OriginExchange:
             available = self._limits.max_total_received_bytes - self._received
             if available <= 0:
                 raise OriginExchangeError("total-byte-limit")
+            url = self._policy.canonical_url(url, purpose=purpose)
+            remaining()  # Parser work cannot authorize connector contact after expiry.
             if self._initial_grant is not None and purpose == "initial":
                 if not public_scan_target_matches(url, self._initial_grant):
                     raise OriginExchangeError("destination-policy")

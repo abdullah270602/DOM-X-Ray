@@ -10,7 +10,7 @@ import time
 from urllib.parse import urlsplit
 
 from scanner.docker_worker_supervisor import _PipeProcess, _pairs, _invalid_constant
-from scanner.destination_policy import DestinationPolicyError
+from scanner.destination_policy import DestinationPolicy, DestinationPolicyError
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -98,3 +98,19 @@ class WhatwgUrlParser:
                     process.stop(deadline)
                 except Exception:
                     raise DestinationPolicyError('url-parser-unavailable') from None
+
+
+class WhatwgDestinationPolicy(DestinationPolicy):
+    """Opt-in trusted parser before independent legacy address authorization."""
+
+    def __init__(self, resolver, *, parser, **options):
+        if type(parser) is not WhatwgUrlParser:
+            raise ValueError('whatwg-parser-configuration')
+        super().__init__(resolver, **options)
+        self.parser = parser
+
+    def canonical_url(self, url, *, purpose):
+        return self.parser.parse(url, purpose=purpose)['href']
+
+    def validate(self, url, *, purpose):
+        return super().validate(self.canonical_url(url, purpose=purpose), purpose=purpose)

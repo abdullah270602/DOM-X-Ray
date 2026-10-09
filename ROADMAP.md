@@ -166,6 +166,12 @@ Node/Chromium comparison, malformed replies, timeout cleanup and preserved-input
 desktop/mobile error states pass. This is not full standards conformance,
 production parser containment, DNS/egress authorization or broker/API adoption.
 
+The [opt-in backend parser checkpoint](docs/WHATWG_BACKEND_ADOPTION.md) composes
+that pinned helper with independent destination authorization, canonical launch
+grants and origin request serialization. Actual Node/supervised fixture admission
+and local Chromium proxy regressions pass. Relative redirect resolution, parser
+throughput, native broker/image/API selection and hard overall bounds remain open.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

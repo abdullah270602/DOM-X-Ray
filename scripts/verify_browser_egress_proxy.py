@@ -113,6 +113,11 @@ def main():
                         "Chromium did not receive the decrypted HTTPS origin response")
                 page.wait_for_function("document.body.dataset.subresource === 'passed'")
                 page.evaluate("() => navigator.serviceWorker.ready")
+                # ready means an active registration, not completion of work
+                # covered by the activate event's waitUntil promise.
+                page.expose_function('__domXRayWorkerRequestSeen',
+                    lambda: any(b"GET /worker-origin " in request for request in requests))
+                page.wait_for_function('async () => await window.__domXRayWorkerRequestSeen()', timeout=5000)
                 require(any(b"GET /sw.js " in request for request in requests)
                         and any(b"GET /worker-origin " in request for request in requests),
                         "service-worker bootstrap or activation fetch bypassed the proxy")

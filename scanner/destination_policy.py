@@ -255,6 +255,10 @@ class DestinationPolicy:
         self.allowed_ports = frozenset(ports)
         self.max_answers = max_answers
 
+    def canonical_url(self, url: str, *, purpose: DestinationPurpose) -> str:
+        """Legacy identity seam; a trusted shared-parser policy overrides this."""
+        return url
+
     def validate(
         self,
         url: str,
