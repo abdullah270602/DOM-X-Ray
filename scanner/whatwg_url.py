@@ -126,7 +126,12 @@ class WhatwgDestinationPolicy(DestinationPolicy):
         return self.parser.parse(url, purpose=purpose)['href']
 
     def validate(self, url, *, purpose):
-        return super().validate(self.canonical_url(url, purpose=purpose), purpose=purpose)
+        return self._validate_canonical(self.canonical_url(url, purpose=purpose), purpose=purpose)
+
+    def _validate_canonical(self, url, *, purpose):
+        # Internal trusted callers have already run the pinned parser. Reparse
+        # serialized authority and independently authorize fresh addresses.
+        return super().validate(url, purpose=purpose)
 
     def resolve_redirect(self, reference, base):
         return self.parser.resolve(reference, base)['href']

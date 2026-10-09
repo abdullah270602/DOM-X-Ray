@@ -200,16 +200,16 @@ class OriginExchange:
         """Proxy setup must bind to the launch target without re-resolving it."""
         url = self._policy.canonical_url(url, purpose="initial")
         if self._initial_grant is None:
-            return self._policy.validate(url, purpose="initial")
+            return self._policy._validate_canonical(url, purpose="initial")
         if not public_scan_target_matches(url, self._initial_grant):
             raise ValueError("initial-grant-target-mismatch")
         return self._initial_grant.destination
 
     def request_purpose(self, url, initial_url):
         url = self._policy.canonical_url(url, purpose="subresource")
-        initial_url = self._policy.canonical_url(initial_url, purpose="initial")
         if self._initial_grant is not None:
             return "initial" if public_scan_target_matches(url, self._initial_grant) else "subresource"
+        initial_url = self._policy.canonical_url(initial_url, purpose="initial")
         return "initial" if url == initial_url else "subresource"
 
     def validate_browser_tunnel(self, url):
@@ -227,7 +227,7 @@ class OriginExchange:
             target = initial.destination
             if (candidate.scheme, candidate.hostname, candidate.port) == (target.scheme, target.hostname, target.port):
                 return candidate
-        return self._policy.validate(url, purpose="subresource")
+        return self._policy._validate_canonical(url, purpose="subresource")
 
     def fetch(self, url: str, *, method: str = "GET", purpose: DestinationPurpose,
               headers: Sequence[tuple[str, str]] = (), timeout_seconds: float = 10) -> OriginResponse:
@@ -290,9 +290,9 @@ class OriginExchange:
                     self._initial_consumed = True
                     grant = self._initial_grant.destination
                 else:
-                    grant = self._policy.validate(url, purpose=purpose)
+                    grant = self._policy._validate_canonical(url, purpose=purpose)
             else:
-                grant = self._policy.validate(url, purpose=purpose)
+                grant = self._policy._validate_canonical(url, purpose=purpose)
             parsed = urlsplit(url)
             path = urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
             if any(ord(character) <= 32 or ord(character) >= 127 for character in path):
@@ -331,7 +331,7 @@ class OriginExchange:
             if 300 <= result.status < 400 and location is not None:
                 resolved = self._policy.resolve_redirect(location, url)
                 remaining()
-                self._policy.validate(resolved, purpose="redirect")
+                self._policy._validate_canonical(resolved, purpose="redirect")
             remaining()
             return result
         except DestinationPolicyError:

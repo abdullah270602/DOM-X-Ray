@@ -263,6 +263,10 @@ class DestinationPolicy:
         """Legacy resolution; trusted shared-parser policy overrides this."""
         return urljoin(base, reference)
 
+    def _validate_canonical(self, url: str, *, purpose: DestinationPurpose) -> ValidatedDestination:
+        """Trusted phase seam after canonical_url; never cache address grants."""
+        return self.validate(url, purpose=purpose)
+
     def validate(
         self,
         url: str,

@@ -178,6 +178,11 @@ strict raw-authority checks and independent destination authorization. Actual
 Node/Chromium agreement and private-redirect denial pass for the selected corpus;
 full conformance and production runtime/broker/API adoption remain open.
 
+[Parser-work reduction](docs/PARSER_WORK.md) removes duplicate helper launches
+after trusted canonicalization while keeping fresh destination authorization.
+Actual selected phase counts fall from 11 to 6; single local timings are not
+public-corpus latency proof, and production parser throughput remains open.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

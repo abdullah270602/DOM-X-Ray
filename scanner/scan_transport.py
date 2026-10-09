@@ -221,7 +221,7 @@ def run_public_scan_transport(
     """
 
     target_url = policy.canonical_url(target_url, purpose="initial")
-    destination = policy.validate(target_url, purpose="initial")
+    destination = policy._validate_canonical(target_url, purpose="initial")
     grant = PublicScanGrant(target_url=target_url, destination=destination)
     temporary_parent = None if temporary_root is None else str(temporary_root)
 
