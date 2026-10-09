@@ -1,6 +1,7 @@
 """One batched desktop/mobile check of existing URL-entry error presentation."""
 
 import json
+import argparse
 from pathlib import Path
 import sys
 
@@ -10,6 +11,9 @@ from playwright.sync_api import sync_playwright
 
 
 def main():
+    options = argparse.ArgumentParser()
+    options.add_argument('--base-url', default='http://127.0.0.1:64020')
+    args = options.parse_args()
     output = ROOT / '.dom-xray-data'
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
@@ -17,7 +21,7 @@ def main():
             for label, width, height in (('desktop', 1280, 900), ('mobile', 390, 844)):
                 page = browser.new_page(viewport={'width': width, 'height': height})
                 try:
-                    page.goto('http://127.0.0.1:64020/?fixture=image-heavy&fallback=text')
+                    page.goto(args.base_url.rstrip('/') + '/?fixture=image-heavy&fallback=text')
                     field = page.get_by_role('textbox')
                     field.fill('https://example.com/?')
                     page.get_by_role('button', name='START X-RAY').click()

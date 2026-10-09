@@ -12,6 +12,7 @@
     "build": "tsc -b && vite build",
     "pretest": "npm run sync:fixtures",
     "test": "vitest run",
+    "verify:validators": "npm run sync:fixtures && node scripts/verify-validator-parity.mjs",
     "typecheck": "npm run sync:fixtures && tsc -b --pretty false"
   },
   "dependencies": {

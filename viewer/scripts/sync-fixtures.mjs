@@ -44,6 +44,8 @@ const schemas = await Promise.all(
 );
 const ajv = new Ajv2020({
   allErrors: true,
+  // Share referenced validators instead of duplicating their source in callers.
+  inlineRefs: false,
   strict: true,
   strictTypes: false,
   strictRequired: false,

@@ -185,6 +185,12 @@ public-corpus latency proof, and production parser throughput remains open.
 
 ## Gate 1 — Visual proof with deterministic fixtures
 
+The [browser validator size checkpoint](docs/VIEWER_VALIDATOR_SIZE.md) reduces
+the main entry by about 6% minified while retaining schema checks and all-error
+reporting. Selected compiler parity, frontend tests and a production-preview
+desktop/mobile error-state inspection pass; real-device/load/reveal targets and
+the remaining large JavaScript chunks are still open.
+
 **Question:** Does truthful data produce a legible and desirable physical world?
 
 Current status: **interactive local visual proof implemented and independently reviewed `ship`**. The approved **Instrument Panorama** reference and `docs/VIEWER_CONTRACT.md` define the spatial contract. One React/Three.js renderer consumes all three validated bundles and implements Structure, Weight, Origins, selection, isolation, evidence, replay, scrub, bounded orbit, reduced-motion stepping, text fallback, deterministic capture routes, and frame/object instrumentation. Automated browser checks prove those paths. Target-laptop frame benchmarks and the 10-person comprehension/desirability study remain exit evidence; headless SwiftShader measurements are labeled as software rendering and are not substituted for that hardware proof.
