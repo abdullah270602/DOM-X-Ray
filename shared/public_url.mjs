@@ -37,3 +37,25 @@ export function parsePublicUrl(value, purpose = "initial") {
   if (![80, 443].includes(port)) return fail("disallowed-port");
   return { ok: true, policy: PUBLIC_URL_POLICY, href: parsed.href, scheme, hostname, port };
 }
+
+export function resolvePublicUrl(reference, base) {
+  const fail = (code) => ({ ok: false, code });
+  const checkedBase = parsePublicUrl(base, "subresource");
+  if (!checkedBase.ok) return checkedBase;
+  if (typeof reference !== "string" || reference.length > MAX_URL_LENGTH ||
+      /[\u0000-\u0020\u007f\\\uD800-\uDFFF]/u.test(reference)) return fail("invalid-url");
+  // Validate raw absolute/network authorities before serialization can erase
+  // empty userinfo or reinterpret numeric/escaped hosts. Scheme-bearing refs
+  // retain the policy's explicit scheme:// requirement.
+  if (/^[a-z][a-z0-9+.-]*:/iu.test(reference)) {
+    return parsePublicUrl(reference, "redirect");
+  }
+  if (reference.startsWith("//")) {
+    return parsePublicUrl(checkedBase.scheme + ":" + reference, "redirect");
+  }
+  try {
+    return parsePublicUrl(new URL(reference, checkedBase.href).href, "redirect");
+  } catch {
+    return fail("invalid-url");
+  }
+}

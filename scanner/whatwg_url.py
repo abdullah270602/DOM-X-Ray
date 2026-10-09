@@ -44,14 +44,27 @@ class WhatwgUrlParser:
                 raise ValueError('whatwg-parser-configuration')
 
     def parse(self, url, *, purpose='initial'):
-        if not isinstance(url, str) or not 0 < len(url) <= 2048 or purpose not in ('initial', 'redirect', 'subresource'):
+        return self._invoke(url, purpose=purpose)
+
+    def resolve(self, reference, base):
+        if not isinstance(base, str) or not 0 < len(base) <= 2048:
+            raise DestinationPolicyError('invalid-url')
+        return self._invoke(reference, purpose='redirect', base=base)
+
+    def _invoke(self, url, *, purpose, base=None):
+        if (not isinstance(url, str) or not (0 if base is not None else 1) <= len(url) <= 2048
+                or purpose not in ('initial', 'redirect', 'subresource')
+                or (base is not None and (purpose != 'redirect' or not isinstance(base, str) or not 0 < len(base) <= 2048))):
             raise DestinationPolicyError('invalid-url')
         try:
             self._guard()
         except Exception:
             raise DestinationPolicyError('url-parser-unavailable') from None
         nonce = secrets.token_hex(16)
-        payload = json.dumps({'url': url, 'purpose': purpose, 'nonce': nonce}, ensure_ascii=True).encode()
+        request = {'url': url, 'purpose': purpose, 'nonce': nonce}
+        if base is not None:
+            request['base'] = base
+        payload = json.dumps(request, ensure_ascii=True).encode()
         if len(payload) > 16384:
             raise DestinationPolicyError('invalid-url')
         deadline = time.monotonic() + 2
@@ -114,3 +127,6 @@ class WhatwgDestinationPolicy(DestinationPolicy):
 
     def validate(self, url, *, purpose):
         return super().validate(self.canonical_url(url, purpose=purpose), purpose=purpose)
+
+    def resolve_redirect(self, reference, base):
+        return self.parser.resolve(reference, base)['href']

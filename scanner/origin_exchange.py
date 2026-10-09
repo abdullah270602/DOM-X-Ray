@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from threading import Lock
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from scanner.destination_policy import DestinationPolicy, DestinationPolicyError, DestinationPurpose
 from scanner.pinned_connector import connect_pinned
@@ -329,7 +329,9 @@ class OriginExchange:
             result = _decode_response(b"".join(chunks), method)
             location = next((value for name, value in result.headers if name == "location"), None)
             if 300 <= result.status < 400 and location is not None:
-                self._policy.validate(urljoin(url, location), purpose="redirect")
+                resolved = self._policy.resolve_redirect(location, url)
+                remaining()
+                self._policy.validate(resolved, purpose="redirect")
             remaining()
             return result
         except DestinationPolicyError:

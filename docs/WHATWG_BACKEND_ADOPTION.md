@@ -62,8 +62,10 @@ optimized checks passed after this change.
 
 ## Remaining boundaries
 
-- Relative `Location` resolution still uses Python `urljoin`; this checkpoint
-  does not prove full browser-compatible relative redirect semantics.
+- At this checkpoint relative `Location` resolution used Python `urljoin`.
+  [The subsequent relative-resolution checkpoint](RELATIVE_URL_RESOLUTION.md)
+  adds opt-in native resolution with bounded Node/Chromium comparison evidence;
+  full standards conformance is still unproven.
 - Canonicalization can be invoked more than once along a request path. Every
   invocation checks pins and starts a disposable helper. Throughput, hash I/O and
   representative submit-to-reveal performance are unmeasured; no latency gate is

@@ -172,6 +172,12 @@ grants and origin request serialization. Actual Node/supervised fixture admissio
 and local Chromium proxy regressions pass. Relative redirect resolution, parser
 throughput, native broker/image/API selection and hard overall bounds remain open.
 
+The [relative-resolution checkpoint](docs/RELATIVE_URL_RESOLUTION.md) replaces
+Python joining in the opt-in policy with pinned native URL resolution, preserving
+strict raw-authority checks and independent destination authorization. Actual
+Node/Chromium agreement and private-redirect denial pass for the selected corpus;
+full conformance and production runtime/broker/API adoption remain open.
+
 ## Gate 1 — Visual proof with deterministic fixtures
 
 **Question:** Does truthful data produce a legible and desirable physical world?

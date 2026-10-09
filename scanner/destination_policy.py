@@ -12,7 +12,7 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Literal, TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 
 DestinationPurpose = Literal["initial", "redirect", "subresource"]
@@ -258,6 +258,10 @@ class DestinationPolicy:
     def canonical_url(self, url: str, *, purpose: DestinationPurpose) -> str:
         """Legacy identity seam; a trusted shared-parser policy overrides this."""
         return url
+
+    def resolve_redirect(self, reference: str, base: str) -> str:
+        """Legacy resolution; trusted shared-parser policy overrides this."""
+        return urljoin(base, reference)
 
     def validate(
         self,

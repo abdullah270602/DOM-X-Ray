@@ -5,3 +5,4 @@ export type PublicUrlResult = { ok: false; code: string } | {
   hostname: string; port: number;
 };
 export function parsePublicUrl(value: unknown, purpose?: "initial" | "redirect" | "subresource"): PublicUrlResult;
+export function resolvePublicUrl(reference: unknown, base: unknown): PublicUrlResult;
