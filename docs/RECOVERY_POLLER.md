@@ -67,6 +67,43 @@ and its engine remained unavailable after attempting to start the installed app.
 Final-version native verification is therefore open at this checkpoint; the
 local normal/optimized contracts do not substitute for it.
 
+### Final-version native verification — 2026-10-10
+
+Docker's Linux engine became available during a fresh read-only recheck; this
+agent performed no Docker repair, settings change, upgrade, socket deletion or
+Windows restart. Both normal and optimized Python executions of the current
+`verify_native_recovery_poller.py` completed with exit zero on the immutable
+overlay image
+`sha256:d495bf5f6e49090faf092e80d04d3b3dc180ba189a3fbe18f93e8809468b4f15`.
+The responding Docker Desktop version is 4.44.3 with Linux Engine 28.3.2.
+The optimized command optimizes the parent harness only: its subprocess launch
+does not propagate `-O` to the controller/poller. It is not evidence of native
+child execution under optimization. The separate in-process normal/optimized
+poller contracts remain the optimization evidence for the component itself.
+
+Both runs positively observed the exact owned worker still running after the
+controller Job was empty, while the separate poller remained alive. The poller
+automatically resolved the eligible lease; success used no manual recovery.
+The persistent journal was empty and no result artifact was admitted. Final
+scoped inventories reported `containers unchanged=True; volumes unchanged=True`
+in both runs. Separate fresh private journals were retained as local evidence;
+no pre-existing fixture journal or Docker workload was deleted.
+
+The seccomp pin
+`242cbd13aa6babf1f163ffa712ee00b0ce95e48c8bb3675d82eb213230b4ff48`
+is the SHA-256 of canonical JSON (`sort_keys=True`, compact separators), as
+checked by the supervisor. It is not the formatted file-byte hash. The existing
+formatted fixture file has byte hash
+`7bd4eeb2a15228d0b6bbc1760cafc800a28dfce6daec38446ad92bb152b63547`;
+its content was not changed. This clarifies the existing pin contract rather
+than accepting a different policy.
+
+This closes the previously missing final-version native single-journal poller
+test, not the broader release gate. It does not prove a deployed/restarting
+service, an overall 15-second controller-death bound, native multi-root/outage
+behavior, independent Linux cgroup emptiness or public scanner safety. The
+original failed/unverified run history above remains part of the evidence.
+
 Startup diagnosis on 2026-10-08: the last backend log reports failure while
 initializing the inference manager's `dockerInference` Unix socket: removal
 fails with "The file cannot be accessed by the system." The corresponding

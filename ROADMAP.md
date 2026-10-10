@@ -128,6 +128,13 @@ an independent-process native fixture. It does not install a service, displace
 live owners, persist cursors or establish an overall controller-death deadline.
 Final native evidence and the remaining deployment gates are tracked there.
 
+The final-version single-journal native poller test now passes normally and with
+an optimized parent harness on 2026-10-10, after a read-only check found Docker responding.
+Both runs prove controller Job death, a positively observed live owned orphan,
+automatic replacement recovery, no result and unchanged scoped inventory. This
+does not close native restart/multi-root, overall death-bound or independent
+Linux cgroup-empty proof; see `docs/RECOVERY_POLLER.md` for exact image/pin evidence.
+
 `docs/RECOVERY_CURSOR.md` subsequently persists the poller's runtime-bound cursor
 in the existing private journal. Transaction rollback, owner process death and
 simulated restart fairness are verified. Native watchdog restart, service/registry
