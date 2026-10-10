@@ -123,6 +123,12 @@ python -O scripts/verify_native_recovery_poller.py
 
 ## Remaining release gates
 
+The later pair-observer fixture explicitly propagates and verifies isolation
+and optimization in both host children. Fresh native normal and `-O` pair runs
+passed; see [the diagnostic evidence](DOCKER_HOST_CGROUP_DIAGNOSTIC.md#explicitly-verified-host-child-modes).
+This supersedes the earlier parent-only optimization limitation for those new
+runs, not their historical evidence or the unchanged container command.
+
 The optional [Docker host cgroup diagnostic](DOCKER_HOST_CGROUP_DIAGNOSTIC.md)
 now finds a populated path candidate for the exact owned worker ID on this
 selected host. It is not independent identity binding or cgroup-empty proof.

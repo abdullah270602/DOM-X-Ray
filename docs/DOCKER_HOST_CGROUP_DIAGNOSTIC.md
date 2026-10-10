@@ -171,14 +171,46 @@ recovery, empty journal, no admitted result, and unchanged scoped inventories.
 No manual fallback, shortened lease/grace, extra stop/remove pause, or runtime
 configuration change was used. Portable witness framing/schema and observer
 protocol tests passed normal and `-O`; timing tests reject a supplied boundary
-later than the receive time. The native host children do not inherit `-O`
-from an optimized parent; no optimized pair-child run is claimed.
+later than the receive time. At that checkpoint the native host children did
+not inherit `-O` from an optimized parent; no optimized pair-child run was
+claimed. The subsequent explicitly checked child-mode evidence is below.
 
 This addresses the missing broker observation for the selected trusted native
 fixture. It does not establish adversarial host identity binding, kernel-exact
 crash causality, production integration, independent process-tree deadline
 enforcement, or broad native race/repetition coverage. Existing worker-only
 evidence above is retained as history, not substituted for pair scope.
+
+### Explicitly verified host child modes
+
+The pair fixture now passes `-I` plus the parent's exact optimization level
+(`-O` or `-OO` when applicable) to both host children, without modifying the
+shared suspended-Job launcher. Both child entrypoints verify their actual
+`sys.flags.optimize` and `sys.flags.isolated` before journal/scan/poller work.
+The producer guard is opt-in, preserving other existing fixture callers.
+The hidden poller child requires the expectation supplied by the parent.
+
+Fresh native pair runs passed in both modes with the same immutable image and
+unchanged seccomp policy:
+
+- Normal host children: optimization=0, isolation=1; persistent journal suffix
+  `633750b47f89e1b117a82f6a9c6348bb`.
+- Optimized host children: optimization=1, isolation=1; suffix
+  `4d1f81fa75794c7e3946a74ad4916f6a`.
+
+Both runs established pre-crash worker/broker populated handles, optional
+trusted private-root corroboration, empty controller Job, surviving separate
+poller and live owned worker orphan, both zero-marker receive ordering guards,
+automatic recovery, empty journal, no result, and unchanged scoped inventories.
+No manual fallback was used. The container's fixed Python command remains
+unoptimized; no optimized Linux renderer/broker or native `-OO` proof is claimed.
+
+Portable witness/flag tests passed normal and `-O`, including exact 0/1/2 flag
+construction and rejection of bool, out-of-range, string and missing levels.
+The watchdog restart cleanup contract also passed normal and `-O`; this is
+portable regression evidence, not a repeat of its separate native restart run.
+These two selected native runs are additional mode/repetition evidence, not
+a comprehensive timing/outage/race matrix or overall death bound.
 
 ### WSL PID-number probe: failed closed
 

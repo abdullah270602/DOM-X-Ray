@@ -31,6 +31,11 @@ def decode_resource_witness(line):
     return _validate(json.loads(line[18:], object_pairs_hook=_pairs, parse_constant=_invalid_constant))
 
 
+def host_interpreter_flags(optimization):
+    require(type(optimization) is int and optimization in (0, 1, 2), 'invalid host optimization')
+    return ['-I', *(['-' + 'O' * optimization] if optimization else [])]
+
+
 def spawn_job(arguments):
     process = subprocess.Popen([sys.executable, *map(str, arguments)], stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -91,10 +96,13 @@ def main():
     parser.add_argument('--probe-host-pid-membership', action='store_true', help='require engine-reported PID number in candidate cgroup.procs; namespace alignment unverified')
     parser.add_argument('--watch', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--root', type=Path, help=argparse.SUPPRESS)
+    parser.add_argument('--expected-host-optimization', type=int, choices=(0, 1, 2), help=argparse.SUPPRESS)
     options = parser.parse_args()
     require(not (options.observe_worker_cgroup_transition and options.observe_pair_cgroup_transitions),
             'choose worker-only or pair observation')
     if options.watch:
+        require(sys.flags.optimize == options.expected_host_optimization and sys.flags.isolated == 1,
+                'watcher interpreter flags differ')
         return watch(options.image, options.root)
     require(sys.platform == 'win32', 'native process-tree fixture requires Windows')
     prefix = [shutil.which('docker'), '--context', 'desktop-linux']
@@ -111,8 +119,10 @@ def main():
     with inventory_guard(docker, before, volumes_before), tempfile.TemporaryDirectory(prefix='dxr-native-poller-') as temporary:
         results = Path(temporary) / 'results'
         results.mkdir()
-        producer_arguments = [ROOT / 'scripts/verify_pair_controller_crash.py', '--child',
-            '--announce-owner', '--image', image, '--journal-root', root, '--results', results]
+        flags = host_interpreter_flags(sys.flags.optimize)
+        producer_arguments = [*flags, ROOT / 'scripts/verify_pair_controller_crash.py', '--child',
+            '--announce-owner', '--image', image, '--journal-root', root, '--results', results,
+            '--expected-host-optimization', str(sys.flags.optimize)]
         if options.observe_pair_cgroup_transitions:
             producer_arguments.append('--announce-resources')
         producer, producer_job = spawn_job(producer_arguments)
@@ -137,7 +147,8 @@ def main():
         reader.start()
         try:
             require(owner.wait(5) and producer.poll() is None, 'controller did not hold authority')
-            watcher, watcher_job = spawn_job([Path(__file__).resolve(), '--watch', '--image', image, '--root', root])
+            watcher, watcher_job = spawn_job([*flags, Path(__file__).resolve(), '--watch', '--image', image,
+                '--root', root, '--expected-host-optimization', str(sys.flags.optimize)])
             watchers.append((watcher, watcher_job))
             def read_watcher():
                 while line := watcher.stdout.readline(65):
@@ -150,6 +161,7 @@ def main():
             watch_reader = Thread(target=read_watcher, daemon=True)
             watch_reader.start()
             require(busy.wait(5), 'independent poller never observed busy primary')
+            print('Both host children verified isolation=1, optimization=' + str(sys.flags.optimize) + '.', flush=True)
             require(renderer.wait(15) and producer.poll() is None, 'real renderer witness missing')
             if options.observe_pair_cgroup_transitions:
                 from scripts.docker_host_cgroup_fixture import CandidateTransitionObserver, verify_root_identity_match

@@ -175,8 +175,12 @@ def main():
     parser.add_argument('--results', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--announce-owner', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--announce-resources', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--expected-host-optimization', type=int, choices=(0, 1, 2), help=argparse.SUPPRESS)
     options = parser.parse_args()
     if options.child:
+        if options.expected_host_optimization is not None:
+            require(sys.flags.optimize == options.expected_host_optimization and sys.flags.isolated == 1,
+                    'producer interpreter flags differ')
         require(options.journal_root is not None and options.results is not None, 'child configuration missing')
         return child(options.image, options.journal_root, options.results,
                      announce_owner=options.announce_owner, announce_resources=options.announce_resources)

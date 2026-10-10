@@ -174,6 +174,9 @@ the candidate lists nonzero process numbers but not the engine-reported PID.
 Independent binding is not established. A separate trusted diagnostic with
 host PID/cgroup visibility requires explicit approval; scanner isolation has
 not been changed and numeric matches would not prove namespace alignment.
+Fresh guarded pair runs now pass with actual host children explicitly checking
+isolation=1 and optimization=0/1. This adds mode/repetition evidence without
+claiming optimized container execution, broad race coverage or a death bound.
 Native automatic recovery still passes with the read-only probe enabled;
 host/runtime identity binding and direct worker/broker empty observations remain
 open. This is diagnostic progress, not closure of the cgroup release gate.
