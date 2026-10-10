@@ -79,6 +79,14 @@ timeout and correct poster-only fallback. Those failed runs are not passes;
 later fixture successes do not close video reliability or justify relaxing the
 safety deadline. Backend call cost, aggregate
 memory, distributed limits and public scanning remain open.
+The [video benchmark accounting checkpoint](docs/VIDEO_BENCHMARK_ACCOUNTING.md)
+adds actual post-poster seeded gallery input and reports failed-attempt timing
+before gate assertions. Two fresh five-export local runs passed with identical
+artifacts; final median/max were 7.263/7.875 seconds. Unexpected operational
+faults abort without launching another worker. Portable normal/optimized
+accounting controls pass. Earlier native failures remain failures; this repeated
+single-input sample does not establish representative reliability, whole-scan
+latency or social playback. Production rendering/deadlines are unchanged.
 The [video phase diagnostic](docs/VIDEO_PHASE_DIAGNOSTIC.md) now distinguishes
 successful fixed-fixture probes from the actual seeded-gallery input: four
 gallery probes timed out with encoding unfinished, and the uninstrumented
