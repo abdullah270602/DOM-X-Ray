@@ -14,6 +14,13 @@ A public, no-login visitor can submit a supported public desktop URL; receive a 
 
 ## Gate 0 — Truth contract and product boundary
 
+The [opt-in API WHATWG checkpoint](docs/WHATWG_API_ADMISSION.md) now canonicalizes
+initial targets before support, deduplication and queueing, with fixed parser
+faults and strict result identity checks. Real loopback normal/optimized tests
+and existing seeded API regressions pass. Deployment parser pins/configuration,
+configured-parser successful publication and public executor integration remain
+open; this does not enable arbitrary scanning or close the release gate.
+
 **Question:** What are we allowed to show and say?
 
 Deliverables:

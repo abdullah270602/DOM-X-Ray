@@ -55,6 +55,7 @@ from scanner.scan_transport import PublicScanGrant, WorkerLaunch, run_public_sca
 from scanner.scene_manifest import build_scene_manifest
 from scanner.video_renderer import VideoRenderError, render_video_mp4
 from scanner.viewer_runtime import build_viewer_runtime
+from scanner.whatwg_url import WhatwgUrlParser
 from scripts.validate_fixtures import validate_semantics
 
 
@@ -319,11 +320,15 @@ class LocalScanJobService:
         admission_gate: ScanAdmissionGate | None = None,
         result_backend: ResultBackend | None = None,
         result_store: ResultBackend | None = None,
+        target_parser: WhatwgUrlParser | None = None,
     ) -> None:
         if max_workers <= 0 or max_active_jobs <= 0:
             raise ValueError("job service limits must be positive")
         if result_backend is not None and result_store is not None:
             raise ValueError("configure one result backend")
+        if target_parser is not None and type(target_parser) is not WhatwgUrlParser:
+            raise ValueError("configure an operator-pinned WHATWG target parser")
+        self._target_parser = target_parser
         self._scan_executor = scan_executor or FixtureScanExecutor()
         self._max_active_jobs = max_active_jobs
         self._admission = admission_gate or ScanAdmissionGate(
@@ -390,6 +395,17 @@ class LocalScanJobService:
     ) -> tuple[dict[str, Any], int, int | None]:
         if re.fullmatch(r"[0-9a-f]{64}", deletion_token_digest) is None:
             raise ValueError("invalid deletion token digest")
+        if self._target_parser is not None:
+            try:
+                target_url = self._target_parser.parse(target_url, purpose="initial")["href"]
+            except DestinationPolicyError as error:
+                unavailable = error.reason == "url-parser-unavailable"
+                job = self._terminal_job("failed" if unavailable else "rejected",
+                                         "internal-error" if unavailable else "invalid-target")
+                with self._lock:
+                    self._jobs[job.job_id] = job
+                    return self._snapshot(job), (HTTPStatus.SERVICE_UNAVAILABLE if unavailable
+                                                 else HTTPStatus.FORBIDDEN), None
         if not self._scan_executor.supports(target_url):
             job = self._terminal_job("rejected", "scanner-disabled")
             with self._lock:
@@ -481,6 +497,12 @@ class LocalScanJobService:
             job.progress = progress
             job.updated_at = self._now()
 
+    def _requested_target_matches(self, requested: str, target_url: str) -> bool:
+        if self._target_parser is not None:
+            return (requested == target_url
+                    and self._target_parser.parse(requested, purpose="initial")["href"] == requested)
+        return _canonical_target(requested) == _canonical_target(target_url)
+
     def _run(self, job_id: str, target_url: str) -> None:
         try:
             executed = self._scan_executor.execute(
@@ -496,7 +518,7 @@ class LocalScanJobService:
             )
             bundle = execution.bundle
             validate_viewer_bundle(bundle)
-            if _canonical_target(bundle["record"]["requestedUrl"]) != _canonical_target(target_url):
+            if not self._requested_target_matches(bundle["record"]["requestedUrl"], target_url):
                 raise ApiContractError("executor result does not match its requested target")
             result_id = bundle["result"]["resultId"]
             with self._lock:

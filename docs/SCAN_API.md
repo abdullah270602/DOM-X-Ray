@@ -4,6 +4,10 @@ Status: local integration proof v0.1 with an explicit no-store composite backend
 
 ## Purpose
 
+The job service now has an [opt-in operator-pinned WHATWG admission path](WHATWG_API_ADMISSION.md)
+for canonical target identity before support/admission/queueing. The default CLI
+does not configure it or enable arbitrary public scanning.
+
 This contract connects the public viewer to the already-proven destination,
 worker-supervision, scan-record, scene, result, and runtime boundaries. It does
 not relax any scanner release gate. The local implementation may admit only
