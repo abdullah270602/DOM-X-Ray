@@ -1,4 +1,8 @@
-"""Read-only Docker Desktop cgroup-path candidate; not identity/empty proof."""
+"""Host path candidate and trusted-fixture root corroboration, not empty proof.
+
+The optional container diagnostic creates a transient unprivileged exec process;
+it is not an adversarial identity binding or production observer.
+"""
 
 from pathlib import Path
 import re
@@ -25,6 +29,47 @@ done < "$directory/cgroup.events"
 [ "$populated" = 1 ]
 printf 'candidate-populated\n'
 '''
+
+# Fixture corroboration only: the in-container result is not trusted evidence
+# against a compromised renderer. No new privilege or mounts are requested.
+CONTAINER_ROOT_PROGRAM = """import os
+from pathlib import Path
+if Path('/proc/self/cgroup').read_bytes() != b'0::/\\n':
+    raise SystemExit(2)
+value = os.stat('/sys/fs/cgroup', follow_symlinks=False)
+print(str(value.st_dev) + ':' + str(value.st_ino))
+"""
+HOST_ROOT_PROGRAM = r'''
+set -eu
+directory="/sys/fs/cgroup/docker/$1"
+[ -d "$directory" ] && [ ! -L "$directory" ]
+[ "$(stat -fc %t "$directory")" = "63677270" ]
+stat -c '%d:%i' "$directory"
+'''
+
+
+def verify_root_identity_match(identifier, docker_prefix):
+    """Corroborate a trusted fixture's private root; not adversarial binding."""
+    if not isinstance(identifier, str) or not re.fullmatch('[0-9a-f]{64}', identifier):
+        raise ValueError('cgroup-fixture-identity')
+    try:
+        executable = str(Path(shutil.which('wsl.exe')).resolve(strict=True))
+        host = subprocess.run([executable, '-d', 'docker-desktop', '-u', 'root', '--',
+            'sh', '-s', '--', identifier], input=HOST_ROOT_PROGRAM.encode(),
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+        container = subprocess.run([*docker_prefix, 'exec', '--user', '10001:10001',
+            identifier, '/usr/bin/python3', '-I', '-c', CONTAINER_ROOT_PROGRAM],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+        pattern = rb'[1-9][0-9]{0,19}:[1-9][0-9]{0,19}\r?\n'
+        if (host.returncode != 0 or container.returncode != 0
+                or re.fullmatch(pattern, host.stdout) is None
+                or re.fullmatch(pattern, container.stdout) is None
+                or host.stdout.strip() != container.stdout.strip()):
+            raise ValueError('cgroup-fixture-identity')
+    except Exception:
+        raise ValueError('cgroup-fixture-identity') from None
 
 
 def verify_populated_candidate(identifier):

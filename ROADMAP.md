@@ -157,6 +157,9 @@ supervision, native Docker orphan cleanup or an overall controller-death bound.
 
 The [Docker host cgroup diagnostic](docs/DOCKER_HOST_CGROUP_DIAGNOSTIC.md)
 observes a populated cgroup-v2 path candidate matching the owned worker ID.
+An opt-in trusted-fixture check also matches its private cgroup root to the host
+path by device/inode, without new privilege or mounts. This is corroboration,
+not adversarial identity binding, and adds a transient diagnostic process.
 Native automatic recovery still passes with the read-only probe enabled;
 host/runtime identity binding and direct worker/broker empty observations remain
 open. This is diagnostic progress, not closure of the cgroup release gate.

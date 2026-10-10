@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.docker_host_cgroup_fixture import PROGRAM, verify_populated_candidate
+from scripts.docker_host_cgroup_fixture import (PROGRAM, CONTAINER_ROOT_PROGRAM,
+    HOST_ROOT_PROGRAM, verify_populated_candidate, verify_root_identity_match)
 
 
 def require(condition, message):
@@ -51,7 +52,45 @@ def main():
             require(args[0][-4:] == ['sh', '-s', '--', identifier], 'identifier not positional')
             require(kwargs['input'] == PROGRAM.encode() and kwargs['timeout'] == 5,
                     'fixed program or timeout changed')
-    print('Verified candidate probe argument and response protocol; no native identity/empty claim.')
+    for host_code, host_output, container_code, container_output, accepted in (
+        (0, b'28:987\n', 0, b'28:987\n', True),
+        (0, b'28:987\n', 0, b'28:987\r\n', True),
+        (0, b'28:987\n', 0, b'28:988\n', False),
+        (0, b'28:987\n', 1, b'28:987\n', False),
+        (1, b'28:987\n', 0, b'28:987\n', False),
+        (0, b'28:987\nextra\n', 0, b'28:987\nextra\n', False),
+        (0, b'0:0\n', 0, b'0:0\n', False),
+        (0, b'28:' + b'9' * 21 + b'\n', 0, b'28:987\n', False),
+    ):
+        with patch('scripts.docker_host_cgroup_fixture.shutil.which', return_value=__file__), \
+                patch('scripts.docker_host_cgroup_fixture.Path.resolve', return_value=Path(__file__)), \
+                patch('scripts.docker_host_cgroup_fixture.subprocess.CREATE_NO_WINDOW', 0, create=True), \
+                patch('scripts.docker_host_cgroup_fixture.subprocess.run', side_effect=[
+                    subprocess.CompletedProcess([], host_code, host_output),
+                    subprocess.CompletedProcess([], container_code, container_output)]) as run:
+            succeeded = False
+            try:
+                verify_root_identity_match(identifier, ['docker', '--context', 'desktop-linux'])
+                succeeded = True
+            except ValueError:
+                pass
+            require(succeeded == accepted, 'identity response acceptance mismatch')
+            host_args, host_kwargs = run.call_args_list[0]
+            container_args, container_kwargs = run.call_args_list[1]
+            require(host_args[0][-4:] == ['sh', '-s', '--', identifier]
+                    and host_kwargs['input'] == HOST_ROOT_PROGRAM.encode(), 'host identity protocol changed')
+            require(container_args[0][-8:] == ['exec', '--user', '10001:10001', identifier,
+                    '/usr/bin/python3', '-I', '-c', CONTAINER_ROOT_PROGRAM], 'container identity protocol changed')
+            require(host_kwargs['timeout'] == container_kwargs['timeout'] == 5, 'identity timeouts changed')
+    with patch('scripts.docker_host_cgroup_fixture.shutil.which') as locate:
+        try:
+            verify_root_identity_match(identifier + ';', ['docker'])
+        except ValueError:
+            pass
+        else:
+            raise RuntimeError('identity probe accepted invalid ID')
+        require(not locate.called, 'invalid identity ID reached process setup')
+    print('Verified candidate and cross-view protocols; no native adversarial binding/empty claim.')
 
 
 if __name__ == '__main__':

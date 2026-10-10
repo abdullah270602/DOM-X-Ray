@@ -76,6 +76,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--image', default='dom-x-ray-runtime-candidate:gate3-profile')
     parser.add_argument('--probe-host-cgroup', action='store_true', help='read-only populated cgroup-path candidate; not identity or empty proof')
+    parser.add_argument('--probe-cgroup-root-identity', action='store_true', help='trusted fixture cross-view root corroboration; not adversarial binding')
     parser.add_argument('--watch', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--root', type=Path, help=argparse.SUPPRESS)
     options = parser.parse_args()
@@ -143,6 +144,10 @@ def main():
                         probe._preflight_role(row, 'worker', _name(record['token'], 'worker'), record['token'],
                             identifier, _name(record['token'], 'volume'), require_unstarted=False)
                         require(row['State']['Running'] and row['State']['Pid'] > 0, 'live orphan was not observed')
+                        if options.probe_cgroup_root_identity:
+                            from scripts.docker_host_cgroup_fixture import verify_root_identity_match
+                            verify_root_identity_match(identifier, prefix)
+                            print('Trusted fixture private cgroup root matches host device/inode.', flush=True)
                         if options.probe_host_cgroup:
                             from scripts.docker_host_cgroup_fixture import verify_populated_candidate
                             verify_populated_candidate(identifier)

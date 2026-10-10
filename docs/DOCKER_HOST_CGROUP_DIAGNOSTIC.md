@@ -57,6 +57,41 @@ this does not establish production image or broker safety.
 
 ## What remains
 
+### Trusted-fixture cross-view corroboration
+
+An additional opt-in command was tested with the same immutable image:
+
+```powershell
+python -u scripts/verify_native_recovery_poller.py --image sha256:d495bf5f6e49090faf092e80d04d3b3dc180ba189a3fbe18f93e8809468b4f15 --probe-host-cgroup --probe-cgroup-root-identity
+```
+
+This validates the owned running worker as above, checks cgroup-v2 magic on the
+host path, and compares its decimal device/inode to the private cgroup root
+inside the container. A fixed `docker exec --user 10001:10001` Python `-I`
+diagnostic requires `/proc/self/cgroup` to be exactly `0::/` and reads root
+metadata. No privilege, mount, image, or isolation-policy change is requested.
+The [kernel namespace documentation](https://docs.kernel.org/admin-guide/cgroup-v2.html#namespace)
+explains the private view rooted at the namespace's cgroup. The matching
+device/inode is corroboration for this trusted fixture, not evidence against a
+compromised renderer that could interfere with the in-container diagnostic.
+
+The native run passed with fresh persistent journal suffix
+`f4895d35ccfef3d57c26c5cf01daabc8`: host/container root match, populated
+candidate, live owned orphan, automatic recovery, empty journal, no admitted
+result, and unchanged scoped inventories. No manual fallback was used.
+Portable tests passed normal and `-O` for matching roots, mismatched roots,
+nonzero exits, malformed/extra/oversized metadata, invalid IDs, fixed arguments,
+and per-command timeouts. These mocks are protocol evidence only.
+
+Unlike the host-only read, the cross-view probe creates a transient process
+inside the worker's existing resource limits. Its two sequential commands each
+have a five-second timeout; while setup owns the journal it can delay recovery.
+This is neither deadline evidence nor a forced process-tree bound. It does not
+establish the engine PID's kernel membership, broker identity, retained-handle
+observation, a transition to zero, or production-safe independent binding.
+
+### Remaining binding and teardown requirements
+
 A matching directory name is not a demonstrated host/runtime identity binding.
 The diagnostic reads once while the fixture owns the journal lock, potentially
 delaying recovery during setup; it provides no overall controller-death bound.
