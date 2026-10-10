@@ -69,8 +69,9 @@ renderer reliability check plus broad API rerun failed. A decoder-thread trial
 did not demonstrate improvement and was removed. This is diagnostic evidence,
 not a video reliability pass; deadlines and fallback remain unchanged.
 The [static-frame reuse experiment](docs/VIDEO_FRAME_REUSE_EXPERIMENT.md) now has
-an isolated encoder/decoded-frame comparison harness, but native baseline and
-candidate workers timed out before equivalence could be established. The
+an isolated encoder/decoded-frame comparison harness. Corrected child dispatch
+and phase observations now show one candidate encode/decode completion and a
+confirmed baseline internal FFmpeg timeout; full equivalence is still unproven. The
 experimental production change was removed; the candidate exists only in the
 test harness. Video reliability, representative latency and visual equivalence
 remain open, not satisfied by portable command-shape controls.

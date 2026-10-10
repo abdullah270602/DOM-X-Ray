@@ -4,10 +4,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -70,8 +72,20 @@ def verify_command():
 
 
 def child(options):
-    from scanner import video_renderer_worker as worker
     root = Path(options.root).resolve(strict=True)
+    started = time.monotonic()
+    phases = []
+    def observe(label):
+        if options.variant == 'decode':
+            return
+        phases.append({'phase': label, 'elapsedSeconds': round(time.monotonic() - started, 6)})
+        with tempfile.NamedTemporaryFile(mode='wb', dir=root, delete=False) as trace:
+            trace.write(json.dumps(phases).encode('ascii'))
+            temporary_trace = Path(trace.name)
+        os.replace(temporary_trace, root / f'{options.variant}-phases.json')
+    observe('child-start')
+    from scanner import video_renderer_worker as worker
+    observe('worker-imported')
     paths = tuple(root / f'stage-{index}.png' for index in range(5))
     output = root / (options.video if options.variant == 'decode' else f'{options.variant}.mp4')
     original_run = subprocess.run
@@ -79,13 +93,22 @@ def child(options):
     def encode_run(command, **kwargs):
         if options.variant == 'reuse':
             command = candidate_command(command)
-        return original_run(command, **kwargs)
+        observe('ffmpeg-start')
+        try:
+            result = original_run(command, **kwargs)
+        except subprocess.TimeoutExpired:
+            observe('ffmpeg-timeout')
+            raise
+        observe('ffmpeg-returned')
+        return result
 
     if options.variant != 'decode':
         with patch.object(worker.subprocess, 'run', encode_run):
             worker._encode(Path(options.ffmpeg), paths, output)
+        observe('encoded')
     payload = output.read_bytes()
     metadata = worker.validate_share_video_mp4(payload)
+    observe('validated')
     if options.variant != 'decode':
         worker._write_atomic(Path(options.result), json.dumps({
             'supervisorNonce': os.environ[worker.RESULT_NONCE_ENV], 'result': {
@@ -109,10 +132,6 @@ def child(options):
 
 
 def main():
-    from PIL import Image, ImageDraw
-    from scanner.video_renderer import _trusted_ffmpeg_path, _minimal_environment
-    from scanner.worker_supervisor import run_worker_command
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--variant', choices=('legacy', 'reuse', 'decode'))
     parser.add_argument('--video')
@@ -120,6 +139,7 @@ def main():
     parser.add_argument('--result')
     parser.add_argument('--ffmpeg')
     parser.add_argument('--verify-command', action='store_true')
+    parser.add_argument('--baseline-only', action='store_true')
     options = parser.parse_args()
     if options.verify_command:
         verify_command()
@@ -127,6 +147,10 @@ def main():
     if options.variant:
         child(options)
         return
+    # Parent-only fixture/runtime setup must not consume the child's budget.
+    from PIL import Image, ImageDraw
+    from scanner.video_renderer import _trusted_ffmpeg_path, _minimal_environment
+    from scanner.worker_supervisor import run_worker_command
     ffmpeg = _trusted_ffmpeg_path()
     with tempfile.TemporaryDirectory(prefix='dom-xray-encode-equivalence-') as temporary:
         root = Path(temporary).resolve()
@@ -143,7 +167,8 @@ def main():
                 draw.text((column, 900), f'{index}:{column}', fill='black')
             image.save(root / f'stage-{index}.png')
         evidence = {}
-        for variant in ('reuse', 'legacy', 'reuse-repeat'):
+        variants = ('legacy',) if options.baseline_only else ('reuse', 'legacy', 'reuse-repeat')
+        for variant in variants:
             actual_variant = 'reuse' if variant == 'reuse-repeat' else variant
             if variant == 'reuse-repeat':
                 (root / 'reuse.mp4').rename(root / 'reuse-first.mp4')
@@ -153,6 +178,26 @@ def main():
                 '--ffmpeg', str(ffmpeg)], result_path=result, deadline_seconds=15,
                 cwd=ROOT, environment=_minimal_environment())
             print(f'{variant}: {run.outcome} {run.duration_ms / 1000:.3f}s', flush=True)
+            phase_path = root / f'{actual_variant}-phases.json'
+            if phase_path.exists():
+                with phase_path.open('rb') as trace:
+                    phase_payload = trace.read(4097)
+                if len(phase_payload) > 4096:
+                    raise AssertionError('encoder phase evidence exceeded envelope')
+                phases = json.loads(phase_payload)
+                expected = (('child-start',), ('worker-imported',), ('ffmpeg-start',),
+                            ('ffmpeg-returned', 'ffmpeg-timeout'), ('encoded',), ('validated',))
+                if (not isinstance(phases, list) or len(phases) > len(expected)
+                        or any(not isinstance(event, dict)
+                            or set(event) != {'phase', 'elapsedSeconds'}
+                            or event['phase'] not in expected[index]
+                            or type(event['elapsedSeconds']) not in (int, float)
+                            or not math.isfinite(event['elapsedSeconds'])
+                            or event['elapsedSeconds'] < (phases[index - 1]['elapsedSeconds'] if index else 0)
+                            or (index > 3 and phases[3]['phase'] == 'ffmpeg-timeout')
+                            for index, event in enumerate(phases))):
+                    raise AssertionError('encoder phase evidence is malformed')
+                print(json.dumps({'phases': phases}), flush=True)
             if not run.artifact_eligible:
                 raise AssertionError('encoder equivalence worker did not complete')
             evidence[variant] = json.loads(result.read_text())['result']
@@ -166,6 +211,9 @@ def main():
             if not decoded_run.artifact_eligible:
                 raise AssertionError('frame inspection worker did not complete')
             evidence[variant].update(json.loads(decoded_result.read_text())['result'])
+        if options.baseline_only:
+            print('Baseline-only encoding/inspection completed; no candidate equivalence claim.')
+            return
         if evidence['legacy']['frames'] != evidence['reuse']['frames']:
             raise AssertionError('decoded pixels or frame timestamps changed')
         if evidence['legacy']['headers'] != evidence['reuse']['headers']:

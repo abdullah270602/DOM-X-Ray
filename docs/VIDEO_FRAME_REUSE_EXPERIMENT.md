@@ -48,6 +48,7 @@ browser raster output or end-to-end API reliability.
 python scripts/verify_video_frame_reuse.py --verify-command
 python -O scripts/verify_video_frame_reuse.py --verify-command
 python scripts/verify_video_frame_reuse.py
+python scripts/verify_video_frame_reuse.py --baseline-only
 ```
 
 Final normal and optimized portable command controls passed. They check that
@@ -58,3 +59,34 @@ repeatability, actual-gallery latency, full API regression or X playback testing
 The next change needs a complete comparison and representative successful renders
 before adoption. Public scanning remains disabled; the truthful poster fallback
 and all production safety deadlines remain intact.
+
+## Follow-up: isolate startup from encoding
+
+Inspection found that the comparison script imported parent-only PIL, renderer
+and supervisor setup before dispatching its child mode. Those unnecessary
+imports were moved after child/command-control dispatch. This corrects the
+harness, not production rendering; it does not retroactively turn earlier
+timeouts into passes. A first corrected candidate attempt still timed out.
+
+The harness now records fixed, atomic phase observations around child entry,
+worker imports and FFmpeg. The parent reads at most 4096 bytes and checks the
+ordered prefix, finite monotonic clocks and the terminal timeout branch before
+printing. A subsequent corrected candidate completed in 12.562 supervised
+seconds: worker imports took approximately 0.53 seconds and the observed FFmpeg
+interval approximately 9.76 seconds. MP4 validation and its separate all-frame
+decode completed. The following baseline crashed at 12.430 supervised seconds,
+last reporting FFmpeg start, so the comparison still failed before equivalence
+or candidate repeatability could be established.
+
+A final baseline-only run explicitly caught `subprocess.TimeoutExpired` from
+the FFmpeg invocation: its marker arrived approximately 10.14 seconds after
+FFmpeg start, including timeout handling, and the worker exited as crashed at
+12.548 supervised seconds. Worker imports took approximately 0.61 seconds.
+This confirms the baseline's internal encoding timeout on these synthetic
+inputs; it does not explain every earlier outer timeout, establish a speedup
+distribution or prove the actual gallery/API path succeeds.
+
+Final normal/optimized command controls passed after the import/phase changes.
+All native limits remain unchanged. One candidate encode/decode success is
+partial evidence only; native equivalence, repeatability, actual-gallery latency,
+the broad API regression and social playback are still unproven.
