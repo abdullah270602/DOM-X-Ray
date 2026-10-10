@@ -321,6 +321,7 @@ class LocalScanJobService:
         result_backend: ResultBackend | None = None,
         result_store: ResultBackend | None = None,
         target_parser: WhatwgUrlParser | None = None,
+        max_concurrent_target_parsers: int = 2,
     ) -> None:
         if max_workers <= 0 or max_active_jobs <= 0:
             raise ValueError("job service limits must be positive")
@@ -328,7 +329,10 @@ class LocalScanJobService:
             raise ValueError("configure one result backend")
         if target_parser is not None and type(target_parser) is not WhatwgUrlParser:
             raise ValueError("configure an operator-pinned WHATWG target parser")
+        if type(max_concurrent_target_parsers) is not int or max_concurrent_target_parsers <= 0:
+            raise ValueError("target parser concurrency must be a positive integer")
         self._target_parser = target_parser
+        self._target_parser_slots = threading.BoundedSemaphore(max_concurrent_target_parsers)
         self._scan_executor = scan_executor or FixtureScanExecutor()
         self._max_active_jobs = max_active_jobs
         self._admission = admission_gate or ScanAdmissionGate(
@@ -396,6 +400,11 @@ class LocalScanJobService:
         if re.fullmatch(r"[0-9a-f]{64}", deletion_token_digest) is None:
             raise ValueError("invalid deletion token digest")
         if self._target_parser is not None:
+            if not self._target_parser_slots.acquire(blocking=False):
+                job = self._terminal_job("rejected", "queue-full")
+                with self._lock:
+                    self._jobs[job.job_id] = job
+                    return self._snapshot(job), HTTPStatus.TOO_MANY_REQUESTS, 1
             try:
                 target_url = self._target_parser.parse(target_url, purpose="initial")["href"]
             except DestinationPolicyError as error:
@@ -406,6 +415,8 @@ class LocalScanJobService:
                     self._jobs[job.job_id] = job
                     return self._snapshot(job), (HTTPStatus.SERVICE_UNAVAILABLE if unavailable
                                                  else HTTPStatus.FORBIDDEN), None
+            finally:
+                self._target_parser_slots.release()
         if not self._scan_executor.supports(target_url):
             job = self._terminal_job("rejected", "scanner-disabled")
             with self._lock:

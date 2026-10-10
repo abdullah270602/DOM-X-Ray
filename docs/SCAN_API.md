@@ -4,6 +4,11 @@ Status: local integration proof v0.1 with an explicit no-store composite backend
 
 ## Purpose
 
+Configured initial-target parsing has a separate nonblocking concurrency limit
+(local default 2). Saturation returns the existing no-store 429 `queue-full`
+response with `Retry-After: 1` before parser/support/reservation work. This is
+not whole-API thread/memory containment or a distributed admission limit.
+
 The job service now has an [opt-in operator-pinned WHATWG admission path](WHATWG_API_ADMISSION.md)
 for canonical target identity before support/admission/queueing. The default CLI
 does not configure it or enable arbitrary public scanning. Four explicit

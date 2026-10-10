@@ -160,7 +160,44 @@ second publication observation budget changes no execution deadline and does
 not prove the product latency target. Test-only current-file hashes still do
 not establish independent binary provenance or distributed release pins.
 
-### Open production deployment requirements
+### Admission parser concurrency checkpoint
+
+`LocalScanJobService` now separately bounds simultaneous initial-target parser
+calls with `max_concurrent_target_parsers` (local engineering default 2,
+positive integer only). Acquisition is nonblocking and occurs before parser
+invocation, executor support checks or target reservation. When occupied,
+additional submissions receive the existing schema-valid `rejected/queue-full`
+429 response with `Retry-After: 1`. A `finally` releases each permit after
+success, policy rejection or parser failure, before queue/execution work begins.
+No caller waits on this admission semaphore.
+
+```powershell
+python scripts/verify_api_parser_concurrency.py
+python -O scripts/verify_api_parser_concurrency.py
+```
+
+Both final loopback tests passed. Two controlled calls occupy the slots;
+overflow never invokes parser, support or reservation and returns no-store
+429. Once released, both invoke the actual pinned Node parser and become
+unsupported-target refusals. Repeated policy and infrastructure failures do
+not leak permits, and subsequent actual parsing remains usable. Invalid bool,
+zero, negative, noninteger and missing limit values are rejected before a pool
+is created. Synchronization deliberately controls the parser seam; this does
+not measure native Node process concurrency or throughput under arbitrary load.
+The real configured admission and seeded publication suites also passed after
+the change. No parser helper/executable/source policy or scan deadline changed.
+
+Result identity parsing runs separately inside the bounded scan-worker pool,
+so the admission semaphore is not a global parser/process limit. With one
+default service, admitted result checks can add up to its worker count to the
+admission parse calls. Multiple instances do not share permits. Hash/metadata
+and Node process containment still require their own release proof. HTTP
+request threads, retained terminal-job history, aggregate memory, ingress
+connection/body deadlines, and distributed rate/cost enforcement are not
+bounded by this change; the anonymous API abuse gate remains open. The default
+is an engineering limit, not an approved production load policy.
+
+### Remaining production requirements
 
 Deployment still must supply reviewed immutable pins and a bounded parser
 runtime, integrate the selected production executor/resolver/egress and broker

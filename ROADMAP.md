@@ -34,6 +34,12 @@ with real loopback parser rejection, seeded canonical publication and filesystem
 storage, wrong-pin startup refusal before data creation, and exact owned Windows
 Job cleanup. This closes the local mocked-hosting gap, not production deployment,
 public capture, independent Linux binding or the submit-to-reveal latency gate.
+Configured API admission now caps simultaneous initial-target parser calls
+separately from scan queue capacity. Normal/optimized concurrent loopback tests
+prove overflow has no parser/executor/reservation contact and permits recover
+after success and faults. Result parsing remains worker-pool bounded separately;
+HTTP threads, terminal job history, aggregate memory and distributed abuse
+controls are still open, so this does not close the anonymous API safety gate.
 
 **Question:** What are we allowed to show and say?
 
