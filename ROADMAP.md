@@ -44,8 +44,17 @@ The [HTTP capacity checkpoint](docs/API_HTTP_CAPACITY.md) now bounds local handl
 threads before construction and closes idle sockets. Actual normal/optimized
 loopback saturation and recovery tests pass, plus parser and seeded API
 regressions. Best-effort overflow uses empty 503 without creating jobs. Absolute
-slow-drip deadlines, kernel connection/backlog limits, aggregate memory/history
+whole-request/backend deadlines, kernel connection/backlog limits, aggregate memory/history
 and distributed abuse controls remain open; public scanning stays disabled.
+The [absolute ingress checkpoint](docs/API_INGRESS_DEADLINE.md) bounds each
+underlying request-line/header/body receive against one monotonic read budget.
+Normal/optimized actual slow-drip tests pass closure before idle timeout,
+no admission and handler capacity recovery. It does not preempt buffered parsing,
+backend/computation/response work or bound accept scheduling; those and public
+deployment remain open. One broad seeded API run failed before publication;
+its diagnostic rerun and subsequent final-version full suite passed publication,
+poster/video routes, restart and deletion. The failed run is not counted as a
+pass; intermittent renderer reliability is not established by these successes.
 The [terminal-job history checkpoint](docs/API_JOB_HISTORY.md) now caps retained
 terminal polling metadata while preserving queued/running jobs and independent
 result/deletion authority. Normal/optimized checks pass active preservation,
@@ -57,10 +66,11 @@ and distributed load controls remain open.
 The [deletion-failure history checkpoint](docs/API_DELETION_HISTORY.md) caps local
 tracked result IDs and per-result timestamps without blocking backend owner
 authorization. Final normal/optimized controlled and real loopback/HMAC tests
-pass. The broader seeded API regression currently fails its required
-video route: a diagnostic rerun reports the unchanged 15-second video-worker
-timeout and correct poster-only fallback. This remains an open regression, not
-a pass or a reason to relax the safety deadline. Backend call cost, aggregate
+pass. At that checkpoint a broader seeded API regression failed its required
+video route: a diagnostic rerun reported the unchanged 15-second video-worker
+timeout and correct poster-only fallback. Those failed runs are not passes;
+later fixture successes do not close video reliability or justify relaxing the
+safety deadline. Backend call cost, aggregate
 memory, distributed limits and public scanning remain open.
 The [video phase diagnostic](docs/VIDEO_PHASE_DIAGNOSTIC.md) now distinguishes
 successful fixed-fixture probes from the actual seeded-gallery input: four

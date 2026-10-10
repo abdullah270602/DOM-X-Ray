@@ -50,8 +50,9 @@ restart/deletion, reuse and target correlation. Public scanning stayed disabled.
 
 ## Remaining boundaries
 
-Socket timeout is **idle blocking I/O**, not an absolute request/header/body
-deadline: a slow-drip peer can keep a slot occupied. It does not preempt parser
+This checkpoint's socket timeout is **idle blocking I/O**, not an absolute
+deadline. A subsequent [ingress checkpoint](API_INGRESS_DEADLINE.md) adds a
+separate absolute budget for underlying header/body receives. Neither preempts parser
 hash I/O, Python handler computation, result backend operations or renderer
 work. Synchronous overflow handling can occupy the accept loop for its bounded
 read/send windows, and no hard scheduler/platform timing bound is established.

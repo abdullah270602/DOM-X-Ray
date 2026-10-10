@@ -61,7 +61,7 @@ are preserved, but result discovery and deletion usability under that churn are
 not proven by the direct backend/capability checks.
 
 Admission/origin maps, deletion-failure history, backend objects, aggregate
-memory, absolute ingress deadlines and distributed abuse controls remain
+memory, whole-request/backend deadlines and distributed abuse controls remain
 separate requirements. Local caps are not shared across instances or durable
 job orchestration. This checkpoint does not close the public API safety or
 product latency gate, and no stored user result is deleted merely to enforce

@@ -27,6 +27,18 @@ from scanner.api_contract import (  # noqa: E402
 from scanner.local_scan_api import FixtureScanExecutor, LocalScanJobService, build_server  # noqa: E402
 from scanner.result_store import FilesystemResultStore, MemoryResultStore, ResultStoreError  # noqa: E402
 from scanner.video_renderer import VideoRenderError  # noqa: E402
+from scanner.poster_renderer import PosterRenderError  # noqa: E402
+
+
+class ReportingFixtureExecutor(FixtureScanExecutor):
+    """Content-free diagnosis for the broad regression's required poster seam."""
+    def execute(self, target_url, progress):
+        try:
+            return super().execute(target_url, progress)
+        except PosterRenderError as error:
+            reason = 'timeout' if str(error) == 'poster worker did not complete (timeout)' else 'failed'
+            print(f'required seeded poster render: {reason}', flush=True)
+            raise
 
 
 def request(
@@ -227,6 +239,7 @@ def main() -> None:
         delete_token = f"dxrd_{'a' * 64}"
         reused_token = f"dxrd_{'b' * 64}"
         service = LocalScanJobService(
+            scan_executor=ReportingFixtureExecutor(),
             result_store=FilesystemResultStore(result_root, keys=(store_key,))
         )
         server = build_server("127.0.0.1", 0, service, static_root=static_root)

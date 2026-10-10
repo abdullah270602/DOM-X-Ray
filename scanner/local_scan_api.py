@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import io
 import json
 import logging
 import math
@@ -692,14 +693,19 @@ class LocalScanHttpServer(ThreadingHTTPServer):
         verbose: bool = False,
         max_http_handlers: int = 16,
         http_idle_timeout_seconds: float = 10.0,
+        http_ingress_timeout_seconds: float = 30.0,
     ) -> None:
         if type(max_http_handlers) is not int or max_http_handlers <= 0:
             raise ValueError("HTTP handler limit must be a positive integer")
         if (type(http_idle_timeout_seconds) not in (int, float)
                 or not math.isfinite(http_idle_timeout_seconds) or http_idle_timeout_seconds <= 0):
             raise ValueError("HTTP idle timeout must be positive and finite")
+        if (type(http_ingress_timeout_seconds) not in (int, float)
+                or not math.isfinite(http_ingress_timeout_seconds) or http_ingress_timeout_seconds <= 0):
+            raise ValueError("HTTP ingress timeout must be positive and finite")
         self._http_slots = threading.BoundedSemaphore(max_http_handlers)
         self.http_idle_timeout_seconds = float(http_idle_timeout_seconds)
+        self.http_ingress_timeout_seconds = float(http_ingress_timeout_seconds)
         self.service = service
         self.static_root = static_root.resolve() if static_root is not None else None
         self.verbose = verbose
@@ -738,8 +744,53 @@ class LocalScanHttpServer(ThreadingHTTPServer):
             self._http_slots.release()
 
 
+class _IngressSocketReader(io.RawIOBase):
+    """Bound every underlying receive, including BufferedReader header reads."""
+
+    def __init__(self, connection, idle_timeout: float) -> None:
+        super().__init__()
+        self.connection = connection
+        self.idle_timeout = idle_timeout
+        self.deadline: float | None = None
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        if self.closed:
+            raise ValueError("read from closed ingress stream")
+        timeout = self.idle_timeout
+        if self.deadline is not None:
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("HTTP ingress deadline exceeded")
+            timeout = min(timeout, remaining)
+        self.connection.settimeout(timeout)
+        try:
+            count = self.connection.recv_into(buffer)
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                raise TimeoutError("HTTP ingress deadline exceeded")
+            return count
+        finally:
+            self.connection.settimeout(self.idle_timeout)
+
+
 class LocalScanRequestHandler(BaseHTTPRequestHandler):
     server: LocalScanHttpServer
+
+    def setup(self) -> None:
+        super().setup()
+        self.rfile.close()
+        self._ingress_reader = _IngressSocketReader(
+            self.connection, self.server.http_idle_timeout_seconds)
+        self.rfile = io.BufferedReader(self._ingress_reader)
+
+    def handle_one_request(self) -> None:
+        self._ingress_reader.deadline = time.monotonic() + self.server.http_ingress_timeout_seconds
+        try:
+            super().handle_one_request()
+        finally:
+            self._ingress_reader.deadline = None
 
     def log_message(self, format: str, *args: object) -> None:
         if self.server.verbose:
@@ -1067,6 +1118,7 @@ def build_server(
     verbose: bool = False,
     max_http_handlers: int = 16,
     http_idle_timeout_seconds: float = 10.0,
+    http_ingress_timeout_seconds: float = 30.0,
 ) -> LocalScanHttpServer:
     return LocalScanHttpServer(
         (host, port),
@@ -1075,6 +1127,7 @@ def build_server(
         verbose=verbose,
         max_http_handlers=max_http_handlers,
         http_idle_timeout_seconds=http_idle_timeout_seconds,
+        http_ingress_timeout_seconds=http_ingress_timeout_seconds,
     )
 
 
