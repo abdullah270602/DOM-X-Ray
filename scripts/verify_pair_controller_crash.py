@@ -58,7 +58,7 @@ def witness_pipe_factory(original, cleaning, notify, phase_lock):
     return pipe
 
 
-def child(image, journal_root, results, *, announce_owner=False):
+def child(image, journal_root, results, *, announce_owner=False, announce_resources=False):
     with LeaseJournal(journal_root) as journal:
         if announce_owner:
             print('controller-owned', flush=True)
@@ -84,8 +84,14 @@ def child(image, journal_root, results, *, announce_owner=False):
                 cleaning.set()
             return original_cleanup(*args, **kwargs)
         supervisor._cleanup = cleanup
-        supervisor._pipe = witness_pipe_factory(supervisor._pipe, cleaning,
-            lambda: print('renderer-live', flush=True), phase_lock)
+        def notify():
+            if announce_resources:
+                record, = journal.snapshot()
+                require(all(r['state'] == 'created' for r in record['resources'].values()),
+                        'resource witness was not fully committed')
+                print('fixture-resources ' + json.dumps(record, separators=(',', ':')), flush=True)
+            print('renderer-live', flush=True)
+        supervisor._pipe = witness_pipe_factory(supervisor._pipe, cleaning, notify, phase_lock)
         schema, semantic = validators()
         run_public_scan_transport('https://xray.test/',
             policy=DestinationPolicy(lambda _h, _p: ['1.1.1.1']),
@@ -168,10 +174,12 @@ def main():
     parser.add_argument('--journal-root', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--results', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--announce-owner', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--announce-resources', action='store_true', help=argparse.SUPPRESS)
     options = parser.parse_args()
     if options.child:
         require(options.journal_root is not None and options.results is not None, 'child configuration missing')
-        return child(options.image, options.journal_root, options.results, announce_owner=options.announce_owner)
+        return child(options.image, options.journal_root, options.results,
+                     announce_owner=options.announce_owner, announce_resources=options.announce_resources)
     require(sys.platform == 'win32', 'this controller-tree fixture requires Windows Job Objects')
     executable = shutil.which('docker')
     require(executable is not None, 'Docker CLI missing')

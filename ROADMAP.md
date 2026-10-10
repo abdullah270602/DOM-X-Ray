@@ -161,9 +161,14 @@ An opt-in trusted-fixture check also matches its private cgroup root to the host
 path by device/inode, without new privilege or mounts. This is corroboration,
 not adversarial identity binding, and adds a transient diagnostic process.
 The retained-events observer now directly sees the selected worker candidate
-change from populated=1 to 0 during automatic recovery. Broker observation,
-adversarial identity binding and native repeatability/race coverage remain open;
-this does not close the full worker/broker cgroup release gate.
+change from populated=1 to 0 during automatic recovery. That worker-only
+checkpoint left broker observation open and did not close the full gate.
+The subsequent opt-in pre-crash pair checkpoint observes both worker and broker
+candidate handles from populated=1 to 0, with zero marker receive times after
+controller termination begins and unchanged final inventories. This closes the
+selected fixture's broker-observation gap, not independent adversarial binding
+or kernel-exact crash causality. See the same diagnostic document for scope and
+guarded final-version evidence; public scanning remains disabled.
 Native automatic recovery still passes with the read-only probe enabled;
 host/runtime identity binding and direct worker/broker empty observations remain
 open. This is diagnostic progress, not closure of the cgroup release gate.

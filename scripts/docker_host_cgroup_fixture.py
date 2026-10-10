@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import time
 from threading import Event, Thread
 
 TRANSITION_PROGRAM = r'''
@@ -58,6 +59,7 @@ class CandidateTransitionObserver:
             raise ValueError('cgroup-fixture-transition')
         executable = str(Path(shutil.which('wsl.exe')).resolve(strict=True))
         self.ready, self.empty = Event(), Event()
+        self.empty_observed_at = None
         self.process = subprocess.Popen([executable, '-d', 'docker-desktop', '-u', 'root', '--',
             'timeout', '-s', 'KILL', '40', 'sh', '-s', '--', identifier],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -80,6 +82,8 @@ class CandidateTransitionObserver:
                 second = self.process.stdout.readline(65)
                 if second not in (b'events-empty\n', b'events-empty\r\n'):
                     return
+                # Parent receive time, not the kernel transition's timestamp.
+                self.empty_observed_at = time.monotonic()
                 if self.process.stdout.read(1) == b'':
                     self.empty.set()
             except Exception:
@@ -91,12 +95,15 @@ class CandidateTransitionObserver:
         if not self.ready.wait(5) or self.process.poll() is not None:
             raise ValueError('cgroup-fixture-transition-ready')
 
-    def verify_empty(self):
+    def verify_empty(self, *, observed_after=None):
         if not self.empty.wait(5) or self.process.wait(timeout=5) != 0:
             raise ValueError('cgroup-fixture-transition-empty')
         self.reader.join(timeout=2)
         if self.reader.is_alive():
             raise ValueError('cgroup-fixture-transition-reader')
+        if observed_after is not None and (self.empty_observed_at is None
+                or self.empty_observed_at < observed_after):
+            raise ValueError('cgroup-fixture-transition-pre-crash')
 
     def close(self):
         if self.process.poll() is None:

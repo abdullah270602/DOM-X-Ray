@@ -4,6 +4,7 @@ No service installation, live-owner enforcement or overall 15-second bound.
 """
 
 import argparse
+import json
 from pathlib import Path
 import secrets
 import shutil
@@ -15,13 +16,19 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scanner.docker_worker_supervisor import LABEL
-from scanner.lease_journal import LeaseJournal, LeaseJournalBusy
+from scanner.docker_worker_supervisor import LABEL, _pairs, _invalid_constant
+from scanner.lease_journal import LeaseJournal, LeaseJournalBusy, _validate
 from scanner.lease_recovery import _name, recover_expired_leases
 from scanner.lease_recovery_poller import LeaseRecoveryPoller
 from scanner.worker_supervisor import _WindowsJob, _resume_windows_process
 from scripts.verify_pair_controller_crash import controller, inventory_guard, job_empty, wait_eligible
 from scripts.verify_pair_supervisor_contract import require
+
+
+def decode_resource_witness(line):
+    require(isinstance(line, bytes) and len(line) <= 8192 and line.endswith(b'\n')
+            and line.startswith(b'fixture-resources '), 'invalid resource witness framing')
+    return _validate(json.loads(line[18:], object_pairs_hook=_pairs, parse_constant=_invalid_constant))
 
 
 def spawn_job(arguments):
@@ -46,6 +53,7 @@ def stop_job(process, job):
     if job._handle is None:
         return
     try:
+        initiated_at = time.monotonic()
         job.terminate()
         process.wait(timeout=5)
         deadline = time.monotonic() + 5
@@ -54,6 +62,7 @@ def stop_job(process, job):
             time.sleep(0.01)
     finally:
         job.close()
+    return initiated_at
 
 
 def watch(image, root):
@@ -78,9 +87,12 @@ def main():
     parser.add_argument('--probe-host-cgroup', action='store_true', help='read-only populated cgroup-path candidate; not identity or empty proof')
     parser.add_argument('--probe-cgroup-root-identity', action='store_true', help='trusted fixture cross-view root corroboration; not adversarial binding')
     parser.add_argument('--observe-worker-cgroup-transition', action='store_true', help='host candidate events 1-to-0 observation; not full worker/broker gate')
+    parser.add_argument('--observe-pair-cgroup-transitions', action='store_true', help='attach both host candidates before controller crash; not adversarial binding')
     parser.add_argument('--watch', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--root', type=Path, help=argparse.SUPPRESS)
     options = parser.parse_args()
+    require(not (options.observe_worker_cgroup_transition and options.observe_pair_cgroup_transitions),
+            'choose worker-only or pair observation')
     if options.watch:
         return watch(options.image, options.root)
     require(sys.platform == 'win32', 'native process-tree fixture requires Windows')
@@ -98,16 +110,26 @@ def main():
     with inventory_guard(docker, before, volumes_before), tempfile.TemporaryDirectory(prefix='dxr-native-poller-') as temporary:
         results = Path(temporary) / 'results'
         results.mkdir()
-        producer, producer_job = spawn_job([ROOT / 'scripts/verify_pair_controller_crash.py', '--child',
-            '--announce-owner', '--image', image, '--journal-root', root, '--results', results])
+        producer_arguments = [ROOT / 'scripts/verify_pair_controller_crash.py', '--child',
+            '--announce-owner', '--image', image, '--journal-root', root, '--results', results]
+        if options.observe_pair_cgroup_transitions:
+            producer_arguments.append('--announce-resources')
+        producer, producer_job = spawn_job(producer_arguments)
         owner, renderer, busy, recovered = Event(), Event(), Event(), Event()
         watchers, automatic, cgroup_observer = [], False, None
+        pair_observers, resource_witness = [], []
         def read_producer():
-            while line := producer.stdout.readline(65):
+            while line := producer.stdout.readline(8193 if options.observe_pair_cgroup_transitions else 65):
                 if line in (b'controller-owned\n', b'controller-owned\r\n'):
                     owner.set()
                 elif line in (b'renderer-live\n', b'renderer-live\r\n'):
                     renderer.set()
+                elif options.observe_pair_cgroup_transitions and line.startswith(b'fixture-resources '):
+                    try:
+                        require(not resource_witness, 'duplicate resource witness')
+                        resource_witness.append(decode_resource_witness(line))
+                    except Exception:
+                        break
                 else:
                     break
         reader = Thread(target=read_producer, daemon=True)
@@ -128,7 +150,30 @@ def main():
             watch_reader.start()
             require(busy.wait(5), 'independent poller never observed busy primary')
             require(renderer.wait(15) and producer.poll() is None, 'real renderer witness missing')
-            stop_job(producer, producer_job)
+            if options.observe_pair_cgroup_transitions:
+                from scripts.docker_host_cgroup_fixture import CandidateTransitionObserver, verify_root_identity_match
+                require(len(resource_witness) == 1, 'committed pair resource witness missing')
+                witness, = resource_witness
+                probe = controller(image, None)
+                require(witness['runtimeFingerprint'] == probe.runtime_fingerprint(), 'witness runtime drift')
+                for role in ('worker', 'broker'):
+                    identifier = witness['resources'][role]['id']
+                    require(witness['resources'][role]['state'] == 'created', 'witness role not created')
+                    row = probe._inspect(identifier, time.monotonic() + 3)
+                    probe._ownership(row, _name(witness['token'], role), witness['token'], identifier)
+                    probe._preflight_role(row, role, _name(witness['token'], role), witness['token'],
+                        identifier, _name(witness['token'], 'volume'), require_unstarted=False)
+                    require(row['State']['Running'] and row['State']['Pid'] > 0, 'pair role not live before crash')
+                    observer = CandidateTransitionObserver(identifier)
+                    pair_observers.append((role, observer))
+                    observer.wait_ready()
+                    if options.probe_cgroup_root_identity:
+                        verify_root_identity_match(identifier, prefix)
+                    print('Pre-crash ' + role + ' candidate events retained with populated=1.', flush=True)
+                require(producer.poll() is None, 'controller exited during observer setup')
+                require(all(not observer.empty.is_set() and observer.process.poll() is None
+                            for _, observer in pair_observers), 'pair candidate emptied during setup')
+            termination_initiated_at = stop_job(producer, producer_job)
             require(watcher.poll() is None, 'poller died with controller Job')
             # Observe without doing recovery. The poller may briefly own the
             # journal, so retry only the typed contention result.
@@ -138,6 +183,8 @@ def main():
                 try:
                     with LeaseJournal(root, create=False) as journal:
                         record, = journal.snapshot()
+                        if options.observe_pair_cgroup_transitions:
+                            require(record == resource_witness[0], 'post-crash journal differs from witness')
                         identifier = record['resources']['worker']['id']
                         probe = controller(image, journal)
                         row = probe._inspect(identifier, time.monotonic() + 3)
@@ -150,7 +197,7 @@ def main():
                             cgroup_observer = CandidateTransitionObserver(identifier)
                             cgroup_observer.wait_ready()
                             print('Host candidate events handle retained with populated=1.', flush=True)
-                        if options.probe_cgroup_root_identity:
+                        if options.probe_cgroup_root_identity and not options.observe_pair_cgroup_transitions:
                             from scripts.docker_host_cgroup_fixture import verify_root_identity_match
                             verify_root_identity_match(identifier, prefix)
                             print('Trusted fixture private cgroup root matches host device/inode.', flush=True)
@@ -168,6 +215,9 @@ def main():
             if cgroup_observer is not None:
                 cgroup_observer.verify_empty()
                 print('Retained host candidate events handle observed populated=0.', flush=True)
+            for role, observer in pair_observers:
+                observer.verify_empty(observed_after=termination_initiated_at)
+                print('Retained ' + role + ' zero marker received after termination began.', flush=True)
             watch_reader.join(timeout=2)
             with LeaseJournal(root, create=False) as journal:
                 require(not journal.snapshot(), 'automatic recovery left obligations')
@@ -175,9 +225,9 @@ def main():
             automatic = True
         finally:
             observer_error = False
-            if cgroup_observer is not None:
+            for observer in ([cgroup_observer] if cgroup_observer is not None else []) + [o for _, o in pair_observers]:
                 try:
-                    cgroup_observer.close()
+                    observer.close()
                 except Exception:
                     observer_error = True
                     print('Host observer teardown unverified; continuing exact-resource cleanup.', flush=True)

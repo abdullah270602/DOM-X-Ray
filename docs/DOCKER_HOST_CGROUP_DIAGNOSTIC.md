@@ -133,7 +133,54 @@ must remain failures, never be replaced with engine or disappearance evidence.
 Installed supervision, race/repetition coverage and independent total-deadline
 enforcement remain open.
 
-### Remaining binding and teardown requirements
+### Pre-crash pair observation checkpoint
+
+```powershell
+python scripts/verify_pair_cgroup_witness.py
+python -O scripts/verify_pair_cgroup_witness.py
+python -u scripts/verify_native_recovery_poller.py --image sha256:d495bf5f6e49090faf092e80d04d3b3dc180ba189a3fbe18f93e8809468b4f15 --observe-pair-cgroup-transitions --probe-cgroup-root-identity
+```
+
+The opt-in trusted controller emits its fully committed resource record before
+the renderer-live marker. The parent caps the line at 8192 bytes, rejects
+duplicate/nonfinite JSON keys and invalid record schema, validates the runtime
+fingerprint, and independently inspects exact worker and broker IDs for
+ownership, isolation and live engine state. No new journal reader lock is
+taken while the original controller owns it. Both external host observers
+retain their events objects before controller termination; the optional fixed
+unprivileged root diagnostics corroborate each path. After death, the actual
+exclusive journal snapshot must equal the announced record exactly. The
+announcement is fixture metadata, not a visitor artifact or production API.
+
+Two preliminary pair runs passed before the ordering guard was added (journal
+suffixes `54c7eeec019a901e73777f081d464b92` and
+`aabe1b0edbbb6a960668f0c1da3c697b`). They are not evidence for the new ordering
+guard. Review identified that a broker could exit during observer setup; the
+fixture now rejects an observer already empty/exited at the end of setup and
+records the parent receive time of each zero marker before waiting for EOF.
+It requires these times to be at or after controller termination initiation.
+These are not kernel transition timestamps: pipe buffering/scheduling can
+delay receipt. The fixture makes no causal claim that automatic recovery,
+rather than stdin EOF or the broker's own timeout, caused the broker to exit.
+
+The final guarded version passed with fresh persistent journal suffix
+`284852dde0ee0d1647203fe07d045c8e`: both pre-crash populated handles, trusted
+root corroboration, controller Job empty, surviving separate poller and live
+worker orphan, both zero markers received after termination began, automatic
+recovery, empty journal, no admitted result, and unchanged scoped inventories.
+No manual fallback, shortened lease/grace, extra stop/remove pause, or runtime
+configuration change was used. Portable witness framing/schema and observer
+protocol tests passed normal and `-O`; timing tests reject a supplied boundary
+later than the receive time. The native host children do not inherit `-O`
+from an optimized parent; no optimized pair-child run is claimed.
+
+This addresses the missing broker observation for the selected trusted native
+fixture. It does not establish adversarial host identity binding, kernel-exact
+crash causality, production integration, independent process-tree deadline
+enforcement, or broad native race/repetition coverage. Existing worker-only
+evidence above is retained as history, not substituted for pair scope.
+
+### Remaining independent binding and deployment requirements
 
 A matching directory name is not a demonstrated host/runtime identity binding.
 The diagnostic reads once while the fixture owns the journal lock, potentially
@@ -145,6 +192,8 @@ treated as kernel emptiness.
 The [kernel cgroup-v2 documentation](https://docs.kernel.org/admin-guide/cgroup-v2.html#cgroup-events)
 defines `populated=0` as no live processes in the cgroup or descendants. A future
 observer must establish identity and directly capture that condition for both
-worker and broker without weakening isolation. Installed supervision, complete
+worker and broker without weakening isolation. The selected pair fixture now
+captures the condition, but independent binding is still unproven.
+Installed supervision, complete
 native race/crash coverage, production egress, and public release gates remain
 open.

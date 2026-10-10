@@ -121,6 +121,13 @@ def main():
             if empty:
                 observer.wait_ready()
                 observer.verify_empty()
+                observer.verify_empty(observed_after=observer.empty_observed_at)
+                try:
+                    observer.verify_empty(observed_after=observer.empty_observed_at + 1)
+                except ValueError:
+                    pass
+                else:
+                    raise RuntimeError('pre-crash receive time accepted')
             observer.close()
             require(process.stdout.closed, 'stopped reader pipe remained open')
     print('Verified candidate, cross-view and observer protocols; no native gate closure claim.')
