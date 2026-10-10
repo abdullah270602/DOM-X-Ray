@@ -62,6 +62,12 @@ video route: a diagnostic rerun reports the unchanged 15-second video-worker
 timeout and correct poster-only fallback. This remains an open regression, not
 a pass or a reason to relax the safety deadline. Backend call cost, aggregate
 memory, distributed limits and public scanning remain open.
+The [video phase diagnostic](docs/VIDEO_PHASE_DIAGNOSTIC.md) now distinguishes
+successful fixed-fixture probes from the actual seeded-gallery input: four
+gallery probes timed out with encoding unfinished, and the uninstrumented
+renderer reliability check plus broad API rerun failed. A decoder-thread trial
+did not demonstrate improvement and was removed. This is diagnostic evidence,
+not a video reliability pass; deadlines and fallback remain unchanged.
 
 **Question:** What are we allowed to show and say?
 
