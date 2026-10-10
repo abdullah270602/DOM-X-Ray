@@ -1,14 +1,17 @@
 """Portable protocol checks; these mocks are not native cgroup evidence."""
 
 from pathlib import Path
+from io import BytesIO
 import subprocess
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.docker_host_cgroup_fixture import (PROGRAM, CONTAINER_ROOT_PROGRAM,
-    HOST_ROOT_PROGRAM, verify_populated_candidate, verify_root_identity_match)
+    HOST_ROOT_PROGRAM, TRANSITION_PROGRAM, CandidateTransitionObserver,
+    verify_populated_candidate, verify_root_identity_match)
 
 
 def require(condition, message):
@@ -90,7 +93,37 @@ def main():
         else:
             raise RuntimeError('identity probe accepted invalid ID')
         require(not locate.called, 'invalid identity ID reached process setup')
-    print('Verified candidate and cross-view protocols; no native adversarial binding/empty claim.')
+    for output, ready, empty in (
+        (b'events-populated\nevents-empty\n', True, True),
+        (b'events-populated\r\nevents-empty\r\n', True, True),
+        (b'events-empty\n', False, False),
+        (b'events-populated\n', True, False),
+        (b'events-populated\nevents-empty\nextra', True, False),
+        (b'x' * 100, False, False),
+    ):
+        pipe = BytesIO()
+        process = SimpleNamespace(stdin=pipe, stdout=BytesIO(output),
+            poll=lambda: None, wait=lambda timeout: 0, kill=lambda: None)
+        with patch('scripts.docker_host_cgroup_fixture.shutil.which', return_value=__file__), \
+                patch('scripts.docker_host_cgroup_fixture.Path.resolve', return_value=Path(__file__)), \
+                patch('scripts.docker_host_cgroup_fixture.subprocess.CREATE_NO_WINDOW', 0, create=True), \
+                patch('scripts.docker_host_cgroup_fixture.subprocess.Popen', return_value=process) as launch:
+            # Keep the test input observable after the constructor closes stdin.
+            with patch.object(pipe, 'close'):
+                observer = CandidateTransitionObserver(identifier)
+            observer.reader.join(timeout=2)
+            require(not observer.reader.is_alive(), 'mock reader remained live')
+            require(observer.ready.is_set() == ready and observer.empty.is_set() == empty,
+                    'transition protocol acceptance mismatch')
+            require(pipe.getvalue() == TRANSITION_PROGRAM.encode(), 'observer input changed')
+            require(launch.call_args.args[0][-8:] == ['timeout', '-s', 'KILL', '40',
+                    'sh', '-s', '--', identifier], 'observer argument protocol changed')
+            if empty:
+                observer.wait_ready()
+                observer.verify_empty()
+            observer.close()
+            require(process.stdout.closed, 'stopped reader pipe remained open')
+    print('Verified candidate, cross-view and observer protocols; no native gate closure claim.')
 
 
 if __name__ == '__main__':

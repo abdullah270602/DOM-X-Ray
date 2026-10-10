@@ -1,7 +1,7 @@
 # Docker Desktop host cgroup diagnostic
 
-This is a fixture-only, read-only investigation. It is **not** a production
-observer, independent identity binding, or proof of worker/broker cgroup emptiness.
+This is a fixture-only investigation. It is **not** a production
+observer, adversarial identity binding, or proof of complete worker/broker teardown.
 Arbitrary public scanning remains disabled.
 
 ## Selected host observations
@@ -90,13 +90,56 @@ This is neither deadline evidence nor a forced process-tree bound. It does not
 establish the engine PID's kernel membership, broker identity, retained-handle
 observation, a transition to zero, or production-safe independent binding.
 
+### Retained worker events observation
+
+```powershell
+python -u scripts/verify_native_recovery_poller.py --image sha256:d495bf5f6e49090faf092e80d04d3b3dc180ba189a3fbe18f93e8809468b4f15 --probe-cgroup-root-identity --observe-worker-cgroup-transition
+```
+
+The host shell opens the candidate `cgroup.events` file on descriptor 3 and
+compares its device/inode to the original file path. Each subsequent read
+reopens `/proc/$$/fd/3`, referencing that retained object rather than resolving
+the container-ID pathname again. The loop uses shell builtins to parse the
+complete known events fields, requires an initial `populated=1`, and accepts
+only a later literal `populated=0`. EOF, missing fields, removal, read errors,
+changed output, and nonzero process exit are not success. A fixed Linux
+`timeout -s KILL 40` bounds the diagnostic shell; the Windows side also waits
+with timeouts. This is not a proven Windows/WSL/Linux process-tree containment
+or overall scan deadline. Killing a WSL proxy is not proof of host shell exit.
+
+Two earlier attempts failed closed. The initial `sh -c` delivery failed before
+readiness (journal suffix `a3cb3a08ff5505b9d3ae84b7c63e2b68`). Stdin delivery
+then observed one but not zero with a slower stat/cat loop (suffix
+`f8b3aa10481e52509eeef7ea0cf6716c`). Both used exact journal-authorized manual
+fallback, retained zero leases, and restored scoped inventories. Neither is
+empty-cgroup evidence.
+
+The final lower-overhead builtin-read loop passed a fresh native run (suffix
+`9fa49bfb01af1a3d3e069ec2545b7940`): retained events handle populated=1,
+trusted private-root match, live orphan, automatic cleanup, direct populated=0,
+empty journal, no result, unchanged scoped inventories. No manual fallback was
+used in this passing run. No stop/remove delay or lease/grace override was
+introduced. Portable mock protocols passed normal and optimized runs for
+ordered markers, CRLF, missing markers, initial-zero rejection, overlong and
+extra output rejection, fixed stdin/arguments, and pipe closure after reader
+termination. They do not test kernel semantics or provide native repeatability.
+
+This is selected worker-only kernel observation, not the full release gate.
+The events object is pinned, but adversarial host/runtime identity binding is
+not demonstrated; root matching still uses a trusted fixture diagnostic. The
+broker is not observed before controller death. Setup holds the journal lock
+and may delay recovery. Polling can miss a brief zero before removal; failures
+must remain failures, never be replaced with engine or disappearance evidence.
+Installed supervision, race/repetition coverage and independent total-deadline
+enforcement remain open.
+
 ### Remaining binding and teardown requirements
 
 A matching directory name is not a demonstrated host/runtime identity binding.
 The diagnostic reads once while the fixture owns the journal lock, potentially
 delaying recovery during setup; it provides no overall controller-death bound.
-It does not observe a transition to zero or retain an independently bound
-cgroup handle. Disappearance and Docker stopped/PID-zero reports must not be
+The basic candidate probe does not observe a transition to zero; the opt-in
+observer does, but lacks independent binding. Disappearance and Docker stopped/PID-zero reports must not be
 treated as kernel emptiness.
 
 The [kernel cgroup-v2 documentation](https://docs.kernel.org/admin-guide/cgroup-v2.html#cgroup-events)

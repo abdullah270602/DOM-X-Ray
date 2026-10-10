@@ -1,13 +1,111 @@
-"""Host path candidate and trusted-fixture root corroboration, not empty proof.
+"""Host candidate diagnostics including an opt-in retained events observation.
 
 The optional container diagnostic creates a transient unprivileged exec process;
 it is not an adversarial identity binding or production observer.
+Worker-only observed transitions do not close the worker/broker release gate.
 """
 
 from pathlib import Path
 import re
 import shutil
 import subprocess
+from threading import Event, Thread
+
+TRANSITION_PROGRAM = r'''
+set -eu
+set -f
+directory="/sys/fs/cgroup/docker/$1"
+[ -d "$directory" ] && [ ! -L "$directory" ]
+[ "$(stat -fc %t "$directory")" = "63677270" ]
+[ -f "$directory/cgroup.events" ] && [ ! -L "$directory/cgroup.events" ]
+exec 3< "$directory/cgroup.events"
+descriptor="/proc/$$/fd/3"
+identity="$(stat -Lc '%d:%i' "$descriptor")"
+[ "$identity" = "$(stat -c '%d:%i' "$directory/cgroup.events")" ]
+first=1
+while :; do
+    populated=''
+    frozen=''
+    while read -r key value extra; do
+        [ -z "$extra" ]
+        case "$key" in
+            populated) [ -z "$populated" ]; populated="$value" ;;
+            frozen) [ -z "$frozen" ]; frozen="$value" ;;
+            *) exit 2 ;;
+        esac
+    done < "$descriptor"
+    [ "$frozen" = 0 ] || [ "$frozen" = 1 ]
+    if [ "$first" = 1 ]; then
+        [ "$populated" = 1 ]
+        printf 'events-populated\n'
+        first=0
+    elif [ "$populated" = 0 ]; then
+        printf 'events-empty\n'
+        exit 0
+    else
+        [ "$populated" = 1 ]
+    fi
+    sleep 0.001
+done
+'''
+
+
+class CandidateTransitionObserver:
+    """Direct host events observation; candidate identity is not adversarially bound."""
+
+    def __init__(self, identifier):
+        if not isinstance(identifier, str) or not re.fullmatch('[0-9a-f]{64}', identifier):
+            raise ValueError('cgroup-fixture-transition')
+        executable = str(Path(shutil.which('wsl.exe')).resolve(strict=True))
+        self.ready, self.empty = Event(), Event()
+        self.process = subprocess.Popen([executable, '-d', 'docker-desktop', '-u', 'root', '--',
+            'timeout', '-s', 'KILL', '40', 'sh', '-s', '--', identifier],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            self.process.stdin.write(TRANSITION_PROGRAM.encode())
+            self.process.stdin.close()
+        except Exception:
+            self.process.kill()
+            self.process.wait(timeout=5)
+            self.process.stdout.close()
+            self.process.stdin.close()
+            raise
+        def read():
+            try:
+                first = self.process.stdout.readline(65)
+                if first not in (b'events-populated\n', b'events-populated\r\n'):
+                    return
+                self.ready.set()
+                second = self.process.stdout.readline(65)
+                if second not in (b'events-empty\n', b'events-empty\r\n'):
+                    return
+                if self.process.stdout.read(1) == b'':
+                    self.empty.set()
+            except Exception:
+                return  # No positive protocol event on a read error.
+        self.reader = Thread(target=read, daemon=True)
+        self.reader.start()
+
+    def wait_ready(self):
+        if not self.ready.wait(5) or self.process.poll() is not None:
+            raise ValueError('cgroup-fixture-transition-ready')
+
+    def verify_empty(self):
+        if not self.empty.wait(5) or self.process.wait(timeout=5) != 0:
+            raise ValueError('cgroup-fixture-transition-empty')
+        self.reader.join(timeout=2)
+        if self.reader.is_alive():
+            raise ValueError('cgroup-fixture-transition-reader')
+
+    def close(self):
+        if self.process.poll() is None:
+            self.process.kill()
+        self.process.wait(timeout=5)
+        self.reader.join(timeout=2)
+        # Do not close a buffered pipe while its reader owns the lock.
+        if not self.reader.is_alive():
+            self.process.stdout.close()
 
 # Fixed shell program; immutable container ID is a positional argument, not code.
 PROGRAM = r'''

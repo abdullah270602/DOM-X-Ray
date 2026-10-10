@@ -160,6 +160,10 @@ observes a populated cgroup-v2 path candidate matching the owned worker ID.
 An opt-in trusted-fixture check also matches its private cgroup root to the host
 path by device/inode, without new privilege or mounts. This is corroboration,
 not adversarial identity binding, and adds a transient diagnostic process.
+The retained-events observer now directly sees the selected worker candidate
+change from populated=1 to 0 during automatic recovery. Broker observation,
+adversarial identity binding and native repeatability/race coverage remain open;
+this does not close the full worker/broker cgroup release gate.
 Native automatic recovery still passes with the read-only probe enabled;
 host/runtime identity binding and direct worker/broker empty observations remain
 open. This is diagnostic progress, not closure of the cgroup release gate.

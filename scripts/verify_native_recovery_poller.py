@@ -77,6 +77,7 @@ def main():
     parser.add_argument('--image', default='dom-x-ray-runtime-candidate:gate3-profile')
     parser.add_argument('--probe-host-cgroup', action='store_true', help='read-only populated cgroup-path candidate; not identity or empty proof')
     parser.add_argument('--probe-cgroup-root-identity', action='store_true', help='trusted fixture cross-view root corroboration; not adversarial binding')
+    parser.add_argument('--observe-worker-cgroup-transition', action='store_true', help='host candidate events 1-to-0 observation; not full worker/broker gate')
     parser.add_argument('--watch', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--root', type=Path, help=argparse.SUPPRESS)
     options = parser.parse_args()
@@ -100,7 +101,7 @@ def main():
         producer, producer_job = spawn_job([ROOT / 'scripts/verify_pair_controller_crash.py', '--child',
             '--announce-owner', '--image', image, '--journal-root', root, '--results', results])
         owner, renderer, busy, recovered = Event(), Event(), Event(), Event()
-        watchers, automatic = [], False
+        watchers, automatic, cgroup_observer = [], False, None
         def read_producer():
             while line := producer.stdout.readline(65):
                 if line in (b'controller-owned\n', b'controller-owned\r\n'):
@@ -144,6 +145,11 @@ def main():
                         probe._preflight_role(row, 'worker', _name(record['token'], 'worker'), record['token'],
                             identifier, _name(record['token'], 'volume'), require_unstarted=False)
                         require(row['State']['Running'] and row['State']['Pid'] > 0, 'live orphan was not observed')
+                        if options.observe_worker_cgroup_transition:
+                            from scripts.docker_host_cgroup_fixture import CandidateTransitionObserver
+                            cgroup_observer = CandidateTransitionObserver(identifier)
+                            cgroup_observer.wait_ready()
+                            print('Host candidate events handle retained with populated=1.', flush=True)
                         if options.probe_cgroup_root_identity:
                             from scripts.docker_host_cgroup_fixture import verify_root_identity_match
                             verify_root_identity_match(identifier, prefix)
@@ -159,12 +165,22 @@ def main():
             print('Controller Job empty; separate poller alive; exact owned worker still running.', flush=True)
             require(recovered.wait(35), 'poller did not automatically recover eligible orphan')
             require(watcher.wait(timeout=5) == 0, 'poller exited without verified recovery')
+            if cgroup_observer is not None:
+                cgroup_observer.verify_empty()
+                print('Retained host candidate events handle observed populated=0.', flush=True)
             watch_reader.join(timeout=2)
             with LeaseJournal(root, create=False) as journal:
                 require(not journal.snapshot(), 'automatic recovery left obligations')
             require(not any(results.rglob('worker-result.json')), 'crash admitted a result artifact')
             automatic = True
         finally:
+            observer_error = False
+            if cgroup_observer is not None:
+                try:
+                    cgroup_observer.close()
+                except Exception:
+                    observer_error = True
+                    print('Host observer teardown unverified; continuing exact-resource cleanup.', flush=True)
             try:
                 stop_job(producer, producer_job)
             finally:
@@ -185,6 +201,7 @@ def main():
                         wait_eligible(record)
                     report = recover_expired_leases(controller(image, journal))
                     print('Failed-fixture manual recovery retained leases=' + str(report.retained), flush=True)
+            require(not observer_error or not automatic, 'successful fixture observer teardown failed')
     print('Verified independent polling survives controller-tree death, honors busy ownership, '
           'automatically cleans the real eligible orphan and publishes no result. '
           'Overall death deadline, restart persistence and deployment remain open.')
