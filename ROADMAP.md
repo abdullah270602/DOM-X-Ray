@@ -29,6 +29,11 @@ or mismatched configuration before storage, job-pool and server startup. Normal
 and optimized configuration tests pass real pin checks with mocked hosting;
 default mode remains seeded-only. Pin provenance/distribution, bounded runtime,
 deployed configuration and public capture integration are still open.
+Actual isolated local CLI runs now pass normal and optimized API-child modes,
+with real loopback parser rejection, seeded canonical publication and filesystem
+storage, wrong-pin startup refusal before data creation, and exact owned Windows
+Job cleanup. This closes the local mocked-hosting gap, not production deployment,
+public capture, independent Linux binding or the submit-to-reveal latency gate.
 
 **Question:** What are we allowed to show and say?
 

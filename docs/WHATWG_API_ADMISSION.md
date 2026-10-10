@@ -121,7 +121,46 @@ deployment. The real loopback admission test and API schema suite passed again
 after this wiring change. Earlier service/publication proof remains separate
 evidence; no default policy or scan deadline changed.
 
-### Remaining deployment requirements
+### Real isolated local CLI checkpoint
+
+```powershell
+python scripts/verify_whatwg_api_cli.py
+python -O scripts/verify_whatwg_api_cli.py
+```
+
+Both final native Windows runs passed. Unlike the preceding mocked-hosting
+configuration check, this fixture invokes the production CLI `main()` in a real
+isolated child wrapper, with explicit pins, loopback-only host, an ephemeral
+port and fresh temporary filesystem storage. The process is assigned to its
+owned Windows Job while suspended, then resumed. It verifies isolated mode and
+the expected parent optimization level before CLI startup. The optimized run
+checks the actual API child, not just the parent harness; it does not propagate
+optimization into fixture/render children or the Node runtime.
+
+A capped startup frame identifies the actual port. Real HTTP checks prove
+health still declares arbitrary scanning disabled, empty-query input is
+rejected by the configured parser, an unsupported public URL stays disabled,
+and a default-port/dot-path gallery URL reaches a ready canonical seeded result
+whose schema and cross-bindings validate. This uses the real supervised seeded
+executor, mapping/artifact pipeline and filesystem result backend. The preceding
+publication checkpoint separately establishes exact binary export routes;
+this CLI fixture checks the ready bundle, not those binary routes again.
+
+A separate invalid-executable-pin CLI child exits with code 2, no startup frame
+and no data directory. Combined with the startup ordering checks, this proves
+the selected invalid configuration fails before storage/hosting. Both owned
+Jobs are terminated and verified empty; the startup reader is joined before
+its buffered pipe is closed. Temporary test storage is removed by fixture
+cleanup, and no pre-existing preview, result directory or user data is altered.
+
+The normal/optimized mocked configuration suite passed again. This checkpoint
+is real local CLI integration, not a deployed production process, installer,
+restart supervisor, hard observation deadline or public scanner. Its thirty-
+second publication observation budget changes no execution deadline and does
+not prove the product latency target. Test-only current-file hashes still do
+not establish independent binary provenance or distributed release pins.
+
+### Open production deployment requirements
 
 Deployment still must supply reviewed immutable pins and a bounded parser
 runtime, integrate the selected production executor/resolver/egress and broker
