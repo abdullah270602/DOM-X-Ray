@@ -1,6 +1,6 @@
 """Local same-origin scan API proving jobs, transport admission, and results.
 
-This server deliberately accepts only the three seeded fixture targets. It uses
+The default server deliberately accepts only the three seeded fixture targets. It uses
 the real transport supervisor and deterministic mapping pipeline, but it is not
 the production public-egress boundary described by ``docs/THREAT_MODEL.md``.
 """
@@ -130,6 +130,8 @@ class ScanExecution:
 
 
 def _canonical_target(url: str) -> str:
+    if not isinstance(url, str) or "?" in url or "#" in url:
+        raise ValueError("target contains forbidden data delimiters")
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("target is not an absolute HTTP(S) URL")
@@ -141,15 +143,42 @@ def _canonical_target(url: str) -> str:
     return urlunsplit((parsed.scheme.lower(), f"{host}{port}", parsed.path or "/", "", ""))
 
 
-class FixtureScanExecutor:
-    """Seed-only executor that still crosses the real supervised transport seam."""
+class TransportScanExecutor:
+    """Explicit operator transport configuration, never visitor-selected launch code.
+
+    This adapter does not attest deployment containment or enable a CLI public
+    scanner. Only configured exact targets reach its destination/worker gates.
+    """
 
     def __init__(
         self,
+        *,
+        supported_targets: tuple[str, ...],
+        policy_factory: Callable[[], DestinationPolicy],
+        launch_worker: Callable[[PublicScanGrant, Path], WorkerLaunch],
+        worker_supervisor: Callable | None = None,
+        deadline_seconds: float = 15.0,
         result_id_factory: Callable[[], str] | None = None,
         poster_renderer: Callable[[dict[str, Any]], bytes] = render_poster_png,
         video_renderer: Callable[[dict[str, Any]], bytes] = render_video_mp4,
     ) -> None:
+        if (not isinstance(supported_targets, tuple) or not supported_targets
+                or any(not isinstance(target, str) or _canonical_target(target) != target
+                       for target in supported_targets)
+                or len(set(supported_targets)) != len(supported_targets)):
+            raise ValueError("supported targets must be distinct canonical exact URLs")
+        if (not callable(policy_factory) or not callable(launch_worker)
+                or (worker_supervisor is not None and not callable(worker_supervisor))
+                or type(deadline_seconds) not in (int, float)
+                or not 1 <= deadline_seconds <= 15
+                or not callable(poster_renderer) or not callable(video_renderer)
+                or (result_id_factory is not None and not callable(result_id_factory))):
+            raise ValueError("invalid operator transport configuration")
+        self._supported_targets = frozenset(supported_targets)
+        self._policy_factory = policy_factory
+        self._launch_worker = launch_worker
+        self._worker_supervisor = worker_supervisor
+        self._deadline_seconds = deadline_seconds
         self._schema_validator = Draft202012Validator(
             SCAN_SCHEMA,
             format_checker=FormatChecker(),
@@ -158,14 +187,11 @@ class FixtureScanExecutor:
         self._poster_renderer = poster_renderer
         self._video_renderer = video_renderer
 
-    def _fixture_name(self, target_url: str) -> str | None:
-        try:
-            return SEEDED_TARGETS.get(_canonical_target(target_url))
-        except (ValueError, TypeError):
-            return None
-
     def supports(self, target_url: str) -> bool:
-        return self._fixture_name(target_url) is not None
+        try:
+            return _canonical_target(target_url) in self._supported_targets
+        except (ValueError, TypeError):
+            return False
 
     def _validate_schema(self, record: dict[str, Any]) -> None:
         errors = sorted(self._schema_validator.iter_errors(record), key=lambda error: list(error.path))
@@ -180,37 +206,27 @@ class FixtureScanExecutor:
         target_url: str,
         progress: Callable[[str], None],
     ) -> ScanExecution:
-        fixture_name = self._fixture_name(target_url)
-        if fixture_name is None:
+        if not self.supports(target_url):
             raise ScanExecutionError("scanner-disabled")
-        record_path = FIXTURE_DIR / f"{fixture_name}.json"
-
-        def resolver(hostname: str, _port: int) -> list[str]:
-            if hostname not in {"clean.example", "gallery.example", "newsroom.example"}:
-                raise RuntimeError("seed resolver refused an unknown host")
-            return [PUBLIC_FIXTURE_ADDRESS]
-
-        def launch_worker(_grant: PublicScanGrant, result_path: Path) -> WorkerLaunch:
-            return WorkerLaunch(
-                command=(
-                    sys.executable,
-                    str(FIXTURE_WORKER),
-                    "valid",
-                    str(record_path),
-                    str(result_path),
-                ),
-                cwd=ROOT,
-            )
+        # Resolver lookup/lifetime budgets must be created for this scan, not
+        # consumed across all future jobs by an API-startup policy instance.
+        try:
+            policy = self._policy_factory()
+        except Exception:
+            raise ScanExecutionError("internal-error") from None
+        if not isinstance(policy, DestinationPolicy):
+            raise ScanExecutionError("internal-error")
 
         progress("capturing")
         try:
             transport = run_public_scan_transport(
                 target_url,
-                policy=DestinationPolicy(resolver),
-                launch_worker=launch_worker,
+                policy=policy,
+                launch_worker=self._launch_worker,
+                worker_supervisor=self._worker_supervisor,
                 schema_validator=self._validate_schema,
                 semantic_validator=self._validate_semantics,
-                deadline_seconds=3,
+                deadline_seconds=self._deadline_seconds,
             )
         except DestinationPolicyError as error:
             raise ScanExecutionError("invalid-target") from error
@@ -294,6 +310,34 @@ class FixtureScanExecutor:
                 }
                 validate_viewer_bundle(bundle)
         return ScanExecution(bundle=bundle, artifacts=artifacts)
+
+
+class FixtureScanExecutor(TransportScanExecutor):
+    """Default seed-only configuration of the shared transport/mapping seam."""
+
+    def __init__(
+        self,
+        result_id_factory: Callable[[], str] | None = None,
+        poster_renderer: Callable[[dict[str, Any]], bytes] = render_poster_png,
+        video_renderer: Callable[[dict[str, Any]], bytes] = render_video_mp4,
+    ) -> None:
+        def resolver(hostname: str, _port: int) -> list[str]:
+            if hostname not in {"clean.example", "gallery.example", "newsroom.example"}:
+                raise RuntimeError("seed resolver refused an unknown host")
+            return [PUBLIC_FIXTURE_ADDRESS]
+
+        def launch_worker(grant: PublicScanGrant, result_path: Path) -> WorkerLaunch:
+            fixture_name = SEEDED_TARGETS[_canonical_target(grant.target_url)]
+            return WorkerLaunch(
+                command=(sys.executable, str(FIXTURE_WORKER), "valid",
+                         str(FIXTURE_DIR / f"{fixture_name}.json"), str(result_path)),
+                cwd=ROOT,
+            )
+
+        super().__init__(supported_targets=tuple(SEEDED_TARGETS),
+            policy_factory=lambda: DestinationPolicy(resolver), launch_worker=launch_worker,
+            deadline_seconds=3, result_id_factory=result_id_factory,
+            poster_renderer=poster_renderer, video_renderer=video_renderer)
 
 
 @dataclass

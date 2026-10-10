@@ -390,6 +390,18 @@ Pivot rule: high completion with low comprehension means simplify the mapping an
 
 ## Gate 3 — Real public-page scanner
 
+The [shared transport-to-API executor checkpoint](docs/TRANSPORT_API_EXECUTOR.md)
+separates trusted transport configuration from the shared mapping/artifact path
+while preserving the default three seeded targets. Portable normal/optimized
+adapter controls pass; an intermediate normal seeded API regression passed, but
+the final-version normal rerun failed the required video route. Native reserved-
+origin pair-to-API publication failed closed twice under unchanged leases; one
+exact recovery succeeded and the first missing-volume proof remains journaled.
+A broad optimized API run also failed its required video route on the unchanged
+renderer timeout. Neither native publication nor full optimized regression is
+claimed, nor is a final-version full normal pass; arbitrary scanning and
+production adoption remain gated.
+
 **Question:** Can real pages be captured consistently, safely, and fast enough?
 
 Current status: **local anonymous job/publication proof implemented; arbitrary public scanning remains deliberately disabled**. A transport-backed seeded API now admits three exact HTTPS fixtures, crosses the scanner worker and validation boundaries, exposes bounded queued/running/ready/rejected/failed jobs, publishes immutable ETag-bound viewer bundles, and serves restart-stable result routes from a staged local file store. Eligible results also publish a server-controlled, no-network Chromium poster sidecar before the JSON commit envelope; it is a strict 1080 × 1080 RGBA non-interlaced PNG with exact manifest SHA/length binding and verified GET/HEAD/304 delivery. Browser-minted no-login deletion, keyed-digest storage, tombstoned result-ID retirement, 24-hour engineering retention, exact reuse, expiry recovery, concurrency bounds, target correlation, admission cooling, content-free misses, and honest `scanner-disabled` rejection are verified. Production work still requires address-pinned HTTPS egress, process/container isolation, distributed storage and rate limits, an approved retention/takedown policy, scanner identity and opt-out policy, and the representative 100-URL corpus.
