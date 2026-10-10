@@ -88,6 +88,14 @@ remain open, not satisfied by portable command-shape controls.
 
 **Question:** What are we allowed to show and say?
 
+The [admission-capacity checkpoint](docs/ADMISSION_CAPACITY.md) bounds local
+target/origin maps without evicting active work or bypassing existing reuse and
+cooling. Normal/optimized primitive and HTTP/HMAC controls pass, including late
+completion beyond the duplicate window. Active records now require explicit
+completion/abandonment; orphan recovery cannot rely on TTL eviction. Aggregate
+memory, fairness, durable/distributed enforcement and production integration
+remain open; public scanning stays disabled.
+
 Deliverables:
 
 - Durable product record and explicit V1 exclusions.

@@ -59,13 +59,27 @@ class ScanAdmissionGate:
         duplicate_window_seconds: float,
         origin_cooling_seconds: float,
         clock: Callable[[], float] = time.monotonic,
+        max_target_reservations: int = 4096,
+        max_origin_reservations: int = 4096,
     ) -> None:
-        if duplicate_window_seconds <= 0 or origin_cooling_seconds <= 0:
-            raise ValueError("admission windows must be positive")
+        for window in (duplicate_window_seconds, origin_cooling_seconds):
+            if type(window) not in (int, float):
+                raise ValueError("admission windows must be positive and finite")
+            try:
+                valid = math.isfinite(window) and window > 0
+            except OverflowError:
+                valid = False
+            if not valid:
+                raise ValueError("admission windows must be positive and finite")
+        for limit in (max_target_reservations, max_origin_reservations):
+            if type(limit) is not int or limit <= 0:
+                raise ValueError("admission capacities must be positive integers")
         if duplicate_window_seconds < origin_cooling_seconds:
             raise ValueError("duplicate window must cover the origin cooling window")
         self.duplicate_window_seconds = float(duplicate_window_seconds)
         self.origin_cooling_seconds = float(origin_cooling_seconds)
+        self.max_target_reservations = max_target_reservations
+        self.max_origin_reservations = max_origin_reservations
         self._clock = clock
         self._targets: dict[str, _TargetReservation] = {}
         self._origins: dict[str, float] = {}
@@ -89,7 +103,8 @@ class ScanAdmissionGate:
         self._targets = {
             key: reservation
             for key, reservation in self._targets.items()
-            if now - reservation.reserved_at < self.duplicate_window_seconds
+            if reservation.result_id is None
+            or now - reservation.reserved_at < self.duplicate_window_seconds
         }
         self._origins = {
             key: reserved_at
@@ -130,6 +145,18 @@ class ScanAdmissionGate:
                         now,
                     ),
                 )
+
+            waits = []
+            if len(self._targets) >= self.max_target_reservations:
+                expiries = [reservation.reserved_at + self.duplicate_window_seconds
+                            for reservation in self._targets.values() if reservation.result_id is not None]
+                waits.append(self._retry_after(min(expiries), now) if expiries else 1)
+            if len(self._origins) >= self.max_origin_reservations:
+                waits.append(self._retry_after(
+                    min(self._origins.values()) + self.origin_cooling_seconds, now))
+            if waits:
+                return AdmissionDecision(action="reject", reason="admission-capacity",
+                                         retry_after_seconds=max(waits))
 
             self._targets[target] = _TargetReservation(reserved_at=now)
             self._origins[origin] = now
