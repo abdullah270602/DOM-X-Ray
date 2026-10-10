@@ -846,18 +846,35 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
 
-    def _rejected_body(self, status: int) -> None:
+    def _rejected_body(self, status: int, *, close: bool = False) -> None:
         job = self.server.service.reject_submission()
-        self._send_json(status, job, headers={"Cache-Control": "no-store"})
+        headers = {"Cache-Control": "no-store"}
+        if close:
+            self.close_connection = True
+            headers["Connection"] = "close"
+        self._send_json(status, job, headers=headers)
+
+    def _bounded_content_length(self, *, required: bool) -> int:
+        # This fixed-length API never decodes transfer codings. Do not choose
+        # one interpretation of duplicate/combined framing fields.
+        if self.headers.get_all("Transfer-Encoding", []):
+            raise ValueError("unsupported request framing")
+        lengths = self.headers.get_all("Content-Length", [])
+        if not lengths and not required:
+            return 0
+        if len(lengths) != 1:
+            raise ValueError("ambiguous request framing")
+        value = lengths[0].strip(" \t")
+        if re.fullmatch(r"[0-9]+", value) is None:
+            raise ValueError("invalid request framing")
+        value = value.lstrip("0") or "0"
+        if len(value) > len(str(MAX_REQUEST_BODY_BYTES)):
+            return MAX_REQUEST_BODY_BYTES + 1
+        return int(value)
 
     def _drain_bounded_request_body(self) -> bool:
-        if self.headers.get("Transfer-Encoding") is not None:
-            return False
-        raw_length = self.headers.get("Content-Length")
-        if raw_length is None:
-            return True
         try:
-            content_length = int(raw_length)
+            content_length = self._bounded_content_length(required=False)
         except ValueError:
             return False
         if content_length < 0 or content_length > MAX_REQUEST_BODY_BYTES:
@@ -886,22 +903,27 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
         if self._reject_artifact_method(path):
             return
         if path != "/api/scans":
-            self._send_json(HTTPStatus.NOT_FOUND, {"error": "not-found"})
+            self.close_connection = True
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "not-found"},
+                            headers={"Cache-Control": "no-store", "Connection": "close"})
+            return
+        try:
+            content_length = self._bounded_content_length(required=True)
+        except ValueError:
+            self._rejected_body(HTTPStatus.BAD_REQUEST, close=True)
+            return
+        if content_length < 0 or content_length > MAX_REQUEST_BODY_BYTES:
+            self._rejected_body(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, close=True)
             return
         media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
         if media_type != "application/json":
-            self._rejected_body(HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
-            return
-        try:
-            content_length = int(self.headers.get("Content-Length", ""))
-        except ValueError:
-            self._rejected_body(HTTPStatus.BAD_REQUEST)
-            return
-        if content_length < 0 or content_length > MAX_REQUEST_BODY_BYTES:
-            self._rejected_body(HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            self._rejected_body(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, close=True)
             return
         try:
             raw = self.rfile.read(content_length)
+            if len(raw) != content_length:
+                self._rejected_body(HTTPStatus.BAD_REQUEST, close=True)
+                return
             body = json.loads(raw.decode("utf-8"))
             target_url = validate_submission(body)
         except (UnicodeError, json.JSONDecodeError, ApiContractError):

@@ -55,6 +55,13 @@ deployment remain open. One broad seeded API run failed before publication;
 its diagnostic rerun and subsequent final-version full suite passed publication,
 poster/video routes, restart and deletion. The failed run is not counted as a
 pass; intermittent renderer reliability is not established by these successes.
+The [request-framing checkpoint](docs/API_REQUEST_FRAMING.md) rejects ambiguous
+lengths, transfer codings and EOF-short bodies before scan admission, and closes
+unread rejected POST bodies explicitly. Final normal/optimized raw loopback and
+ingress controls pass; a full normal seeded API regression also passes real
+poster/video, restart and deletion. This fixed-length HTTP/1.0 endpoint evidence
+does not establish general HTTP/1.1 support, deployed proxy-chain safety or
+representative renderer reliability. Public scanning remains disabled.
 The [terminal-job history checkpoint](docs/API_JOB_HISTORY.md) now caps retained
 terminal polling metadata while preserving queued/running jobs and independent
 result/deletion authority. Normal/optimized checks pass active preservation,
