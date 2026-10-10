@@ -44,13 +44,53 @@ public DNS/origin egress, or actual browser capture. The existing unconfigured
 seeded HTTP regression separately passed actual supervised fixture admission,
 publication, restart/deletion and poster/video route checks. The API contract
 suite passed submission, lifecycle and three bundle binding controls. These
-separate scopes must not be combined into a public production claim.
+separate scopes must not be combined into a public production claim. The
+subsequent configured-parser publication evidence is recorded below.
 
 An initial test exposed that `rejected/internal-error` violates the existing
 job schema. That run failed; the corrected `failed/internal-error` mapping was
 verified by the final normal and optimized runs. No schema was relaxed.
 
 ## Remaining release integration
+
+### Configured-parser seeded publication checkpoint
+
+```powershell
+python scripts/verify_whatwg_api_publication.py
+python -O scripts/verify_whatwg_api_publication.py
+```
+
+Both final runs passed with the actual pinned parser, real loopback HTTP API,
+real supervised `FixtureScanExecutor`, mapping pipeline, poster/video generation
+and `MemoryResultStore` publication. A raw default-port/dot-path gallery URL
+became the canonical requested identity before execution, produced a schema-
+and cross-binding-valid ready bundle, and reused the same result when submitted
+in canonical spelling. Binary GET/HEAD/conditional ETag checks verified exact
+manifest hashes, byte lengths, media types and no-store headers for both exports.
+
+Two negative controls replayed the real schema-valid fixture execution: its
+gallery record returned for a clean request, and its correct gallery record
+returned after the parser guard became unavailable. Both produced fixed
+`failed/internal-error` jobs, never called storage publication, left the result
+absent in their fresh memory backends, and exposed no private parser canary.
+These controlled executor seams isolate the publication checks; they are not
+additional browser captures. The admitted positive execution remains the real
+supervised seeded transport, not public-origin scanning.
+
+The first run failed its five-second **observation** timeout and drained service
+work before terminating. It is not a pass. The final harness waits up to thirty
+seconds for publication, without changing scan/renderer execution deadlines.
+This does not establish the twenty-second product target or p90 performance.
+`-O` here covers the test/API process, not propagation into fixture/render child
+processes. No deployed restart/storage/CDN or public scanner proof is claimed.
+
+The admission suite passed again normally and optimized after extracting its
+shared test-only parser constructor. Test-derived exact-file hashes establish
+pin enforcement for that exercised instance, not independent pin provenance or
+production pin distribution. No default API/CLI configuration or scanner release
+gate was enabled by this evidence checkpoint.
+
+### Deployment requirements
 
 Deployment still must supply reviewed immutable pins and a bounded parser
 runtime, integrate the selected production executor/resolver/egress and broker

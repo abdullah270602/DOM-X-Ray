@@ -32,12 +32,16 @@ class Executor:
         raise ScanExecutionError('capture-failed')
 
 
-def main():
+def fixture_parser():
     # Test-only pins derived from selected files, never deployment defaults.
     node = Path(shutil.which('node')).resolve(strict=True)
-    parser = WhatwgUrlParser(node, **{key: hashlib.sha256(path.read_bytes()).hexdigest()
+    return WhatwgUrlParser(node, **{key: hashlib.sha256(path.read_bytes()).hexdigest()
         for key, path in [('node_sha256', node), ('module_sha256', ROOT / 'shared/public_url.mjs'),
                           ('worker_sha256', ROOT / 'scanner/public_url_worker.mjs')]})
+
+
+def main():
+    parser = fixture_parser()
     executor = Executor()
     service = LocalScanJobService(executor, target_parser=parser, max_workers=1)
     server = build_server('127.0.0.1', 0, service, static_root=None)

@@ -64,8 +64,10 @@ optimized checks passed after this change.
 
 The subsequent [API admission checkpoint](WHATWG_API_ADMISSION.md) adds an
 explicitly configured pinned parser to the job service. Real loopback rejection,
-canonical queue/deduplication and helper identity checks pass; configured-parser
-publication, production CLI/image/broker adoption and public egress remain open.
+canonical queue/deduplication and helper identity checks pass. Its subsequent
+configured-parser seeded HTTP publication test passes actual supervised fixture
+execution, exports, reuse and no-publication controls; production CLI/image/
+broker adoption and public egress remain open.
 
 - At this checkpoint relative `Location` resolution used Python `urljoin`.
   [The subsequent relative-resolution checkpoint](RELATIVE_URL_RESOLUTION.md)

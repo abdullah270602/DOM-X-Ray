@@ -17,9 +17,13 @@ A public, no-login visitor can submit a supported public desktop URL; receive a 
 The [opt-in API WHATWG checkpoint](docs/WHATWG_API_ADMISSION.md) now canonicalizes
 initial targets before support, deduplication and queueing, with fixed parser
 faults and strict result identity checks. Real loopback normal/optimized tests
-and existing seeded API regressions pass. Deployment parser pins/configuration,
-configured-parser successful publication and public executor integration remain
-open; this does not enable arbitrary scanning or close the release gate.
+and existing seeded API regressions pass. A subsequent normal/optimized API
+process checkpoint proves configured-parser seeded HTTP publication, exact
+poster/video routes, canonical reuse, and no publication for valid wrong-target
+or result-time parser-fault controls. Deployment parser pins/configuration and
+public executor integration remain open; this does not enable arbitrary
+scanning or close the release gate. Its observation budget is not the product
+latency target, and child optimization propagation is not claimed.
 
 **Question:** What are we allowed to show and say?
 
