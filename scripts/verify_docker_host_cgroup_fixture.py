@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.docker_host_cgroup_fixture import (PROGRAM, CONTAINER_ROOT_PROGRAM,
     HOST_ROOT_PROGRAM, TRANSITION_PROGRAM, CandidateTransitionObserver,
+    MEMBERSHIP_PROGRAM, verify_engine_pid_membership,
     verify_populated_candidate, verify_root_identity_match)
 
 
@@ -130,7 +131,38 @@ def main():
                     raise RuntimeError('pre-crash receive time accepted')
             observer.close()
             require(process.stdout.closed, 'stopped reader pipe remained open')
-    print('Verified candidate, cross-view and observer protocols; no native gate closure claim.')
+    for code, output, accepted in (
+        (0, b'membership-matched\n', True),
+        (0, b'membership-matched\r\n', True),
+        (1, b'membership-matched\n', False),
+        (2, b'membership-not-visible\n', False),
+        (2, b'membership-mismatched\n', False),
+        (0, b'membership-matched\nextra', False),
+    ):
+        with patch('scripts.docker_host_cgroup_fixture.shutil.which', return_value=__file__), \
+                patch('scripts.docker_host_cgroup_fixture.Path.resolve', return_value=Path(__file__)), \
+                patch('scripts.docker_host_cgroup_fixture.subprocess.CREATE_NO_WINDOW', 0, create=True), \
+                patch('scripts.docker_host_cgroup_fixture.subprocess.run',
+                      return_value=subprocess.CompletedProcess([], code, output)) as run:
+            succeeded = False
+            try:
+                verify_engine_pid_membership(identifier, 123)
+                succeeded = True
+            except ValueError:
+                pass
+            require(succeeded == accepted, 'membership protocol acceptance mismatch')
+            require(run.call_args.args[0][-5:] == ['sh', '-s', '--', identifier, '123']
+                    and run.call_args.kwargs['input'] == MEMBERSHIP_PROGRAM.encode(), 'membership command changed')
+    for pid in (0, -1, True, 2**31, '123', None):
+        with patch('scripts.docker_host_cgroup_fixture.shutil.which') as locate:
+            try:
+                verify_engine_pid_membership(identifier, pid)
+            except ValueError:
+                pass
+            else:
+                raise RuntimeError('invalid membership PID accepted')
+            require(not locate.called, 'invalid membership PID reached setup')
+    print('Verified cgroup diagnostic protocols; no native gate closure claim.')
 
 
 if __name__ == '__main__':

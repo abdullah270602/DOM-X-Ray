@@ -12,6 +12,55 @@ import subprocess
 import time
 from threading import Event, Thread
 
+MEMBERSHIP_PROGRAM = r'''
+set -eu
+directory="/sys/fs/cgroup/docker/$1"
+expected="$2"
+[ -d "$directory" ] && [ ! -L "$directory" ]
+[ "$(stat -fc %t "$directory")" = "63677270" ]
+[ -f "$directory/cgroup.procs" ] && [ ! -L "$directory/cgroup.procs" ]
+found=0
+visible=0
+count=0
+while read -r pid extra; do
+    [ -z "$extra" ]
+    case "$pid" in ''|*[!0-9]*) exit 2 ;; esac
+    count=$((count + 1))
+    [ "$count" -le 256 ]
+    [ "$pid" = 0 ] || visible=1
+    [ "$pid" != "$expected" ] || found=1
+done < "$directory/cgroup.procs"
+if [ "$found" = 1 ]; then
+    printf 'membership-matched\n'
+elif [ "$visible" = 0 ]; then
+    printf 'membership-not-visible\n'
+    exit 2
+else
+    printf 'membership-mismatched\n'
+    exit 2
+fi
+'''
+
+
+def verify_engine_pid_membership(identifier, pid):
+    """Require a PID-number match only; namespace alignment remains unproven."""
+    if (not isinstance(identifier, str) or not re.fullmatch('[0-9a-f]{64}', identifier)
+            or type(pid) is not int or not 0 < pid < 2**31):
+        raise ValueError('cgroup-fixture-membership')
+    reason = 'cgroup-fixture-membership'
+    try:
+        executable = str(Path(shutil.which('wsl.exe')).resolve(strict=True))
+        result = subprocess.run([executable, '-d', 'docker-desktop', '-u', 'root', '--',
+            'sh', '-s', '--', identifier, str(pid)], input=MEMBERSHIP_PROGRAM.encode(),
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+        if result.returncode != 0 or result.stdout not in (b'membership-matched\n', b'membership-matched\r\n'):
+            if result.stdout.strip() in (b'membership-not-visible', b'membership-mismatched'):
+                reason = 'cgroup-fixture-' + result.stdout.strip().decode('ascii')
+            raise ValueError(reason)
+    except Exception:
+        raise ValueError(reason) from None
+
 TRANSITION_PROGRAM = r'''
 set -eu
 set -f

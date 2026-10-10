@@ -169,6 +169,11 @@ controller termination begins and unchanged final inventories. This closes the
 selected fixture's broker-observation gap, not independent adversarial binding
 or kernel-exact crash causality. See the same diagnostic document for scope and
 guarded final-version evidence; public scanning remains disabled.
+The additional WSL cgroup.procs PID-number probe fails closed on this host:
+the candidate lists nonzero process numbers but not the engine-reported PID.
+Independent binding is not established. A separate trusted diagnostic with
+host PID/cgroup visibility requires explicit approval; scanner isolation has
+not been changed and numeric matches would not prove namespace alignment.
 Native automatic recovery still passes with the read-only probe enabled;
 host/runtime identity binding and direct worker/broker empty observations remain
 open. This is diagnostic progress, not closure of the cgroup release gate.

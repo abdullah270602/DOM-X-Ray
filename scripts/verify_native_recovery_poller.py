@@ -88,6 +88,7 @@ def main():
     parser.add_argument('--probe-cgroup-root-identity', action='store_true', help='trusted fixture cross-view root corroboration; not adversarial binding')
     parser.add_argument('--observe-worker-cgroup-transition', action='store_true', help='host candidate events 1-to-0 observation; not full worker/broker gate')
     parser.add_argument('--observe-pair-cgroup-transitions', action='store_true', help='attach both host candidates before controller crash; not adversarial binding')
+    parser.add_argument('--probe-host-pid-membership', action='store_true', help='require engine-reported PID number in candidate cgroup.procs; namespace alignment unverified')
     parser.add_argument('--watch', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--root', type=Path, help=argparse.SUPPRESS)
     options = parser.parse_args()
@@ -164,6 +165,10 @@ def main():
                     probe._preflight_role(row, role, _name(witness['token'], role), witness['token'],
                         identifier, _name(witness['token'], 'volume'), require_unstarted=False)
                     require(row['State']['Running'] and row['State']['Pid'] > 0, 'pair role not live before crash')
+                    if options.probe_host_pid_membership:
+                        from scripts.docker_host_cgroup_fixture import verify_engine_pid_membership
+                        verify_engine_pid_membership(identifier, row['State']['Pid'])
+                        print('Host ' + role + ' candidate PID-number match; namespace alignment unverified.', flush=True)
                     observer = CandidateTransitionObserver(identifier)
                     pair_observers.append((role, observer))
                     observer.wait_ready()
@@ -192,6 +197,10 @@ def main():
                         probe._preflight_role(row, 'worker', _name(record['token'], 'worker'), record['token'],
                             identifier, _name(record['token'], 'volume'), require_unstarted=False)
                         require(row['State']['Running'] and row['State']['Pid'] > 0, 'live orphan was not observed')
+                        if options.probe_host_pid_membership and not options.observe_pair_cgroup_transitions:
+                            from scripts.docker_host_cgroup_fixture import verify_engine_pid_membership
+                            verify_engine_pid_membership(identifier, row['State']['Pid'])
+                            print('Host worker candidate PID-number match; namespace alignment unverified.', flush=True)
                         if options.observe_worker_cgroup_transition:
                             from scripts.docker_host_cgroup_fixture import CandidateTransitionObserver
                             cgroup_observer = CandidateTransitionObserver(identifier)

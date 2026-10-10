@@ -180,7 +180,45 @@ crash causality, production integration, independent process-tree deadline
 enforcement, or broad native race/repetition coverage. Existing worker-only
 evidence above is retained as history, not substituted for pair scope.
 
-### Remaining independent binding and deployment requirements
+### WSL PID-number probe: failed closed
+
+```powershell
+python -u scripts/verify_native_recovery_poller.py --image sha256:d495bf5f6e49090faf092e80d04d3b3dc180ba189a3fbe18f93e8809468b4f15 --probe-host-pid-membership
+```
+
+The opt-in read-only diagnostic takes only the validated immutable ID and the
+engine-reported positive integer PID, passed separately to a fixed shell script.
+It checks cgroup-v2 magic and nonsymlink directory/file metadata, reads at most
+256 one-token decimal lines from the selected candidate's `cgroup.procs`, and
+requires a literal PID-number match. Empty, zero-only, mismatching, malformed,
+over-limit and nonzero command results never imply identity or emptiness.
+
+The selected native run failed with `cgroup-fixture-membership-mismatched`
+(fresh persistent journal suffix `f76159f47afc958d7651453c67542279`). The view
+contained nonzero numbers but not the engine-reported value. Exact-resource
+manual fallback left zero retained leases and unchanged scoped inventories.
+This is diagnostic failure evidence, not an automatic-recovery or binding pass.
+The earlier inaccessible `/proc/<engine-PID>` observation and this mismatch
+mean the current WSL route does not establish independent process identity.
+They do not, by themselves, identify the namespace offset or prove its cause.
+
+Portable protocols passed normal and optimized runs for exact output, CRLF,
+mismatch/not-visible/nonzero/extra-output rejection and invalid PID types/ranges.
+Mocks do not prove kernel membership. Even a matching number would be too weak
+without reader/engine PID namespace alignment: number equality is not process
+identity. No production observer or release gate consumes this diagnostic.
+
+A next experiment would use a separate trusted, disposable diagnostic container
+with host PID and cgroup namespace visibility, network disabled, read-only root,
+non-root user, dropped capabilities and the existing seccomp policy. It would
+read only exact owned fixture PIDs/cgroups and retain independently bound events
+handles. Host namespace visibility exposes host process metadata and is a
+meaningful expansion beyond the current isolated worker policy. It requires
+explicit user approval before implementation/execution; it must not be added
+to renderer or broker configuration. No such container, host service, privileged
+mode, writable host mount or namespace-setting change has been launched.
+
+### Open production requirements
 
 A matching directory name is not a demonstrated host/runtime identity binding.
 The diagnostic reads once while the fixture owns the journal lock, potentially
