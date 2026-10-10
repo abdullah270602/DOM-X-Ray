@@ -11,6 +11,7 @@ import argparse
 import base64
 import json
 import logging
+import math
 import mimetypes
 import os
 import re
@@ -654,11 +655,52 @@ class LocalScanHttpServer(ThreadingHTTPServer):
         *,
         static_root: Path | None,
         verbose: bool = False,
+        max_http_handlers: int = 16,
+        http_idle_timeout_seconds: float = 10.0,
     ) -> None:
+        if type(max_http_handlers) is not int or max_http_handlers <= 0:
+            raise ValueError("HTTP handler limit must be a positive integer")
+        if (type(http_idle_timeout_seconds) not in (int, float)
+                or not math.isfinite(http_idle_timeout_seconds) or http_idle_timeout_seconds <= 0):
+            raise ValueError("HTTP idle timeout must be positive and finite")
+        self._http_slots = threading.BoundedSemaphore(max_http_handlers)
+        self.http_idle_timeout_seconds = float(http_idle_timeout_seconds)
         self.service = service
         self.static_root = static_root.resolve() if static_root is not None else None
         self.verbose = verbose
         super().__init__(server_address, LocalScanRequestHandler)
+
+    def process_request(self, request, client_address) -> None:
+        if not self._http_slots.acquire(blocking=False):
+            try:
+                # Best-effort response: closing with unread bytes can reset TCP.
+                # Discard only one bounded prefix, never parse/log visitor data.
+                request.settimeout(min(0.05, self.http_idle_timeout_seconds))
+                try:
+                    request.recv(4096)
+                except OSError:
+                    pass
+                request.settimeout(min(1.0, self.http_idle_timeout_seconds))
+                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n"
+                    b"Connection: close\r\nCache-Control: no-store\r\nRetry-After: 1\r\n"
+                    b"X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n\r\n")
+            except OSError:
+                pass  # Disconnected/slow peers never create an overflow thread.
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            request.settimeout(self.http_idle_timeout_seconds)
+            super().process_request(request, client_address)
+        except Exception:
+            self._http_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._http_slots.release()
 
 
 class LocalScanRequestHandler(BaseHTTPRequestHandler):
@@ -987,12 +1029,16 @@ def build_server(
     *,
     static_root: Path | None = None,
     verbose: bool = False,
+    max_http_handlers: int = 16,
+    http_idle_timeout_seconds: float = 10.0,
 ) -> LocalScanHttpServer:
     return LocalScanHttpServer(
         (host, port),
         service,
         static_root=static_root,
         verbose=verbose,
+        max_http_handlers=max_http_handlers,
+        http_idle_timeout_seconds=http_idle_timeout_seconds,
     )
 
 

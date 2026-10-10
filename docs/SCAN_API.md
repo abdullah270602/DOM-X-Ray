@@ -29,6 +29,12 @@ an honest failed result, not a transport failure.
 
 ## HTTP surface
 
+The local server now has a [handler-slot cap and idle-I/O timeout](API_HTTP_CAPACITY.md).
+Thread saturation attempts an empty no-store 503 with Retry-After 1 before job
+creation, then closes the connection; signaling is best effort for unread or
+slow peers. This transport-level overload response is not a JSON job. Idle
+timeouts are not absolute request deadlines or distributed admission controls.
+
 ### `POST /api/scans`
 
 Accept exactly one JSON body conforming to `SCAN_SUBMISSION.schema.json`. The

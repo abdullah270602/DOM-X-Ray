@@ -40,6 +40,12 @@ prove overflow has no parser/executor/reservation contact and permits recover
 after success and faults. Result parsing remains worker-pool bounded separately;
 HTTP threads, terminal job history, aggregate memory and distributed abuse
 controls are still open, so this does not close the anonymous API safety gate.
+The [HTTP capacity checkpoint](docs/API_HTTP_CAPACITY.md) now bounds local handler
+threads before construction and closes idle sockets. Actual normal/optimized
+loopback saturation and recovery tests pass, plus parser and seeded API
+regressions. Best-effort overflow uses empty 503 without creating jobs. Absolute
+slow-drip deadlines, kernel connection/backlog limits, aggregate memory/history
+and distributed abuse controls remain open; public scanning stays disabled.
 
 **Question:** What are we allowed to show and say?
 
