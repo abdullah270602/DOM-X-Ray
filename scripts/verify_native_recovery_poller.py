@@ -75,6 +75,7 @@ def watch(image, root):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--image', default='dom-x-ray-runtime-candidate:gate3-profile')
+    parser.add_argument('--probe-host-cgroup', action='store_true', help='read-only populated cgroup-path candidate; not identity or empty proof')
     parser.add_argument('--watch', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--root', type=Path, help=argparse.SUPPRESS)
     options = parser.parse_args()
@@ -142,6 +143,10 @@ def main():
                         probe._preflight_role(row, 'worker', _name(record['token'], 'worker'), record['token'],
                             identifier, _name(record['token'], 'volume'), require_unstarted=False)
                         require(row['State']['Running'] and row['State']['Pid'] > 0, 'live orphan was not observed')
+                        if options.probe_host_cgroup:
+                            from scripts.docker_host_cgroup_fixture import verify_populated_candidate
+                            verify_populated_candidate(identifier)
+                            print('Linux cgroup-path candidate populated; identity and empty proof remain open.', flush=True)
                         observed = True
                 except LeaseJournalBusy:
                     require(time.monotonic() < deadline, 'journal observation remained busy')

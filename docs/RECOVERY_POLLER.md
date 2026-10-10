@@ -123,6 +123,10 @@ python -O scripts/verify_native_recovery_poller.py
 
 ## Remaining release gates
 
+The optional [Docker host cgroup diagnostic](DOCKER_HOST_CGROUP_DIAGNOSTIC.md)
+now finds a populated path candidate for the exact owned worker ID on this
+selected host. It is not independent identity binding or cgroup-empty proof.
+
 The fixture poller survives only the producer Job's death; it is not a deployed,
 self-supervised watchdog. No durable runtime/journal registry,
 native watchdog restart proof, native multi-lease/crash/race matrix, or service health
