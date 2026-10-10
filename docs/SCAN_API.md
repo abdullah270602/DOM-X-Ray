@@ -6,7 +6,9 @@ Status: local integration proof v0.1 with an explicit no-store composite backend
 
 The job service now has an [opt-in operator-pinned WHATWG admission path](WHATWG_API_ADMISSION.md)
 for canonical target identity before support/admission/queueing. The default CLI
-does not configure it or enable arbitrary public scanning.
+does not configure it or enable arbitrary public scanning. Four explicit
+`--url-parser-*` options now wire operator-selected path/pins, rejecting partial
+or mismatched configuration before storage and server startup.
 
 This contract connects the public viewer to the already-proven destination,
 worker-supervision, scan-record, scene, result, and runtime boundaries. It does

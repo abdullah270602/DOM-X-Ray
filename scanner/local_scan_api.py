@@ -1094,6 +1094,25 @@ def build_result_backend(
         raise RuntimeError("composite result backend could not be initialized") from None
 
 
+def build_target_parser(
+    node_executable: Path | str | None,
+    node_sha256: str | None,
+    module_sha256: str | None,
+    worker_sha256: str | None,
+) -> WhatwgUrlParser | None:
+    """Explicit operator configuration only; no runtime pin discovery."""
+    configured = (node_executable, node_sha256, module_sha256, worker_sha256)
+    if all(value is None for value in configured):
+        return None
+    if any(value is None for value in configured):
+        raise ValueError("URL parser requires an absolute Node executable and all three explicit SHA-256 pins")
+    try:
+        return WhatwgUrlParser(node_executable, node_sha256=node_sha256,
+                               module_sha256=module_sha256, worker_sha256=worker_sha256)
+    except Exception:
+        raise ValueError("URL parser configuration could not be verified") from None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
@@ -1113,9 +1132,18 @@ def main() -> None:
         help="Result retention; composite mode requires an explicit value or DOM_XRAY_RETENTION_HOURS.",
     )
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--url-parser-node", type=Path, help="Absolute operator-selected Node executable; requires all parser pins")
+    parser.add_argument("--url-parser-node-sha256", help="Explicit SHA-256 of the selected Node executable")
+    parser.add_argument("--url-parser-module-sha256", help="Explicit SHA-256 of shared/public_url.mjs")
+    parser.add_argument("--url-parser-worker-sha256", help="Explicit SHA-256 of scanner/public_url_worker.mjs")
     args = parser.parse_args()
     if args.verbose:
         logging.basicConfig(level=logging.INFO)
+    try:
+        target_parser = build_target_parser(args.url_parser_node, args.url_parser_node_sha256,
+                                            args.url_parser_module_sha256, args.url_parser_worker_sha256)
+    except ValueError as error:
+        parser.error(str(error))
     try:
         result_backend = build_result_backend(
             args.result_backend,
@@ -1124,7 +1152,7 @@ def main() -> None:
         )
     except (ValueError, RuntimeError) as error:
         parser.error(str(error))
-    service = LocalScanJobService(result_backend=result_backend)
+    service = LocalScanJobService(result_backend=result_backend, target_parser=target_parser)
     server = build_server(
         args.host,
         args.port,

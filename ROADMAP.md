@@ -24,6 +24,11 @@ or result-time parser-fault controls. Deployment parser pins/configuration and
 public executor integration remain open; this does not enable arbitrary
 scanning or close the release gate. Its observation budget is not the product
 latency target, and child optimization propagation is not claimed.
+The local CLI now exposes explicit Node/module/helper pins and rejects partial
+or mismatched configuration before storage, job-pool and server startup. Normal
+and optimized configuration tests pass real pin checks with mocked hosting;
+default mode remains seeded-only. Pin provenance/distribution, bounded runtime,
+deployed configuration and public capture integration are still open.
 
 **Question:** What are we allowed to show and say?
 

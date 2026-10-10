@@ -1,8 +1,9 @@
 # Opt-in pinned WHATWG API admission
 
 `LocalScanJobService(target_parser=parser)` now accepts an explicitly constructed,
-operator-pinned `WhatwgUrlParser`. The default local service/CLI remains unchanged
-and seeded-only. No executable/source pins are discovered automatically in the
+operator-pinned `WhatwgUrlParser`. The default local service/CLI remains
+unconfigured and seeded-only; explicit CLI flags now provide the opt-in wiring.
+No executable/source pins are discovered automatically in the
 service, no public executor is installed, and arbitrary scanning stays disabled.
 
 With that configuration, the service parses the initial target before executor
@@ -90,7 +91,37 @@ pin enforcement for that exercised instance, not independent pin provenance or
 production pin distribution. No default API/CLI configuration or scanner release
 gate was enabled by this evidence checkpoint.
 
-### Deployment requirements
+### Explicit CLI configuration checkpoint
+
+The local CLI now accepts all four options together:
+
+- `--url-parser-node`: absolute, canonical operator-selected Node executable.
+- `--url-parser-node-sha256`: reviewed executable SHA-256.
+- `--url-parser-module-sha256`: reviewed `shared/public_url.mjs` SHA-256.
+- `--url-parser-worker-sha256`: reviewed `scanner/public_url_worker.mjs` SHA-256.
+
+All omitted preserves the default fixture mode. Partial configuration or failed
+path/hash verification exits with a fixed configuration error before backend
+initialization, job-pool creation or server binding. There is no hash discovery,
+download, PATH selection, pin fallback or public-scanner enable switch in this
+startup helper. Operators must supply reviewed pins from their release process,
+not derive expected hashes from whatever files happen to exist at each startup.
+Providing syntax pins does not substitute for trusted binary provenance.
+
+```powershell
+python scripts/verify_whatwg_api_configuration.py
+python -O scripts/verify_whatwg_api_configuration.py
+```
+
+Both tests passed with real file/pin checks and mocked backend/hosting. They
+verify absent default, exact configured path/pins, each missing option, each
+wrong pin/path, relative executable rejection, and no storage/pool/server calls
+for rejected configuration. The tests do not start a live CLI service or prove
+deployment. The real loopback admission test and API schema suite passed again
+after this wiring change. Earlier service/publication proof remains separate
+evidence; no default policy or scan deadline changed.
+
+### Remaining deployment requirements
 
 Deployment still must supply reviewed immutable pins and a bounded parser
 runtime, integrate the selected production executor/resolver/egress and broker
