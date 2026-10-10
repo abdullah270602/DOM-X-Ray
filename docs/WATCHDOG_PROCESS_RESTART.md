@@ -55,3 +55,9 @@ Docker orphan. Windows Job emptiness is not Linux cgroup emptiness. Native Docke
 restart/cleanup remains gated by the unresolved Docker startup failure. No Docker
 host file was changed; public scanning and other production/product gates remain
 open.
+
+The [subsequent native restart fixture](NATIVE_WATCHDOG_RESTART.md) passes after
+Docker becomes available: a replacement foreground launcher reloads the same
+pinned registry and cleans a positively observed live Docker orphan after both
+old Jobs are empty. This advances native restart/cleanup evidence, but not
+installed automatic service restart or independent cgroup/death-bound proof.
