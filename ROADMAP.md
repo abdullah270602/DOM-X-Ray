@@ -54,6 +54,15 @@ poster plus reuse/deletion. Count-based expiry has no minimum polling TTL;
 visitor discovery/deletion usability under churn, other maps, aggregate memory
 and distributed load controls remain open.
 
+The [deletion-failure history checkpoint](docs/API_DELETION_HISTORY.md) caps local
+tracked result IDs and per-result timestamps without blocking backend owner
+authorization. Final normal/optimized controlled and real loopback/HMAC tests
+pass. The broader seeded API regression currently fails its required
+video route: a diagnostic rerun reports the unchanged 15-second video-worker
+timeout and correct poster-only fallback. This remains an open regression, not
+a pass or a reason to relax the safety deadline. Backend call cost, aggregate
+memory, distributed limits and public scanning remain open.
+
 **Question:** What are we allowed to show and say?
 
 Deliverables:

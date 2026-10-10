@@ -85,7 +85,8 @@ def verify_artifact_route(
     signature: bytes,
 ) -> tuple[bytes, str]:
     status, headers, payload = request(base_url, path)
-    require(status == 200, f"{label} artifact route failed")
+    require(status == 200, f"{label} artifact route failed (HTTP {status}; "
+            f"manifest state={descriptor.get('state')}; eligible={descriptor.get('eligible')})")
     artifact = descriptor["artifact"]
     sha256 = hashlib.sha256(payload).hexdigest()
     require(payload.startswith(signature), f"{label} route returned the wrong media bytes")

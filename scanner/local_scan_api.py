@@ -325,6 +325,7 @@ class LocalScanJobService:
         target_parser: WhatwgUrlParser | None = None,
         max_concurrent_target_parsers: int = 2,
         terminal_job_history_limit: int = 1024,
+        deletion_failure_history_limit: int = 1024,
     ) -> None:
         if max_workers <= 0 or max_active_jobs <= 0:
             raise ValueError("job service limits must be positive")
@@ -336,6 +337,9 @@ class LocalScanJobService:
             raise ValueError("target parser concurrency must be a positive integer")
         if type(terminal_job_history_limit) is not int or terminal_job_history_limit <= 0:
             raise ValueError("terminal job history limit must be a positive integer")
+        if type(deletion_failure_history_limit) is not int or deletion_failure_history_limit <= 0:
+            raise ValueError("deletion failure history limit must be a positive integer")
+        self._deletion_failure_history_limit = deletion_failure_history_limit
         self._terminal_job_history_limit = terminal_job_history_limit
         self._terminal_jobs: OrderedDict[str, None] = OrderedDict()
         self._target_parser = target_parser
@@ -633,6 +637,11 @@ class LocalScanJobService:
     def delete_result(self, result_id: str, deletion_token: str) -> tuple[str, int | None]:
         now = time.monotonic()
         with self._lock:
+            self._deletion_failures = {
+                identifier: recent for identifier, history in self._deletion_failures.items()
+                if (recent := [attempt for attempt in history
+                               if now - attempt < DELETION_FAILURE_WINDOW_SECONDS])
+            }
             try:
                 outcome = self._result_backend.delete(result_id, deletion_token)
             except ResultStoreError as error:
@@ -642,12 +651,18 @@ class LocalScanJobService:
             if outcome in {"pending", "retryable"}:
                 return outcome, BACKEND_RETRY_AFTER_SECONDS
             if outcome == "forbidden":
+                if (result_id not in self._deletion_failures
+                        and len(self._deletion_failures) >= self._deletion_failure_history_limit):
+                    expires = min(history[0] + DELETION_FAILURE_WINDOW_SECONDS
+                                  for history in self._deletion_failures.values())
+                    return "rate-limited", max(1, math.ceil(expires - now))
                 failures = [
                     attempted_at
                     for attempted_at in self._deletion_failures.get(result_id, [])
                     if now - attempted_at < DELETION_FAILURE_WINDOW_SECONDS
                 ]
-                failures.append(now)
+                if len(failures) < MAX_DELETION_FAILURES:
+                    failures.append(now)
                 self._deletion_failures[result_id] = failures
                 if len(failures) >= MAX_DELETION_FAILURES:
                     retry_after = max(
