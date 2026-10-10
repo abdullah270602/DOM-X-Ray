@@ -46,6 +46,13 @@ loopback saturation and recovery tests pass, plus parser and seeded API
 regressions. Best-effort overflow uses empty 503 without creating jobs. Absolute
 slow-drip deadlines, kernel connection/backlog limits, aggregate memory/history
 and distributed abuse controls remain open; public scanning stays disabled.
+The [terminal-job history checkpoint](docs/API_JOB_HISTORY.md) now caps retained
+terminal polling metadata while preserving queued/running jobs and independent
+result/deletion authority. Normal/optimized checks pass active preservation,
+completion order, expired no-store polling and byte-identical stored bundle/
+poster plus reuse/deletion. Count-based expiry has no minimum polling TTL;
+visitor discovery/deletion usability under churn, other maps, aggregate memory
+and distributed load controls remain open.
 
 **Question:** What are we allowed to show and say?
 

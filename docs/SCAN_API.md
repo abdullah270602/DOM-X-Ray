@@ -63,6 +63,13 @@ no-store`. Unknown or expired IDs return a content-free `404`. Clients poll only
 while `pollAfterMs` is non-null and apply a bounded backoff when transport
 requests fail.
 
+The local [terminal-job history](API_JOB_HISTORY.md) is count-bounded (engineering
+default 1024), oldest-terminal-first. Queued/running work is preserved; terminal
+metadata may expire under churn with no guaranteed polling TTL. Job expiry does
+not expire stored results or transfer deletion ownership. Job misses are
+explicitly no-store. Production polling availability still requires policy/load
+proof rather than treating this local count cap as complete abuse protection.
+
 ### `GET /api/results/{resultId}`
 
 Return the immutable `VIEWER_BUNDLE.schema.json` document with a strong ETag.

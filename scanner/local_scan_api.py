@@ -19,6 +19,7 @@ import secrets
 import sys
 import threading
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -323,6 +324,7 @@ class LocalScanJobService:
         result_store: ResultBackend | None = None,
         target_parser: WhatwgUrlParser | None = None,
         max_concurrent_target_parsers: int = 2,
+        terminal_job_history_limit: int = 1024,
     ) -> None:
         if max_workers <= 0 or max_active_jobs <= 0:
             raise ValueError("job service limits must be positive")
@@ -332,6 +334,10 @@ class LocalScanJobService:
             raise ValueError("configure an operator-pinned WHATWG target parser")
         if type(max_concurrent_target_parsers) is not int or max_concurrent_target_parsers <= 0:
             raise ValueError("target parser concurrency must be a positive integer")
+        if type(terminal_job_history_limit) is not int or terminal_job_history_limit <= 0:
+            raise ValueError("terminal job history limit must be a positive integer")
+        self._terminal_job_history_limit = terminal_job_history_limit
+        self._terminal_jobs: OrderedDict[str, None] = OrderedDict()
         self._target_parser = target_parser
         self._target_parser_slots = threading.BoundedSemaphore(max_concurrent_target_parsers)
         self._scan_executor = scan_executor or FixtureScanExecutor()
@@ -390,8 +396,20 @@ class LocalScanJobService:
     def reject_submission(self) -> dict[str, Any]:
         job = self._terminal_job("rejected", "invalid-target")
         with self._lock:
-            self._jobs[job.job_id] = job
+            self._remember_job_locked(job)
             return self._snapshot(job)
+
+    def _remember_job_locked(self, job: _Job) -> None:
+        """Caller holds _lock; evict only terminal polling metadata, never results."""
+        self._jobs[job.job_id] = job
+        if job.state in {"queued", "running"}:
+            self._terminal_jobs.pop(job.job_id, None)
+            return
+        self._terminal_jobs[job.job_id] = None
+        self._terminal_jobs.move_to_end(job.job_id)
+        while len(self._terminal_jobs) > self._terminal_job_history_limit:
+            expired, _ = self._terminal_jobs.popitem(last=False)
+            self._jobs.pop(expired, None)
 
     def submit(
         self,
@@ -404,7 +422,7 @@ class LocalScanJobService:
             if not self._target_parser_slots.acquire(blocking=False):
                 job = self._terminal_job("rejected", "queue-full")
                 with self._lock:
-                    self._jobs[job.job_id] = job
+                    self._remember_job_locked(job)
                     return self._snapshot(job), HTTPStatus.TOO_MANY_REQUESTS, 1
             try:
                 target_url = self._target_parser.parse(target_url, purpose="initial")["href"]
@@ -413,7 +431,7 @@ class LocalScanJobService:
                 job = self._terminal_job("failed" if unavailable else "rejected",
                                          "internal-error" if unavailable else "invalid-target")
                 with self._lock:
-                    self._jobs[job.job_id] = job
+                    self._remember_job_locked(job)
                     return self._snapshot(job), (HTTPStatus.SERVICE_UNAVAILABLE if unavailable
                                                  else HTTPStatus.FORBIDDEN), None
             finally:
@@ -421,14 +439,14 @@ class LocalScanJobService:
         if not self._scan_executor.supports(target_url):
             job = self._terminal_job("rejected", "scanner-disabled")
             with self._lock:
-                self._jobs[job.job_id] = job
+                self._remember_job_locked(job)
                 return self._snapshot(job), HTTPStatus.SERVICE_UNAVAILABLE, None
         try:
             admission = self._admission.reserve(target_url)
         except (TypeError, ValueError):
             job = self._terminal_job("rejected", "invalid-target")
             with self._lock:
-                self._jobs[job.job_id] = job
+                self._remember_job_locked(job)
                 return self._snapshot(job), HTTPStatus.FORBIDDEN, None
 
         if admission.action == "reuse":
@@ -459,7 +477,7 @@ class LocalScanJobService:
                         poll_after_ms=None,
                         target_url=target_url,
                     )
-                    self._jobs[job.job_id] = job
+                    self._remember_job_locked(job)
                     snapshot = self._snapshot(job)
             if stored is None:
                 self._admission.forget_result(result_id)
@@ -469,7 +487,7 @@ class LocalScanJobService:
         if admission.action == "reject":
             job = self._terminal_job("rejected", "rate-limited")
             with self._lock:
-                self._jobs[job.job_id] = job
+                self._remember_job_locked(job)
                 return (
                     self._snapshot(job),
                     HTTPStatus.TOO_MANY_REQUESTS,
@@ -481,7 +499,7 @@ class LocalScanJobService:
             if active_count >= self._max_active_jobs:
                 self._admission.abandon(target_url)
                 job = self._terminal_job("rejected", "queue-full")
-                self._jobs[job.job_id] = job
+                self._remember_job_locked(job)
                 return self._snapshot(job), HTTPStatus.TOO_MANY_REQUESTS, 1
             now = self._now()
             job = _Job(
@@ -493,7 +511,7 @@ class LocalScanJobService:
                 target_url=target_url,
                 deletion_token_digest=deletion_token_digest,
             )
-            self._jobs[job.job_id] = job
+            self._remember_job_locked(job)
             snapshot = self._snapshot(job)
         self._pool.submit(self._run, job.job_id, target_url)
         return snapshot, HTTPStatus.ACCEPTED, None
@@ -502,8 +520,8 @@ class LocalScanJobService:
         if progress not in {"capturing", "mapping", "publishing"}:
             raise ValueError("unknown job progress")
         with self._lock:
-            job = self._jobs[job_id]
-            if job.state not in {"queued", "running"}:
+            job = self._jobs.get(job_id)
+            if job is None or job.state not in {"queued", "running"}:
                 return
             job.state = "running"
             job.progress = progress
@@ -556,6 +574,7 @@ class LocalScanJobService:
                 }
                 job.deletion_token_digest = None
                 job.poll_after_ms = None
+                self._remember_job_locked(job)
                 self._snapshot(job)
         except ScanExecutionError as error:
             self._fail(job_id, error.code)
@@ -565,8 +584,8 @@ class LocalScanJobService:
     def _fail(self, job_id: str, code: str) -> None:
         target_url: str | None = None
         with self._lock:
-            job = self._jobs[job_id]
-            if job.state not in {"queued", "running"}:
+            job = self._jobs.get(job_id)
+            if job is None or job.state not in {"queued", "running"}:
                 return
             job.state = "failed"
             job.progress = "failed"
@@ -575,6 +594,7 @@ class LocalScanJobService:
             job.poll_after_ms = None
             job.deletion_token_digest = None
             target_url = job.target_url
+            self._remember_job_locked(job)
             self._snapshot(job)
         if target_url is not None:
             self._admission.abandon(target_url)
@@ -905,7 +925,8 @@ class LocalScanRequestHandler(BaseHTTPRequestHandler):
             job_id = path.removeprefix("/api/scans/")
             job = self.server.service.get_job(job_id)
             if job is None:
-                self._send_json(HTTPStatus.NOT_FOUND, {"error": "not-found"})
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "not-found"},
+                                headers={"Cache-Control": "no-store"})
             else:
                 self._send_json(HTTPStatus.OK, job, headers={"Cache-Control": "no-store"})
             return
