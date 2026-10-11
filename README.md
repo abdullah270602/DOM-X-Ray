@@ -10,6 +10,11 @@ The first release is deliberately not a full developer dashboard, a Lighthouse r
 
 ## Current status
 
+**Not yet a usable public release.** The local interactive viewer and seeded
+result flow exist; arbitrary public scanning is disabled and deployment is
+unfinished. See [the concise product status and execution focus](docs/PRODUCT_STATUS.md)
+before interpreting the infrastructure evidence below as completion.
+
 Gate 0's local extraction, policy, supervision, and transport proofs are
 implemented, while production egress and containment remain open release gates.
 Gate 1 has a shipped React/Three.js viewer for all three immutable fixtures, and

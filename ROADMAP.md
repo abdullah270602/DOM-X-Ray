@@ -2,6 +2,12 @@
 
 ## North star
 
+Execution focus after the product-status review: show the existing interactive
+experience, establish one reliable real-page-to-share journey, then deploy and
+expand against the original release gates. See [current product status](docs/PRODUCT_STATUS.md).
+Infrastructure tests alone do not establish product delivery. Public-scanner
+safety obligations and the full original objective remain unchanged.
+
 > Paste a public URL → receive a beautiful, truthful 3D X-ray and visible hero fact at p90 within 20 seconds for supported successful scans → export one fact worth sharing.
 
 The latency clock begins when a valid visitor clicks **X-Ray** and ends when the first interactive cutaway and hero fact are visible. Queueing, scanning, transformation, storage, delivery, and first rendering are all inside the clock.
