@@ -154,8 +154,9 @@ def main():
                 ('oom', {'ExitCode': 0, 'OOMKilled': True})):
             value = instance()
             engine(value)
-            value._cleanup.side_effect = [{'ExitCode': 0, 'OOMKilled': False}, broker_state,
-                                         {'ExitCode': 0, 'OOMKilled': False}]
+            value._cleanup.side_effect = lambda name, *_args: (
+                broker_state if name == 'dom-x-ray-pair-broker-' + TOKEN
+                else {'ExitCode': 0, 'OOMKilled': False})
             result = run(value, root / ('broker-engine-' + label + '.json'))
             require(result.outcome == 'crashed' and not result.artifact_eligible,
                     'broker cleanup engine failure admitted an artifact')
@@ -174,8 +175,11 @@ def main():
 
         value = instance()
         engine(value)
-        value._cleanup.side_effect = [WorkerContainmentError('worker stop failed'),
-                                     {'ExitCode': 0, 'OOMKilled': False}, {'ExitCode': 0, 'OOMKilled': False}]
+        def failed_worker(name, *_args):
+            if name == 'dom-x-ray-pair-worker-' + TOKEN:
+                raise WorkerContainmentError('worker stop failed')
+            return {'ExitCode': 0, 'OOMKilled': False}
+        value._cleanup.side_effect = failed_worker
         value._remove_volume = Mock(side_effect=AssertionError('volume removed with unproven worker'))
         run(value, root / 'cleanup-failed.json', reject=True)
         require(value._cleanup.call_count == 3 and not value._remove_volume.called, 'cleanup failure skipped other roles')

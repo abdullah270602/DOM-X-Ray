@@ -390,6 +390,16 @@ Pivot rule: high completion with low comprehension means simplify the mapping an
 
 ## Gate 3 — Real public-page scanner
 
+The [bounded parallel cleanup checkpoint](docs/PAIR_PARALLEL_CLEANUP.md)
+overlaps three exact-owned container proofs while keeping journal updates
+serialized and joining all submitted work before volume handling. Six final
+normal/optimized thread, pair and journal controls pass. One native API attempt
+still timed out, but cleanup completed within the lease with an empty journal
+and restored inventories; native wrong-capability denial also passed cleanup.
+This does not establish capture/startup reliability, successful API publication,
+a full native matrix or independent cgroup proof. Deadlines and public-scan
+gates remain unchanged; the earlier unresolved journal is preserved.
+
 The [shared transport-to-API executor checkpoint](docs/TRANSPORT_API_EXECUTOR.md)
 separates trusted transport configuration from the shared mapping/artifact path
 while preserving the default three seeded targets. Portable normal/optimized

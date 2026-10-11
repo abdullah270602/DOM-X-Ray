@@ -5,6 +5,7 @@ recovery. A failed cleanup is never converted into a successful scan.
 """
 
 import copy
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
@@ -120,6 +121,41 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
                  'docker-pair-container-survived-removal')
         return state
 
+    def _cleanup_roles(self, names, token, identifiers, attempted, deadline, note):
+        """Overlap independent exact-role proofs; join before touching the volume.
+
+        Fixed three-role concurrency, no fresh deadlines. Only this controller
+        thread mutates states or commits journal proofs. A failed submit is
+        ambiguous, so it is not retried destructively or treated as cleaned.
+        """
+        states, failure = {}, None
+        roles = [role for role in ('worker', 'broker', 'initialize') if role in attempted]
+        if not roles:
+            return states, failure
+        try:
+            with ThreadPoolExecutor(max_workers=3, thread_name_prefix='dxr-pair-cleanup') as pool:
+                pending = {}
+                for role in roles:
+                    try:
+                        future = pool.submit(self._cleanup, names[role], token, identifiers.get(role), deadline)
+                        pending[future] = role
+                    except Exception as error:
+                        failure = error
+                for future in as_completed(pending):
+                    role = pending[future]
+                    try:
+                        state = future.result()
+                        _require(state is not None, 'docker-pair-create-ownership-unresolved')
+                        states[role] = state
+                        note('removed', role)
+                    except Exception as error:
+                        failure = error
+        except Exception as error:
+            failure = error
+        if set(states) != set(roles):
+            failure = failure or WorkerContainmentError('docker-pair-role-cleanup-unproven')
+        return states, failure
+
     @staticmethod
     def _broker_report(output):
         _require(len(output) <= CONTROL_BYTES and output.startswith(b'ready\n')
@@ -227,17 +263,10 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
                     pipe.stop(min(deadline, time.monotonic() + 0.2))
                 except Exception as error:
                     failure = error
-            cleanup_ok = True
-            for role in ('worker', 'broker', 'initialize'):
-                if role not in attempted:
-                    continue
-                try:
-                    state = self._cleanup(names[role], token, identifiers.get(role), deadline)
-                    _require(state is not None, 'docker-pair-create-ownership-unresolved')
-                    states[role] = state
-                    note('removed', role)
-                except Exception as error:
-                    cleanup_ok, failure = False, error
+            states, cleanup_failure = self._cleanup_roles(names, token, identifiers, attempted, deadline, note)
+            cleanup_ok = cleanup_failure is None
+            if cleanup_failure is not None:
+                failure = cleanup_failure
             if volume_attempted:
                 if cleanup_ok:
                     try:

@@ -2,8 +2,12 @@
 
 The [2026-10-08 latency investigation](PAIR_LATENCY.md) adds guarded initializer
 startup overlap, responsive listener teardown and content-free diagnostic timings.
-A fresh four-case pair matrix now passes on the code-overlay candidate; the
-original runtime tag is unchanged and public scanning remains disabled.
+At that checkpoint, a fresh four-case pair matrix passed on the code-overlay
+candidate. Subsequent [bounded parallel cleanup](PAIR_PARALLEL_CLEANUP.md)
+overlaps the unchanged exact-role teardown proofs; its selected native timeout
+cleanup and credential-denial evidence does not repeat that full matrix or
+prove successful API publication. The original runtime tag is unchanged and
+public scanning remains disabled.
 
 `DockerBrokerPairSupervisor` now plugs into the existing public-scan transport
 as a trusted worker-supervisor provider. This is a network-none reserved-origin
@@ -42,7 +46,10 @@ Worker stdout is capped at 4 MB plus one detection byte. It remains in memory.
 No result file is written until exact cleanup has succeeded: every attempted
 container is found by exact name and verified ID/token, killed if running,
 verified stopped/PID zero, removed, then checked absent. Cleanup attempts all
-remaining roles even when one fails. The exact owned volume is removed only when
+remaining roles even when one fails. At most three independent role sequences
+overlap under the same deadline; journal commits stay on the controller thread,
+and submitted tasks are joined before volume handling. Pool/submission failures
+also fail closed. The exact owned volume is removed only when
 all attempted container teardowns are proven. Missing or mismatched resources,
 engine/control failures and cleanup deadline exhaustion remain containment
 failures; they never become successful scans. An ambiguous create found by exact
