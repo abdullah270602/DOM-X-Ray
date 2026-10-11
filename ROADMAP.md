@@ -390,6 +390,13 @@ Pivot rule: high completion with low comprehension means simplify the mapping an
 
 ## Gate 3 — Real public-page scanner
 
+The [test-only exact-ID read batch](docs/ENGINE_READ_BATCH.md) adds a closed
+info/inspect/info adapter with ownership checks, bounded framing and finite
+deadlines. Final normal/optimized contracts and one owned native three-response
+probe passed (0.486 seconds batch, 2.455 seconds supervised). Native 200 readback,
+scanner integration, mutation/attach and fault containment are not proven;
+not-found observations never discharge journal obligations. Production is unchanged.
+
 The [read-only Docker control diagnostic](docs/DOCKER_CONTROL_LATENCY.md)
 measured five valid CLI info reads at a 1.081-second median. The single-connection
 stdio experiment exited 0 but failed response validation, so no speedup or paired
