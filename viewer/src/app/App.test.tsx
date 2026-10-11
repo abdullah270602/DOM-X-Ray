@@ -73,6 +73,21 @@ afterEach(() => {
 });
 
 describe("published result ownership", () => {
+  it("offers a truthful static preview without contacting the scanner, even on a result-shaped route", async () => {
+    window.history.replaceState(null, "", "/r/r_0123456789abcdef0123456789abcdef?fallback=text");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App publicDemo />);
+    expect(screen.getByText(/Live website scanning is not available yet/)).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "START X-RAY" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "SHARE RESULT" })).toBeNull();
+    await user.selectOptions(screen.getByLabelText("EXPLORE AN EXAMPLE"), "clean");
+    await user.click(screen.getByRole("button", { name: "PLAY THE REVEAL" }));
+    expect(window.location.search).toContain("fixture=clean");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it.each(["https://example.com/?", "https://example.com/#"])("rejects empty target delimiters before submission: %s", async (target) => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

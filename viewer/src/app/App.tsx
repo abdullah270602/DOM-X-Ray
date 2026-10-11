@@ -137,7 +137,7 @@ function removeOwnerToken(resultId: string): void {
   }
 }
 
-export function App() {
+export function App({ publicDemo = import.meta.env.VITE_PUBLIC_DEMO === "true" }: { publicDemo?: boolean } = {}) {
   const firstFixture = initialFixture();
   const [fixtureName, setFixtureName] = useState<FixtureName | null>(firstFixture);
   const [bundle, setBundle] = useState<ViewerBundle>(() => fixtures[firstFixture]);
@@ -223,7 +223,7 @@ export function App() {
       routeController?.abort();
       requestRef.current?.abort();
       const resultId = resultIdFromPath(window.location.pathname);
-      if (!resultId) {
+      if (publicDemo || !resultId) {
         requestRef.current = null;
         const nextName = initialFixture();
         setFixtureName(nextName);
@@ -268,7 +268,7 @@ export function App() {
       routeController?.abort();
       requestRef.current?.abort();
     };
-  }, [activateBundle]);
+  }, [activateBundle, publicDemo]);
 
   const frame = presentationFrame(bundle.runtime, state);
   const dossier = useMemo(
@@ -291,11 +291,12 @@ export function App() {
     setLoading(false);
     const params = new URLSearchParams(window.location.search);
     params.set("fixture", nextName);
-    window.history.replaceState(null, "", `/?${params}`);
+    window.history.replaceState(null, "", `${import.meta.env.BASE_URL}?${params}`);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (publicDemo) return;
     const parsed = parsePublicUrl(url);
     if (!parsed.ok) {
       setFieldError(parsed.code === "initial-target-data"
@@ -415,7 +416,9 @@ export function App() {
   }
 
   async function copyResultLink() {
-    const resultUrl = new URL(bundle.result.resultPath, window.location.origin).href;
+    const demoUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+    demoUrl.searchParams.set("fixture", fixtureName ?? "image-heavy");
+    const resultUrl = publicDemo ? demoUrl.href : new URL(bundle.result.resultPath, window.location.origin).href;
     try {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(resultUrl);
@@ -451,7 +454,15 @@ export function App() {
           </h1>
         </header>
 
-        <form className="scan-form" onSubmit={submit} noValidate>
+        {publicDemo ? (
+          <div className="scan-form">
+            <h2>Look beneath the page.</h2>
+            <p>Interactive preview · three prepared captures. Explore their structure, weight, and evidence. Live website scanning is not available yet.</p>
+            <button className="xray-button" type="button" onClick={() => send({ type: "replay" })}>
+              PLAY THE REVEAL <ArrowRight size={22} weight="bold" aria-hidden="true" />
+            </button>
+          </div>
+        ) : <form className="scan-form" onSubmit={submit} noValidate>
           <label htmlFor="scan-url">PUBLIC PAGE URL</label>
           <div className={fieldError ? "url-field has-error" : "url-field"}>
             <input
@@ -510,10 +521,10 @@ export function App() {
               : "START X-RAY"}
             {!loading && <ArrowRight size={22} weight="bold" aria-hidden="true" />}
           </button>
-        </form>
+        </form>}
 
         <div className="fixture-switcher">
-          <label htmlFor="fixture">SEEDED CAPTURE</label>
+          <label htmlFor="fixture">{publicDemo ? "EXPLORE AN EXAMPLE" : "SEEDED CAPTURE"}</label>
           <select
             id="fixture"
             value={fixtureName ?? ""}
@@ -526,6 +537,18 @@ export function App() {
             <option value="third-party-heavy">Third-party-heavy page</option>
           </select>
         </div>
+
+        {publicDemo && (
+          <>
+            <button className="copy-button" type="button" onClick={copyResultLink}>
+              <LinkSimple size={18} aria-hidden="true" />
+              {linkCopyState === "copied" ? "DEMO LINK COPIED" : linkCopyState === "failed" ? "COPY FAILED" : "COPY DEMO LINK"}
+            </button>
+            {linkCopyState !== "idle" && <span role={linkCopyState === "failed" ? "alert" : "status"}>
+              {linkCopyState === "failed" ? "Clipboard unavailable. Copy this page's address instead." : "Demo link copied."}
+            </span>}
+          </>
+        )}
 
         <article className="finding-block" aria-live="polite">
           <div className="capture-status">
