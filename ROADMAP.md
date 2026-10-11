@@ -390,6 +390,16 @@ Pivot rule: high completion with low comprehension means simplify the mapping an
 
 ## Gate 3 — Real public-page scanner
 
+The [startup investigation and intent guard](docs/PAIR_STARTUP_EXPERIMENT.md)
+rejects simultaneous consumer creates that violate journal dependencies and
+isolates a revised inspection/create overlap candidate after a failed native
+trial. Production ordering/deadlines are unchanged. Attempt bookkeeping now
+precedes durable intent calls; normal/optimized actual-journal controls cover
+commit-then-raise faults for every resource role and refuse unproven removal.
+The trial's missing volume proof remains journaled after exact recovery retained
+it. No latency improvement, final native crash proof or API publication pass is
+claimed; public scanning remains gated.
+
 The [bounded parallel cleanup checkpoint](docs/PAIR_PARALLEL_CLEANUP.md)
 overlaps three exact-owned container proofs while keeping journal updates
 serialized and joining all submitted work before volume handling. Six final

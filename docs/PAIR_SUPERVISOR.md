@@ -13,6 +13,11 @@ public scanning remains disabled.
 as a trusted worker-supervisor provider. This is a network-none reserved-origin
 checkpoint, not public API adoption or production approval.
 
+The [startup investigation](PAIR_STARTUP_EXPERIMENT.md) retains a failed overlap
+candidate only in the verifier. Production startup ordering is unchanged, while
+attempt bookkeeping now precedes durable intents so committed-then-raised writes
+cannot silently omit a resource from cleanup. Journal dependencies remain intact.
+
 ## Admission contract
 
 The operator selects an immutable image ID, exact reviewed seccomp JSON/hash,

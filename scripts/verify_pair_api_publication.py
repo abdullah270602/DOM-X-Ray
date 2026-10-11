@@ -10,6 +10,7 @@ import subprocess
 import sys
 from threading import Thread
 import time
+from types import MethodType
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -33,6 +34,7 @@ def main():
     parser.add_argument('--image', required=True)
     parser.add_argument('--trace', action='store_true')
     parser.add_argument('--recover-journal', type=Path)
+    parser.add_argument('--startup-pipeline-experiment', action='store_true')
     options = parser.parse_args()
     require(re.fullmatch(r'sha256:[0-9a-f]{64}', options.image),
         'explicit immutable image required')
@@ -67,6 +69,9 @@ def main():
             print('Exact journal recovery: ' + json.dumps(asdict(report)), flush=True)
             require(journal.snapshot() == [], 'exact journal recovery retained obligations')
             return
+        if options.startup_pipeline_experiment:
+            from scripts.verify_pair_startup_pipeline import candidate_prepare_consumers
+            pair._prepare_consumers = MethodType(candidate_prepare_consumers, pair)
         if options.trace:
             trace_supervisor(pair)
         executor = TransportScanExecutor(supported_targets=('https://xray.test/',),

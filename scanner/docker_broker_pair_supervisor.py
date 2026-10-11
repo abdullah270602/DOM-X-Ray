@@ -93,6 +93,19 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
     def _held_pipe(self, arguments, payload):
         return _PipeProcess([*self.prefix, *arguments], payload, CONTROL_BYTES, keep_stdin=True)
 
+    def _prepare_consumers(self, names, token, volume, deadline, attempted, identifiers, note):
+        """Serial write-ahead consumer setup, overlapping only initializer startup."""
+        for role in ('broker', 'worker'):
+            # An intent can commit and then raise; remember the role before
+            # writing so cleanup cannot silently omit that ambiguity.
+            attempted.add(role)
+            note('intent', role)
+            identifier = self._create_role(role, names[role], token, volume, deadline)
+            identifiers[role] = identifier
+            note('created', role, identifier)
+            self._preflight_role(self._inspect(identifier, deadline), role,
+                names[role], token, identifier, volume)
+
     def _cleanup(self, name, token, identifier, deadline):
         if identifier is None:
             return super()._cleanup(name, token, identifier, deadline)
@@ -214,22 +227,22 @@ class DockerBrokerPairSupervisor(DockerWorkerSupervisor):
             engine = json.loads(self._call(['info', '--format', '{{json .}}'], execution_deadline))
             _require(engine['OSType'] == 'linux' and engine['CgroupVersion'] == '2', 'docker-pair-engine')
             note('engine', engine.get('ID'))
-            note('intent', 'volume')
             volume_attempted = True
+            note('intent', 'volume')
             created = self._call(['volume', 'create', '--driver=local', '--label', f'{LABEL}={token}', volume], execution_deadline)
             _require(created == volume, 'docker-pair-volume-create')
             note('created', 'volume')
             self._volume_row(volume, token, execution_deadline)
             volume_known = True
-            for role in ('initialize', 'broker', 'worker'):
-                note('intent', role)
-                attempted.add(role)
-                identifier = self._create_role(role, names[role], token, volume, execution_deadline)
-                identifiers[role] = identifier
-                note('created', role, identifier)
-                self._preflight_role(self._inspect(identifier, execution_deadline), role, names[role], token, identifier, volume)
-                if role == 'initialize':
-                    pipes[role] = self._pipe(['start', '--attach', '--interactive', identifier], b'', CONTROL_BYTES)
+            attempted.add('initialize')
+            note('intent', 'initialize')
+            identifier = self._create_role('initialize', names['initialize'], token, volume, execution_deadline)
+            identifiers['initialize'] = identifier
+            note('created', 'initialize', identifier)
+            self._preflight_role(self._inspect(identifier, execution_deadline), 'initialize',
+                names['initialize'], token, identifier, volume)
+            pipes['initialize'] = self._pipe(['start', '--attach', '--interactive', identifier], b'', CONTROL_BYTES)
+            self._prepare_consumers(names, token, volume, execution_deadline, attempted, identifiers, note)
             # Creating stopped roles may overlap the initializer's attach/start
             # round trip. Neither consumer starts until initialization has a
             # positive zero-exit/PID-zero proof. All intents remain serialized.
