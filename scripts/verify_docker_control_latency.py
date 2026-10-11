@@ -94,18 +94,22 @@ def child(options):
     prefix = [str(docker), '--context', 'desktop-linux']
     deadline = time.monotonic() + 12  # Inside the existing owned outer 15s worker.
     durations, identities, failure, returncode = [], [], None, None
+    output_bytes = None
     modes = range(COUNT) if options.mode == 'cli' else range(1)
     for _ in modes:
         started = time.monotonic()
         pipe = None
         returncode = None
+        output_bytes = None
         try:
             require(time.monotonic() < deadline, 'diagnostic budget exhausted')
             command = [*prefix, 'info', '--format', '{{json .}}'] if options.mode == 'cli' else [*prefix, 'system', 'dial-stdio']
             pipe = _PipeProcess(command, None if options.mode == 'cli' else fixed_requests(),
-                BODY_LIMIT if options.mode == 'cli' else WIRE_LIMIT)
+                BODY_LIMIT if options.mode == 'cli' else WIRE_LIMIT,
+                keep_stdin=options.mode == 'dial' and getattr(options, 'keep_dial_input', False))
             code, output = pipe.finish(min(deadline, started + 10))
             returncode = code
+            output_bytes = len(output)
             if code != 0:
                 failure = 'client-nonzero'
             else:
@@ -123,6 +127,8 @@ def child(options):
             break  # Do not restart uncertain client/connection state.
     evidence = {'mode': options.mode, 'outcome': failure or 'ok', 'seconds': durations,
         'clientExitCode': returncode,
+        'lastOutputBytes': output_bytes,
+        'keptDialInput': options.mode == 'dial' and getattr(options, 'keep_dial_input', False),
         'responses': COUNT * len(identities) if options.mode == 'dial' else len(identities),
         'engineDigest': identities[0] if failure is None and len(set(identities)) == 1 else None}
     if failure is None and evidence['engineDigest'] is None:
@@ -136,6 +142,8 @@ def main():
     parser.add_argument('--mode', choices=('cli', 'dial'))
     parser.add_argument('--docker')
     parser.add_argument('--result')
+    parser.add_argument('--keep-dial-input', action='store_true',
+        help='Diagnostic only: keep stdin open until the final HTTP close reply exits the client')
     options = parser.parse_args()
     if options.mode:
         child(options)
@@ -151,7 +159,8 @@ def main():
         for mode in ('cli', 'dial'):
             path = Path(temporary) / (mode + '.json')
             run = run_worker_command([sys.executable, str(Path(__file__).resolve()),
-                '--mode', mode, '--docker', docker, '--result', str(path)],
+                '--mode', mode, '--docker', docker, '--result', str(path),
+                *(['--keep-dial-input'] if options.keep_dial_input else [])],
                 result_path=path, deadline_seconds=15, cwd=ROOT, environment=environment,
                 max_result_bytes=4096)
             require(run.artifact_eligible, 'owned diagnostic worker did not complete: ' + run.outcome)

@@ -395,6 +395,11 @@ measured five valid CLI info reads at a 1.081-second median. The single-connecti
 stdio experiment exited 0 but failed response validation, so no speedup or paired
 comparison pass is claimed. Final normal/optimized protocol and failure-accounting
 controls pass; production transport and deadlines remain unchanged.
+An explicit held-input diagnostic subsequently completed two same-engine
+five-reply comparisons at 0.622/0.623 seconds per connection; the interleaved
+close-input baseline still failed. This is evidence for further bounded transport
+work, not scanner success or production adoption. Held-input success/timeout
+contracts preserve cleanup, no-retry accounting and metadata redaction.
 
 The [startup investigation and intent guard](docs/PAIR_STARTUP_EXPERIMENT.md)
 rejects simultaneous consumer creates that violate journal dependencies and

@@ -46,8 +46,9 @@ def main():
     class FailedClient:
         starts = 0
         stops = 0
-        def __init__(self, *_):
+        def __init__(self, *_, **kwargs):
             FailedClient.starts += 1
+            self.kept = kwargs['keep_stdin']
         def finish(self, _):
             return 1, b'PRIVATE_ERROR_CANARY'
         def stop(self, _):
@@ -82,6 +83,34 @@ def main():
             and PartialClient.attempts == 2 and FailedClient.stops == 3
             and b'PRIVATE_ERROR_CANARY' not in encoded,
             'partial completion or failed-iteration exit accounting changed')
+        class HeldInputClient(FailedClient):
+            def finish(self, _):
+                require(self.kept, 'experimental input was not held open')
+                return 0, fixed
+        with patch('scanner.docker_worker_supervisor._PipeProcess', HeldInputClient), \
+                patch.dict(os.environ, {'DOM_X_RAY_WORKER_RESULT_NONCE': 'contract'}):
+            child(SimpleNamespace(docker=sys.executable, mode='dial', result=str(result),
+                keep_dial_input=True))
+        evidence = json.loads(result.read_bytes())['result']
+        require(evidence['outcome'] == 'ok' and evidence['responses'] == COUNT
+            and evidence['keptDialInput'] is True and evidence['lastOutputBytes'] == len(fixed)
+            and FailedClient.stops == 4,
+            'held-input result or stop accounting changed')
+        class HeldTimeoutClient(FailedClient):
+            def finish(self, _):
+                require(self.kept, 'timeout control did not hold input')
+                raise TimeoutError('PRIVATE_ERROR_CANARY')
+        with patch('scanner.docker_worker_supervisor._PipeProcess', HeldTimeoutClient), \
+                patch.dict(os.environ, {'DOM_X_RAY_WORKER_RESULT_NONCE': 'contract'}):
+            child(SimpleNamespace(docker=sys.executable, mode='dial', result=str(result),
+                keep_dial_input=True))
+        encoded = result.read_bytes()
+        evidence = json.loads(encoded)['result']
+        require(evidence['outcome'] == 'control-failed' and evidence['responses'] == 0
+            and evidence['lastOutputBytes'] is None and evidence['clientExitCode'] is None
+            and len(evidence['seconds']) == 1 and FailedClient.stops == 5
+            and b'PRIVATE_ERROR_CANARY' not in encoded,
+            'held-input timeout cleanup, no-retry or redaction changed')
     print('Read-only diagnostic controls pass: fixed/chunked replies, caps, exact count/identity, '
           'ambiguous/incomplete/malformed refusal and fixed GET-only requests. No native proof.')
 
