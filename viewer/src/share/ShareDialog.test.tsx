@@ -227,9 +227,13 @@ describe("ShareDialog hosted poster", () => {
       }
       return Promise.reject(new Error("unexpected route"));
     });
-    vi.mocked(URL.createObjectURL)
-      .mockReturnValueOnce("blob:verified-poster")
-      .mockReturnValueOnce("blob:verified-video");
+    // Poster/video verification races legitimately; identity is not call order.
+    vi.mocked(URL.createObjectURL).mockImplementation((blob) => {
+      const type = (blob as Blob).type;
+      if (type === "image/png") return "blob:verified-poster";
+      if (type === "video/mp4") return "blob:verified-video";
+      throw new Error("unexpected verified media type");
+    });
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     const canvasContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext");
     const user = userEvent.setup();
