@@ -390,6 +390,12 @@ Pivot rule: high completion with low comprehension means simplify the mapping an
 
 ## Gate 3 — Real public-page scanner
 
+The [read-only Docker control diagnostic](docs/DOCKER_CONTROL_LATENCY.md)
+measured five valid CLI info reads at a 1.081-second median. The single-connection
+stdio experiment exited 0 but failed response validation, so no speedup or paired
+comparison pass is claimed. Final normal/optimized protocol and failure-accounting
+controls pass; production transport and deadlines remain unchanged.
+
 The [startup investigation and intent guard](docs/PAIR_STARTUP_EXPERIMENT.md)
 rejects simultaneous consumer creates that violate journal dependencies and
 isolates a revised inspection/create overlap candidate after a failed native
