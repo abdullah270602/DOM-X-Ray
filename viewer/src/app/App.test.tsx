@@ -70,6 +70,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("published result ownership", () => {
@@ -83,10 +84,21 @@ describe("published result ownership", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button", { name: "START X-RAY" })).toBeNull();
     expect(screen.queryByRole("button", { name: "SHARE RESULT" })).toBeNull();
-    await user.selectOptions(screen.getByLabelText("EXPLORE AN EXAMPLE"), "clean");
+    await user.selectOptions(screen.getByLabelText("EXAMPLE"), "clean");
     await user.click(screen.getByRole("button", { name: "PLAY THE REVEAL" }));
     expect(window.location.search).toContain("fixture=clean");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("copies an example link with the deployment base, not an unavailable result route", async () => {
+    vi.stubEnv("BASE_URL", "/DOM-X-Ray/");
+    const user = userEvent.setup();
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    render(<App publicDemo />);
+    await user.selectOptions(screen.getByLabelText("EXAMPLE"), "clean");
+    await user.click(screen.getByRole("button", { name: "COPY DEMO LINK" }));
+    expect(copy).toHaveBeenCalledWith(`${window.location.origin}/DOM-X-Ray/?fixture=clean`);
+    expect(window.location.pathname).toBe("/DOM-X-Ray/");
+    expect(screen.getByRole("button", { name: "DEMO LINK COPIED" })).toBeTruthy();
   });
   it.each(["https://example.com/?", "https://example.com/#"])("rejects empty target delimiters before submission: %s", async (target) => {
     const fetchMock = vi.fn();

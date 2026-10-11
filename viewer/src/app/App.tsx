@@ -524,7 +524,7 @@ export function App({ publicDemo = import.meta.env.VITE_PUBLIC_DEMO === "true" }
         </form>}
 
         <div className="fixture-switcher">
-          <label htmlFor="fixture">{publicDemo ? "EXPLORE AN EXAMPLE" : "SEEDED CAPTURE"}</label>
+          <label htmlFor="fixture">{publicDemo ? "EXAMPLE" : "SEEDED CAPTURE"}</label>
           <select
             id="fixture"
             value={fixtureName ?? ""}

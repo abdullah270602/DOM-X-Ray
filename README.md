@@ -10,6 +10,10 @@ The first release is deliberately not a full developer dashboard, a Lighthouse r
 
 ## Current status
 
+Try the [public interactive preview](https://abdullah270602.github.io/DOM-X-Ray/).
+It explores three prepared captures and needs no login or local server.
+It does **not** scan new URLs or publish fresh scan results.
+
 **Not yet a usable public release.** The local interactive viewer and seeded
 result flow exist; arbitrary public scanning is disabled and deployment is
 unfinished. See [the concise product status and execution focus](docs/PRODUCT_STATUS.md)

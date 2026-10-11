@@ -6,6 +6,18 @@ Infrastructure checkpoints are not equivalent to a usable release.
 
 ## What can be tried now
 
+The [public interactive preview](https://abdullah270602.github.io/DOM-X-Ray/)
+is deployed on GitHub Pages. Deployment run
+[38147592859](https://github.com/abdullah270602/DOM-X-Ray/actions/runs/38147592859)
+passed build, all 74 viewer tests at that checkpoint, and deployment. The actual
+public page was opened and rendered in the app; Weight mode changed the live
+scene. Mobile CSS width/scroll width were both 365 pixels (no horizontal overflow).
+The static build removes URL submission and result-fetching, clearly discloses
+prepared examples and unavailable live scanning, and copies example links rather
+than fabricated immutable result links. It publishes only static viewer assets.
+No scanner backend, credentials, local results or recovery journals are uploaded.
+This is an intermediate public preview, not completion of the scanning goal.
+
 The local React/Three.js viewer provides three measured, prepared captures,
 Structure/Weight/Origins modes, an authored reveal, replay, timeline scrubbing,
 object selection and evidence. Fixture routes work without the scanner API.
